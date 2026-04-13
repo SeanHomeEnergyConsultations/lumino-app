@@ -11,9 +11,23 @@ from datetime import datetime
 from pathlib import Path
 
 # ─── API Key & Credentials ────────────────────────────────────────────────────
-GOOGLE_API_KEY = "AIzaSyBOcNdCelTyfKkFOHvE8aeFNmURnLEG6X4"
-SPREADSHEET_ID = "1qpx34ySHm5XPYpkNQxVx33KWS_971K2X1aBwmKerGGs"
-service_account_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+SPREADSHEET_ID = "1qpx34ySHm5XPYpkNQxVx33KWS_971K2X1aBwmKerGGs")
+
+raw_service_account = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", ""
+service_account_info = None
+
+if raw_service_account:
+    try:
+        service_account_info = json.loads(raw_service_account)
+    except json.JSONDecodeError as e:
+        st.error(f"GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON: {e}")
+        st.stop()
+
+if not GOOGLE_API_KEY:
+    st.error("Missing GOOGLE_API_KEY in Railway variables.")
+    st.stop()
+
 
 # ─── Priority config ──────────────────────────────────────────────────────────
 PRIORITY = {
@@ -27,10 +41,15 @@ PRIORITY = {
 # ─── Google Sheets ────────────────────────────────────────────────────────────
 def get_sheets_service():
     try:
+        if not service_account_info:
+            st.warning("Missing GOOGLE_SERVICE_ACCOUNT_JSON in Railway variables.")
+            return None
+
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
-        creds = service_account.Credentials.from_service_account_file(
-            str(SERVICE_ACCOUNT_FILE),
+
+        creds = service_account.Credentials.from_service_account_info(
+            service_account_info,
             scopes=["https://www.googleapis.com/auth/spreadsheets"]
         )
         return build("sheets", "v4", credentials=creds)
