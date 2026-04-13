@@ -48,13 +48,19 @@ HEADERS = [
     "Zip","Latitude","Longitude","Source",
     "First Analyzed","Last Updated","Knocked","Lead Status","Notes"
 ]
+# Column indices (0-based)
+# A=0 Address  B=1 Priority  C=2 Sale Price  D=3 Sq Ft  E=4 Beds  F=5 Baths
+# G=6 Sun Hours  H=7 Solar Category  I=8 Sold Date  J=9 Doors in Cluster
+# K=10 Zip  L=11 Latitude  M=12 Longitude  N=13 Source
+# O=14 First Analyzed  P=15 Last Updated  Q=16 Knocked  R=17 Lead Status  S=18 Notes
 COL_LAT            = 11   # L
 COL_LNG            = 12   # M
+COL_SOURCE         = 13   # N
 COL_FIRST_ANALYZED = 14   # O
 COL_LAST_UPDATED   = 15   # P
-COL_KNOCKED        = 16   # Q
-COL_LEAD_STATUS    = 17   # R
-COL_NOTES          = 18   # S
+COL_KNOCKED        = 16   # Q  — static after first insert
+COL_LEAD_STATUS    = 17   # R  — static always
+COL_NOTES          = 18   # S  — static always
 
 # ─── Google Sheets helpers ────────────────────────────────────────────────────
 def get_sheets_service():
@@ -116,10 +122,11 @@ def get_existing_rows(service, tab_name):
                 if lat and lng:
                     existing[(lat, lng)] = {
                         'row_index':      i,
-                        'knocked':        row[COL_KNOCKED]     if len(row) > COL_KNOCKED     else 'No',
+                        'first_analyzed': row[COL_FIRST_ANALYZED] if len(row) > COL_FIRST_ANALYZED else '',
+                        # Static columns — read and preserve, never overwrite
+                        'knocked':        row[COL_KNOCKED]     if len(row) > COL_KNOCKED     else '0',
                         'lead_status':    row[COL_LEAD_STATUS] if len(row) > COL_LEAD_STATUS else '',
                         'notes':          row[COL_NOTES]       if len(row) > COL_NOTES       else '',
-                        'first_analyzed': row[COL_FIRST_ANALYZED] if len(row) > COL_FIRST_ANALYZED else ''
                     }
             except:
                 continue
@@ -128,7 +135,7 @@ def get_existing_rows(service, tab_name):
         return {}
 
 
-def build_row(r, source, first_analyzed, last_updated, knocked='No', lead_status='', notes=''):
+def build_row(r, source, first_analyzed, last_updated, knocked='0', lead_status='', notes=''):
     return [
         r['address'],
         PRIORITY[r['priority_score']]['label'],
@@ -192,11 +199,11 @@ def sync_results_to_sheet(service, all_results):
                 prev = existing[key]
                 to_update.append((prev['row_index'], build_row(
                     r, r.get('source', ''),
-                    first_analyzed=prev['first_analyzed'] or today,
-                    last_updated=today,
-                    knocked=prev['knocked'],
-                    lead_status=prev['lead_status'],
-                    notes=prev['notes']
+                    first_analyzed = prev['first_analyzed'] or today,
+                    last_updated   = today,
+                    knocked        = prev['knocked'],      # static — never change
+                    lead_status    = prev['lead_status'],  # static — never change
+                    notes          = prev['notes']         # static — never change
                 )))
             else:
                 to_append.append(build_row(r, r.get('source',''), today, today))
@@ -271,9 +278,12 @@ p, li       { color: #8A95AA !important; }
 }
 
 /* Buttons — gold with dark text */
-.stButton > button, .stDownloadButton > button {
+.stButton > button, .stDownloadButton > button,
+.stButton > button *, .stDownloadButton > button *,
+.stButton > button p, .stDownloadButton > button p,
+.stButton > button span, .stDownloadButton > button span {
     background: linear-gradient(135deg, #D4AF50, #A07830) !important;
-    color: #0A0810 !important;
+    color: #080608 !important;
     border: none !important;
     border-radius: 6px !important;
     font-weight: 700 !important;
