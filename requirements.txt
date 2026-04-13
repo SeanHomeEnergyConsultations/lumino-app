@@ -1,0 +1,15 @@
+streamlit==1.50.0
+pandas==2.3.3
+numpy==2.0.2
+requests==2.32.5
+googlemaps==4.10.0
+python-dateutil==2.9.0.post0
+pytz==2026.1.post1
+pydeck==0.9.1
+altair==5.5.0
+Jinja2==3.1.6
+protobuf
+google-auth
+google-auth-httplib2
+google-api-python-client
+googleapis-common-protos
