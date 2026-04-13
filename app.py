@@ -6,13 +6,14 @@ import time
 import urllib.parse
 import re
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
 # ─── API Key & Credentials ────────────────────────────────────────────────────
 GOOGLE_API_KEY = "AIzaSyBOcNdCelTyfKkFOHvE8aeFNmURnLEG6X4"
 SPREADSHEET_ID = "1qpx34ySHm5XPYpkNQxVx33KWS_971K2X1aBwmKerGGs"
-SERVICE_ACCOUNT_FILE = Path(__file__).parent / "do-it-right-solar-9371f414cff6.json"
+service_account_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
 
 # ─── Priority config ──────────────────────────────────────────────────────────
 PRIORITY = {
