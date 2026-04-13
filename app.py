@@ -278,13 +278,11 @@ p, li       { color: #8A95AA !important; }
 }
 
 /* Buttons — gold with dark text */
-.stButton > button, .stDownloadButton > button,
-.stButton > button *, .stDownloadButton > button *,
-.stButton > button p, .stDownloadButton > button p,
-.stButton > button span, .stDownloadButton > button span {
+.stButton > button, .stDownloadButton > button {
     background: linear-gradient(135deg, #D4AF50, #A07830) !important;
     color: #080608 !important;
     border: none !important;
+    outline: none !important;
     border-radius: 6px !important;
     font-weight: 700 !important;
     letter-spacing: 0.8px !important;
@@ -295,6 +293,14 @@ p, li       { color: #8A95AA !important; }
     background: linear-gradient(135deg, #E8C860, #C9A84C) !important;
     box-shadow: 0 6px 16px rgba(201,168,76,0.4), 0 2px 4px rgba(0,0,0,0.4) !important;
     transform: translateY(-1px) !important;
+}
+.stButton > button p, .stDownloadButton > button p,
+.stButton > button span, .stDownloadButton > button span {
+    color: #080608 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
 }
 
 /* File uploader */
@@ -390,13 +396,13 @@ st.markdown("""
     <div style="display:flex;align-items:baseline;gap:14px;">
         <span style="font-size:2.4rem;font-weight:900;color:#C9A84C;letter-spacing:-1px;
                      text-shadow:0 0 30px rgba(201,168,76,0.4);">SolarIQ</span>
-        <span style="font-size:.85rem;color:#3A4A60;font-weight:400;letter-spacing:3px;text-transform:uppercase;">
+        <span style="font-size:.85rem;color:#4A5A70;font-weight:400;letter-spacing:3px;text-transform:uppercase;">
             Intelligent Solar Prospecting
         </span>
     </div>
-    <div style="height:2px;background:linear-gradient(90deg,#C9A84C,rgba(201,168,76,0.2),transparent);
-                margin-top:10px;border-radius:2px;width:320px;
-                box-shadow:0 0 8px rgba(201,168,76,0.3);"></div>
+    <div style="height:2px;background:linear-gradient(90deg,#C9A84C,rgba(201,168,76,0.3),transparent);
+                margin-top:10px;border-radius:2px;width:600px;
+                box-shadow:0 0 10px rgba(201,168,76,0.3);"></div>
 </div>
 """, unsafe_allow_html=True)
 
