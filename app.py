@@ -10,6 +10,7 @@ import streamlit as st
 from engine.constants import PRIORITY
 from engine.processing import process_address
 from engine.reporting import build_route_csv, build_zip_summary, generate_html_report
+from engine.routing import optimize_route
 from engine.sheets import get_sheets_service, sync_results_to_sheet
 
 # ─── API Key & Credentials ────────────────────────────────────────────────────
@@ -315,9 +316,42 @@ if "all_results" in st.session_state:
             f"**{len(selected)} stops** selected — "
             f"**{sum(result['doors_to_knock'] for result in selected)} total doors**"
         )
+        route_candidates = [
+            {
+                "address": result["parking_address"],
+                "latitude": result["lat"],
+                "longitude": result["lng"],
+                "priority": result["priority_score"],
+                "source_result": result,
+            }
+            for result in selected
+            if result.get("lat") is not None and result.get("lng") is not None
+        ]
+        ungeocoded_results = [
+            result for result in selected if result.get("lat") is None or result.get("lng") is None
+        ]
+        optimized_stops = optimize_route(route_candidates)
+        optimized_results = [stop["source_result"] for stop in optimized_stops] + ungeocoded_results
+
+        if optimized_results:
+            st.markdown("**Optimized Route Order**")
+            route_preview = pd.DataFrame(
+                [
+                    {
+                        "Stop": idx + 1,
+                        "Park At": stop["address"],
+                        "Priority": PRIORITY[stop["priority"]]["label"],
+                        "Knock Doors": stop["source_result"]["doors_to_knock"],
+                        "Zip": stop["source_result"]["zipcode"],
+                    }
+                    for idx, stop in enumerate(optimized_stops)
+                ]
+            )
+            st.dataframe(route_preview, use_container_width=True, hide_index=True)
+
         st.download_button(
-            label="Export Route to CSV",
-            data=build_route_csv(selected),
+            label="Export Optimized Route to CSV",
+            data=build_route_csv(optimized_results if optimized_results else selected),
             file_name=f"solariq_route_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv",
             use_container_width=True,
