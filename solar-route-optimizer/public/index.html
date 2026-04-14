@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Do It Right Solar — Smart Route</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f4f8; color: #1a202c; }
+
+/* ── UPLOAD SCREEN ── */
+#upload-screen { min-height: 100vh; display: flex; flex-direction: column; }
+#upload-screen header { background: linear-gradient(135deg, #f6ad00, #e8890c); color: white; padding: 22px 20px; text-align: center; }
+#upload-screen header h1 { font-size: 1.5rem; font-weight: 700; }
+#upload-screen header p { font-size: 0.85rem; opacity: 0.88; margin-top: 4px; }
+.upload-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 20px; }
+.upload-card { background: white; border-radius: 18px; padding: 32px 28px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); max-width: 460px; width: 100%; text-align: center; }
+.upload-card h2 { font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; color: #1a202c; }
+.upload-card p { font-size: 0.85rem; color: #666; margin-bottom: 24px; line-height: 1.5; }
+.drop-zone { border: 2.5px dashed #f6ad00; border-radius: 14px; padding: 36px 20px; cursor: pointer; transition: background 0.2s; position: relative; margin-bottom: 16px; }
+.drop-zone:hover, .drop-zone.dragover { background: #fffbeb; }
+.drop-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.drop-zone .dz-icon { font-size: 2.5rem; margin-bottom: 10px; }
+.drop-zone .dz-text { font-size: 0.88rem; color: #888; }
+.drop-zone .dz-text strong { color: #f6ad00; }
+.upload-btn { background: linear-gradient(135deg, #f6ad00, #e8890c); color: white; border: none; border-radius: 12px; padding: 13px 28px; font-size: 0.95rem; font-weight: 700; cursor: pointer; width: 100%; margin-top: 4px; }
+.upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.upload-status { margin-top: 14px; font-size: 0.82rem; color: #666; min-height: 20px; }
+.upload-error { color: #e53e3e; font-weight: 600; }
+.file-info { background: #f8f9fa; border-radius: 10px; padding: 10px 14px; margin-top: 12px; font-size: 0.82rem; color: #555; text-align: left; display: none; }
+.demo-link { margin-top: 20px; font-size: 0.78rem; color: #aaa; }
+.demo-link button { background: none; border: none; color: #f6ad00; cursor: pointer; font-size: 0.78rem; text-decoration: underline; }
+
+/* ── ROUTE SCREEN ── */
+#route-screen { display: none; }
+header { background: linear-gradient(135deg, #f6ad00, #e8890c); color: white; padding: 14px 20px; }
+header h1 { font-size: 1.2rem; font-weight: 700; }
+header p { font-size: 0.78rem; opacity: 0.85; margin-top: 2px; }
+header .back-btn { background: rgba(255,255,255,0.25); border: none; color: white; border-radius: 8px; padding: 5px 12px; font-size: 0.78rem; cursor: pointer; float: right; margin-top: -2px; font-weight: 600; }
+
+#status { background: white; margin: 14px; border-radius: 12px; padding: 18px; text-align: center; color: #666; font-size: 0.88rem; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2.5px solid #f6ad00; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 7px; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#summary { display:none; background: white; margin: 0 14px 14px; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.sum-grid { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.sum-item { text-align: center; min-width: 60px; }
+.sum-item .sv { font-size: 1.3rem; font-weight: 700; color: #f6ad00; }
+.sum-item .sl { font-size: 0.68rem; color: #999; text-transform: uppercase; letter-spacing: 0.04em; }
+
+#map { display:none; height: 300px; margin: 0 14px 14px; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+#nav-btns { display:none; margin: 0 14px 14px; }
+.nav-btn { display: block; background: #4285f4; color: white; text-align: center; padding: 13px; border-radius: 12px; text-decoration: none; font-weight: 600; font-size: 0.95rem; margin-bottom: 8px; }
+#stop-list { margin: 0 14px 32px; }
+
+/* ── STOP CARDS ── */
+.stop-card { background: white; border-radius: 14px; padding: 0; margin-bottom: 12px; box-shadow: 0 1px 5px rgba(0,0,0,0.09); overflow: hidden; }
+.card-header { display: flex; gap: 12px; align-items: flex-start; padding: 14px 14px 10px; }
+.stop-num { background: #f6ad00; color: white; font-weight: 700; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.82rem; margin-top: 2px; }
+.stop-num.origin { background: #38a169; font-size: 0.9rem; }
+.card-main { flex: 1; }
+.stop-addr { font-weight: 600; font-size: 0.92rem; line-height: 1.3; }
+.stop-contact { font-size: 0.78rem; color: #666; margin-top: 5px; line-height: 1.8; }
+.stop-contact a { color: #4285f4; text-decoration: none; }
+
+.card-actions { display: flex; gap: 8px; padding: 0 14px 12px; flex-wrap: wrap; }
+.act-btn { border: none; border-radius: 8px; padding: 7px 12px; font-size: 0.78rem; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+.btn-call { background: #e8f5e9; color: #2e7d32; }
+.btn-streetview { background: #e3f2fd; color: #1565c0; }
+.btn-maps { background: #fff8e1; color: #e65100; }
+
+.prop-section { border-top: 1px solid #f0f0f0; padding: 10px 14px; }
+.prop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 7px; margin-top: 7px; }
+.prop-stat { background: #f8f9fa; border-radius: 8px; padding: 7px 9px; }
+.prop-stat .ps-val { font-size: 0.92rem; font-weight: 700; color: #1a202c; }
+.prop-stat .ps-lbl { font-size: 0.67rem; color: #888; margin-top: 1px; text-transform: uppercase; letter-spacing: 0.03em; }
+.solar-section { border-top: 1px solid #f0f0f0; padding: 10px 14px; }
+.solar-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 0.82rem; font-weight: 700; padding: 4px 10px; border-radius: 20px; margin-bottom: 8px; }
+.badge-great { background: #d1fae5; color: #065f46; }
+.badge-good { background: #fef9c3; color: #854d0e; }
+.badge-fair { background: #ffedd5; color: #9a3412; }
+.badge-poor { background: #fee2e2; color: #991b1b; }
+.solar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 7px; }
+.solar-stat { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 7px 9px; }
+.solar-stat .ss-val { font-size: 0.92rem; font-weight: 700; color: #92400e; }
+.solar-stat .ss-lbl { font-size: 0.67rem; color: #a16207; margin-top: 1px; text-transform: uppercase; letter-spacing: 0.03em; }
+.savings-callout { background: linear-gradient(135deg, #065f46, #047857); color: white; border-radius: 10px; padding: 10px 14px; margin-top: 8px; }
+.savings-callout .sc-main { font-size: 1.1rem; font-weight: 700; }
+.savings-callout .sc-sub { font-size: 0.75rem; opacity: 0.85; margin-top: 2px; }
+.data-loading { font-size: 0.75rem; color: #bbb; font-style: italic; padding: 8px 0 4px; }
+
+.visit-section { border-top: 1px solid #f0f0f0; padding: 10px 14px; }
+.visit-label { font-size: 0.75rem; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+.status-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.status-btn { border: 2px solid transparent; border-radius: 8px; padding: 6px 11px; font-size: 0.78rem; font-weight: 600; cursor: pointer; background: #f3f4f6; color: #374151; transition: all 0.15s; }
+.status-btn.active-interested { background: #d1fae5; border-color: #10b981; color: #065f46; }
+.status-btn.active-nothome { background: #fef9c3; border-color: #f59e0b; color: #854d0e; }
+.status-btn.active-notinterested { background: #fee2e2; border-color: #ef4444; color: #991b1b; }
+.status-btn.active-callback { background: #e0e7ff; border-color: #6366f1; color: #3730a3; }
+.notes-box { width: 100%; border: 1.5px solid #e5e7eb; border-radius: 8px; padding: 8px 10px; font-size: 0.82rem; font-family: inherit; resize: none; min-height: 56px; color: #374151; margin-bottom: 8px; }
+.notes-box:focus { outline: none; border-color: #f6ad00; }
+.notes-box.hidden { display: none; }
+.save-note-btn { background: #f6ad00; color: white; border: none; border-radius: 8px; padding: 7px 16px; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+.saved-note { font-size: 0.8rem; color: #555; background: #f9fafb; border-radius: 8px; padding: 8px 10px; border-left: 3px solid #f6ad00; margin-bottom: 6px; white-space: pre-wrap; }
+
+.followup-section { border-top: 1px solid #f0f0f0; padding: 10px 14px 14px; display: none; }
+.followup-section.visible { display: block; }
+.chat-btn { display: block; width: 100%; background: linear-gradient(135deg, #6366f1, #4f46e5); color: white; border: none; border-radius: 10px; padding: 11px 16px; font-size: 0.88rem; font-weight: 600; cursor: pointer; text-align: center; margin-bottom: 8px; }
+.draft-btn { display: block; width: 100%; background: #f0fdf4; color: #166534; border: 1.5px solid #86efac; border-radius: 10px; padding: 10px 16px; font-size: 0.85rem; font-weight: 600; cursor: pointer; text-align: center; }
+.ai-output { margin-top: 8px; background: #f8fafc; border-radius: 10px; padding: 12px; font-size: 0.82rem; color: #374151; white-space: pre-wrap; line-height: 1.55; border: 1px solid #e2e8f0; }
+
+/* ── SETTINGS MODAL ── */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-overlay.hidden { display: none; }
+.modal { background: white; border-radius: 18px; padding: 24px; max-width: 440px; width: 100%; box-shadow: 0 8px 40px rgba(0,0,0,0.2); }
+.modal h3 { font-size: 1rem; font-weight: 700; margin-bottom: 16px; }
+.modal label { display: block; font-size: 0.82rem; font-weight: 600; color: #555; margin-bottom: 4px; margin-top: 12px; }
+.modal input { width: 100%; border: 1.5px solid #e5e7eb; border-radius: 8px; padding: 9px 12px; font-size: 0.88rem; font-family: inherit; }
+.modal input:focus { outline: none; border-color: #f6ad00; }
+.modal-actions { display: flex; gap: 8px; margin-top: 20px; }
+.modal-save { flex: 1; background: #f6ad00; color: white; border: none; border-radius: 10px; padding: 11px; font-size: 0.9rem; font-weight: 700; cursor: pointer; }
+.modal-cancel { background: #f3f4f6; color: #374151; border: none; border-radius: 10px; padding: 11px 18px; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+.settings-btn { background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 8px; padding: 5px 10px; font-size: 0.75rem; cursor: pointer; font-weight: 600; margin-right: 6px; }
+</style>
+</head>
+<body>
+
+<!-- ── UPLOAD SCREEN ── -->
+<div id="upload-screen">
+  <header>
+    <h1>☀️ Do It Right Solar</h1>
+    <p>Smart Route Optimizer & Property Intelligence</p>
+  </header>
+  <div class="upload-body">
+    <div class="upload-card">
+      <h2>Upload Your Lead List</h2>
+      <p>Drop in your CSV or Excel file with addresses and we'll build an optimized route with solar potential, property data, and visit tracking.</p>
+      <div class="drop-zone" id="drop-zone">
+        <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.tsv">
+        <div class="dz-icon">📂</div>
+        <div class="dz-text">Drop your file here or <strong>click to browse</strong><br><small style="color:#bbb;margin-top:4px;display:block">CSV, Excel (.xlsx, .xls)</small></div>
+      </div>
+      <div class="file-info" id="file-info"></div>
+      <button class="upload-btn" id="upload-btn" disabled>Build My Route →</button>
+      <div class="upload-status" id="upload-status"></div>
+      <div class="demo-link">
+        <button onclick="loadDemo()">Try with sample data</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SETTINGS MODAL ── -->
+<div class="modal-overlay hidden" id="settings-modal">
+  <div class="modal">
+    <h3>⚙️ Settings</h3>
+    <label>Starting Address</label>
+    <input type="text" id="setting-origin" placeholder="89 South Oxford Rd, Millbury, MA 01527">
+    <label>Google Maps API Key</label>
+    <input type="text" id="setting-apikey" placeholder="AIzaSy...">
+    <label>Electric Rate ($/kWh)</label>
+    <input type="number" id="setting-rate" step="0.01" placeholder="0.31">
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeSettings()">Cancel</button>
+      <button class="modal-save" onclick="saveSettings()">Save & Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── ROUTE SCREEN ── -->
+<div id="route-screen">
+  <header>
+    <button class="back-btn" onclick="goBack()">← New Route</button>
+    <button class="settings-btn" onclick="openSettings()">⚙️</button>
+    <h1>☀️ Do It Right Solar</h1>
+    <p id="route-subtitle">Smart Route + Property Intelligence</p>
+  </header>
+
+  <div id="status"><span class="spinner"></span><span id="status-txt">Loading your route...</span></div>
+  <div id="summary"></div>
+  <div id="map"></div>
+  <div id="nav-btns"></div>
+  <div id="stop-list"></div>
+</div>
+
+<script>
+// ── CONFIG (overridden by Settings) ──
+let CONFIG = {
+  API_KEY: localStorage.getItem('dir_api_key') || 'AIzaSyBOcNdCelTyfKkFOHvE8aeFNmURnLEG6X4',
+  ORIGIN: localStorage.getItem('dir_origin') || '89 South Oxford Rd, Millbury, MA 01527',
+  RATE: parseFloat(localStorage.getItem('dir_rate') || '0.31'),
+};
+
+let ORIGIN_COORDS = null;
+const geocodeCache = {};
+const visitState = {};
+let optimizedRoute = [];
+let currentStops = [];
+
+// ── SETTINGS ──
+function openSettings() {
+  document.getElementById('setting-origin').value = CONFIG.ORIGIN;
+  document.getElementById('setting-apikey').value = CONFIG.API_KEY;
+  document.getElementById('setting-rate').value = CONFIG.RATE;
+  document.getElementById('settings-modal').classList.remove('hidden');
+}
+function closeSettings() { document.getElementById('settings-modal').classList.add('hidden'); }
+function saveSettings() {
+  CONFIG.ORIGIN = document.getElementById('setting-origin').value.trim() || CONFIG.ORIGIN;
+  CONFIG.API_KEY = document.getElementById('setting-apikey').value.trim() || CONFIG.API_KEY;
+  CONFIG.RATE = parseFloat(document.getElementById('setting-rate').value) || CONFIG.RATE;
+  localStorage.setItem('dir_origin', CONFIG.ORIGIN);
+  localStorage.setItem('dir_api_key', CONFIG.API_KEY);
+  localStorage.setItem('dir_rate', CONFIG.RATE);
+  closeSettings();
+}
+
+// ── UPLOAD SCREEN ──
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const uploadBtn = document.getElementById('upload-btn');
+const fileInfo = document.getElementById('file-info');
+const uploadStatus = document.getElementById('upload-status');
+
+let selectedFile = null;
+
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+
+function setFile(f) {
+  selectedFile = f;
+  fileInfo.style.display = 'block';
+  fileInfo.textContent = `📄 ${f.name} (${(f.size/1024).toFixed(1)} KB)`;
+  uploadBtn.disabled = false;
+  uploadStatus.textContent = '';
+}
+
+uploadBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+  uploadBtn.disabled = true;
+  uploadStatus.textContent = '⏳ Parsing file...';
+
+  const fd = new FormData();
+  fd.append('file', selectedFile);
+
+  try {
+    const res = await fetch('/api/parse', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Parse failed');
+    uploadStatus.textContent = `✅ Found ${data.count} addresses — building route...`;
+    startRoute(data.stops);
+  } catch (err) {
+    uploadStatus.innerHTML = `<span class="upload-error">❌ ${err.message}</span>`;
+    uploadBtn.disabled = false;
+  }
+});
+
+function goBack() {
+  document.getElementById('route-screen').style.display = 'none';
+  document.getElementById('upload-screen').style.display = 'flex';
+  uploadStatus.textContent = '';
+  uploadBtn.disabled = false;
+}
+
+// ── DEMO DATA ──
+function loadDemo() {
+  const demo = [
+    { address: '100 Main St, Worcester, MA 01608', name: 'John Smith', phone: '508-555-1234' },
+    { address: '55 Park Ave, Shrewsbury, MA 01545', name: 'Sarah Johnson', phone: '508-555-5678' },
+    { address: '200 Grafton St, Northborough, MA 01532', name: 'Mike Davis' },
+    { address: '12 Elm St, Westborough, MA 01581', name: 'Lisa Chen', phone: '508-555-9012' },
+    { address: '78 Lake Ave, Worcester, MA 01604', name: 'Tom Wilson' },
+  ];
+  startRoute(demo);
+}
+
+// ── START ROUTE ──
+function startRoute(stops) {
+  currentStops = stops;
+  document.getElementById('upload-screen').style.display = 'none';
+  document.getElementById('route-screen').style.display = 'block';
+  document.getElementById('status').style.display = 'block';
+  document.getElementById('summary').style.display = 'none';
+  document.getElementById('map').style.display = 'none';
+  document.getElementById('nav-btns').style.display = 'none';
+  document.getElementById('stop-list').innerHTML = '';
+  optimizedRoute = [];
+  ORIGIN_COORDS = null;
+  Object.keys(visitState).forEach(k => delete visitState[k]);
+  main(stops);
+}
+
+// ── HAVERSINE ──
+function hav(a, b) {
+  const R=3958.8, r=Math.PI/180;
+  const dLat=(b.lat-a.lat)*r, dLng=(b.lng-a.lng)*r;
+  const x=Math.sin(dLat/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+}
+
+// ── NEAREST NEIGHBOR ──
+function optimize(origin, stops) {
+  let unvisited=[...stops], route=[], cur=origin;
+  while(unvisited.length) {
+    let n=unvisited.reduce((b,s)=>hav(cur,s.coords)<hav(cur,b.coords)?s:b);
+    route.push(n); cur=n.coords; unvisited=unvisited.filter(s=>s!==n);
+  }
+  return route;
+}
+
+// ── GEOCODE ──
+async function geocode(addr) {
+  if(geocodeCache[addr]) return geocodeCache[addr];
+  const r=await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&key=${CONFIG.API_KEY}&region=us&components=country:US`);
+  const d=await r.json();
+  if(d.status==="OK"){
+    const l=d.results[0].geometry.location;
+    const res={lat:l.lat,lng:l.lng,formatted:d.results[0].formatted_address};
+    geocodeCache[addr]=res; return res;
+  }
+  return null;
+}
+
+// ── SOLAR API ──
+async function getSolar(lat, lng) {
+  try {
+    const r=await fetch(`https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${lat.toFixed(6)}&location.longitude=${lng.toFixed(6)}&requiredQuality=LOW&key=${CONFIG.API_KEY}`);
+    const d=await r.json();
+    if(d.solarPotential){
+      const sp=d.solarPotential;
+      const sunHrs=Math.round(sp.maxSunshineHoursPerYear||0);
+      const roofSqFt=Math.round((sp.maxArrayAreaMeters2||0)*10.764);
+      const maxPanels=sp.maxArrayPanelsCount||0;
+      const sysKw=((maxPanels*(sp.panelCapacityWatts||400))/1000).toFixed(1);
+      const annualKwh=Math.round(parseFloat(sysKw)*sunHrs*0.8);
+      const annualSavings=Math.round(annualKwh*CONFIG.RATE);
+      const monthlySavings=Math.round(annualSavings/12);
+      let badge, badgeClass;
+      if(sunHrs>=1600){badge="🔥 Excellent Roof";badgeClass="badge-great";}
+      else if(sunHrs>=1300){badge="✅ Good Candidate";badgeClass="badge-good";}
+      else if(sunHrs>=900){badge="⚠️ Fair Candidate";badgeClass="badge-fair";}
+      else{badge="❌ Poor Candidate";badgeClass="badge-poor";}
+      return {sunHrs,roofSqFt,maxPanels,sysKw,annualKwh,annualSavings,monthlySavings,badge,badgeClass};
+    }
+  } catch(e){}
+  return null;
+}
+
+// ── PROPERTY DATA via Anthropic API ──
+async function getPropertyData(address) {
+  try {
+    const prompt = `Look up Massachusetts public assessor data for this address: "${address}". Return ONLY a JSON object with these fields (use null for unknown): {"owner_name": string, "year_built": number, "sq_footage": number, "assessed_value": number, "bedrooms": number, "lot_size_acres": number}. No explanation, just JSON.`;
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 300,
+        tools: [{type: "web_search_20250305", name: "web_search"}],
+        messages: [{role:"user", content: prompt}]
+      })
+    });
+    const d = await r.json();
+    const textBlock = d.content && d.content.find(b => b.type === "text");
+    if (textBlock) {
+      const clean = textBlock.text.replace(/```json|```/g,"").trim();
+      const start = clean.indexOf("{"), end = clean.lastIndexOf("}");
+      if(start>=0 && end>=0) return JSON.parse(clean.slice(start, end+1));
+    }
+  } catch(e) {}
+  return null;
+}
+
+// ── ROUTES API ──
+async function getRouteSummary(waypoints) {
+  try {
+    const body={
+      origin:{location:{latLng:{latitude:ORIGIN_COORDS.lat,longitude:ORIGIN_COORDS.lng}}},
+      destination:{location:{latLng:{latitude:ORIGIN_COORDS.lat,longitude:ORIGIN_COORDS.lng}}},
+      intermediates:waypoints.map(s=>({location:{latLng:{latitude:s.coords.lat,longitude:s.coords.lng}}})),
+      travelMode:"DRIVE", routingPreference:"TRAFFIC_AWARE", optimizeWaypointOrder:false
+    };
+    const r=await fetch("https://routes.googleapis.com/directions/v2:computeRoutes",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-Goog-Api-Key":CONFIG.API_KEY,"X-Goog-FieldMask":"routes.duration,routes.distanceMeters"},
+      body:JSON.stringify(body)
+    });
+    const d=await r.json();
+    if(d.routes?.[0]){
+      const secs=parseInt(d.routes[0].duration);
+      const miles=(d.routes[0].distanceMeters*0.000621371).toFixed(1);
+      const h=Math.floor(secs/3600),m=Math.floor((secs%3600)/60);
+      return {time:h>0?`${h}h ${m}m`:`${m} min`,miles};
+    }
+  } catch(e){}
+  return null;
+}
+
+// ── MAPS URL ──
+function mapsUrl(optimized) {
+  const enc=a=>encodeURIComponent(a);
+  const addrs=optimized.map(s=>s.formatted||s.address);
+  const MAX=9;
+  if(addrs.length<=MAX) return [{label:"📱 Open Full Route in Google Maps →",url:`https://www.google.com/maps/dir/${[CONFIG.ORIGIN,...addrs,CONFIG.ORIGIN].map(enc).join("/")}`}];
+  return Array.from({length:Math.ceil(addrs.length/MAX)},(_,i)=>{
+    const chunk=addrs.slice(i*MAX,(i+1)*MAX);
+    const start=i===0?CONFIG.ORIGIN:addrs[i*MAX-1];
+    const end=(i+1)*MAX>=addrs.length?CONFIG.ORIGIN:addrs[(i+1)*MAX-1];
+    return {label:`📱 Leg ${i+1} →`,url:`https://www.google.com/maps/dir/${[start,...chunk,end].map(enc).join("/")}`};
+  });
+}
+
+// ── RENDER MAP ──
+function renderMap(optimized) {
+  const el=document.getElementById("map");
+  el.style.display="block";
+  const s=document.createElement("script");
+  s.src=`https://maps.googleapis.com/maps/api/js?key=${CONFIG.API_KEY}&callback=initMap`;
+  s.async=true;
+  window.initMap = () => {
+    const bounds=new google.maps.LatLngBounds();
+    const map=new google.maps.Map(el,{zoom:11,center:ORIGIN_COORDS,mapTypeControl:false,fullscreenControl:false});
+    const path=[ORIGIN_COORDS,...optimized.map(s=>s.coords),ORIGIN_COORDS];
+    new google.maps.Polyline({path,map,strokeColor:"#f6ad00",strokeOpacity:0.7,strokeWeight:3});
+    path.forEach(p=>bounds.extend(p));
+    map.fitBounds(bounds);
+    new google.maps.Marker({position:ORIGIN_COORDS,map,title:"Start/End",icon:{path:google.maps.SymbolPath.CIRCLE,scale:11,fillColor:"#38a169",fillOpacity:1,strokeColor:"white",strokeWeight:2}});
+    optimized.forEach((s,i)=>new google.maps.Marker({position:s.coords,map,title:s.formatted||s.address,
+      label:{text:String(i+1),color:"white",fontWeight:"bold",fontSize:"11px"},
+      icon:{path:google.maps.SymbolPath.CIRCLE,scale:13,fillColor:"#f6ad00",fillOpacity:1,strokeColor:"white",strokeWeight:2}}));
+  };
+  document.head.appendChild(s);
+}
+
+// ── VISIT STATUS ──
+function setStatus(idx, status) {
+  if(!visitState[idx]) visitState[idx]={};
+  visitState[idx].status = status;
+  const btns = document.querySelectorAll(`#card-${idx} .status-btn`);
+  btns.forEach(b => {
+    b.classList.remove('active-interested','active-nothome','active-notinterested','active-callback');
+    if(b.dataset.status === status) b.classList.add(`active-${status.replace(' ','')}`);
+  });
+  const notesBox = document.getElementById(`notes-${idx}`);
+  if(notesBox) notesBox.classList.remove('hidden');
+  const fu = document.getElementById(`followup-${idx}`);
+  if(fu) fu.classList.toggle('visible', status === 'interested');
+}
+
+function saveNote(idx) {
+  const box = document.getElementById(`notes-${idx}`);
+  if(!box) return;
+  const note = box.value.trim();
+  if(!note) return;
+  if(!visitState[idx]) visitState[idx]={};
+  visitState[idx].note = note;
+  let saved = document.getElementById(`saved-note-${idx}`);
+  if(!saved){ saved=document.createElement('div'); saved.id=`saved-note-${idx}`; saved.className='saved-note'; box.parentNode.insertBefore(saved, box); }
+  saved.textContent = note;
+  box.value='';
+}
+
+// ── DRAFT FOLLOW-UP ──
+async function draftFollowUp(idx, stop) {
+  const outputEl = document.getElementById(`ai-output-${idx}`);
+  outputEl.textContent = "✍️ Drafting follow-up...";
+  const note = visitState[idx]?.note || "Homeowner expressed interest in solar";
+  const solarInfo = stop.solar ? `Roof: ${stop.solar.badge}, ${stop.solar.sunHrs} sun hrs/yr, est. savings $${stop.solar.monthlySavings}/mo` : "Solar data unavailable";
+  const propInfo = stop.property ? `Year built: ${stop.property.year_built||'unknown'}, Sq ft: ${stop.property.sq_footage||'unknown'}, Value: ${stop.property.assessed_value?'$'+stop.property.assessed_value.toLocaleString():'unknown'}` : "";
+  const prompt = `You are a solar sales rep at Do It Right Solar in Massachusetts. Draft a short, friendly follow-up text message to send to a homeowner after a door knock visit.
+
+Homeowner: ${stop.name || stop.address}
+Address: ${stop.formatted || stop.address}
+Visit notes: ${note}
+${solarInfo}
+${propInfo}
+
+Write a natural, conversational text message (not email). Keep it under 4 sentences. Reference the solar savings potential. End with a clear next step. Sign off as being from Do It Right Solar.`;
+
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({model:"claude-sonnet-4-20250514", max_tokens:300, messages:[{role:"user",content:prompt}]})
+    });
+    const d = await r.json();
+    const text = d.content?.find(b=>b.type==="text")?.text || "Could not generate draft.";
+    outputEl.textContent = text;
+  } catch(e) {
+    outputEl.textContent = "Error generating draft.";
+  }
+}
+
+// ── LAUNCH CUSTOMER CHAT ──
+function launchCustomerChat(idx, stop) {
+  const note = visitState[idx]?.note || "";
+  const status = visitState[idx]?.status || "interested";
+  const solar = stop.solar, prop = stop.property;
+  const context = `# Do It Right Solar — Customer File\n\n**Address:** ${stop.formatted || stop.address}\n**Contact:** ${stop.name ? `👤 ${stop.name}` : "Name unknown"}${stop.phone ? ` | 📞 ${stop.phone}` : ""}${stop.email ? ` | 📧 ${stop.email}` : ""}\n**Visit Status:** ${status}\n**Visit Notes:** ${note || "None"}\n\n## Property Data\n${prop ? `- Year Built: ${prop.year_built||"Unknown"}\n- Sq Footage: ${prop.sq_footage ? prop.sq_footage.toLocaleString()+" sq ft" : "Unknown"}\n- Assessed Value: ${prop.assessed_value ? "$"+prop.assessed_value.toLocaleString() : "Unknown"}\n- Bedrooms: ${prop.bedrooms||"Unknown"}\n- Owner: ${prop.owner_name||"Unknown"}` : "Property data unavailable"}\n\n## Solar Potential\n${solar ? `- Roof Score: ${solar.badge}\n- Annual Sun Hours: ${solar.sunHrs.toLocaleString()} hrs/yr\n- Usable Roof Area: ${solar.roofSqFt.toLocaleString()} sq ft\n- Max System Size: ${solar.sysKw} kW (${solar.maxPanels} panels)\n- Est. Monthly Savings: $${solar.monthlySavings}\n- Est. Annual Savings: $${solar.annualSavings}` : "Solar data unavailable"}\n\n## MA Electric Rate\n$${CONFIG.RATE}/kWh\n\n---\nI am a solar sales rep at Do It Right Solar. Help me with follow-ups, objection handling, proposals, or anything else related to this customer.`;
+  window.open(`https://claude.ai/new?q=${encodeURIComponent(context)}`, '_blank');
+}
+
+// ── STOP CARD HTML ──
+function stopCardHTML(s, i) {
+  const icons={name:"👤",first:"👤",last:"👤",phone:"📞",cell:"📞",mobile:"📞",email:"📧",notes:"📝",comments:"📝"};
+  const phone = s.phone || s.cell || s.mobile;
+  const contactLines = Object.entries(s)
+    .filter(([k])=>icons[k])
+    .map(([k,v])=> k==='phone'||k==='cell'||k==='mobile'
+      ? `<a href="tel:${v}" class="act-btn btn-call">📞 ${v}</a>`
+      : `<span>${icons[k]} ${v}</span>`)
+    .join("");
+  const svUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${s.coords.lat},${s.coords.lng}`;
+  const mapsDirectUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(s.formatted||s.address)}`;
+
+  const solarHTML = s.solar
+    ? `<div class="solar-section">
+        <div class="solar-badge ${s.solar.badgeClass}">${s.solar.badge}</div>
+        <div class="solar-grid">
+          <div class="solar-stat"><div class="ss-val">${s.solar.sunHrs.toLocaleString()}</div><div class="ss-lbl">Sun hrs/yr</div></div>
+          <div class="solar-stat"><div class="ss-val">${s.solar.roofSqFt.toLocaleString()} ft²</div><div class="ss-lbl">Solar area</div></div>
+          <div class="solar-stat"><div class="ss-val">${s.solar.sysKw} kW</div><div class="ss-lbl">System size</div></div>
+          <div class="solar-stat"><div class="ss-val">${s.solar.maxPanels}</div><div class="ss-lbl">Max panels</div></div>
+        </div>
+        <div class="savings-callout">
+          <div class="sc-main">💰 Est. $${s.solar.monthlySavings}/mo savings</div>
+          <div class="sc-sub">$${s.solar.annualSavings}/yr · ${s.solar.annualKwh.toLocaleString()} kWh/yr at $${CONFIG.RATE}/kWh</div>
+        </div>
+      </div>`
+    : s.solar === null
+      ? `<div class="solar-section" style="color:#bbb;font-size:0.77rem;font-style:italic">☁️ No solar data for this address</div>`
+      : `<div class="solar-section"><div class="data-loading"><span class="spinner" style="width:12px;height:12px;border-width:2px"></span>Loading solar data...</div></div>`;
+
+  const propHTML = s.property
+    ? `<div class="prop-section">
+        <div style="font-size:0.72rem;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px">🏠 Property</div>
+        <div class="prop-grid">
+          ${s.property.owner_name ? `<div class="prop-stat"><div class="ps-val">${s.property.owner_name}</div><div class="ps-lbl">Owner</div></div>` : ""}
+          ${s.property.year_built ? `<div class="prop-stat"><div class="ps-val">${s.property.year_built}</div><div class="ps-lbl">Year built</div></div>` : ""}
+          ${s.property.sq_footage ? `<div class="prop-stat"><div class="ps-val">${s.property.sq_footage.toLocaleString()}</div><div class="ps-lbl">Sq ft</div></div>` : ""}
+          ${s.property.assessed_value ? `<div class="prop-stat"><div class="ps-val">$${Math.round(s.property.assessed_value/1000)}k</div><div class="ps-lbl">Assessed value</div></div>` : ""}
+          ${s.property.bedrooms ? `<div class="prop-stat"><div class="ps-val">${s.property.bedrooms} bd</div><div class="ps-lbl">Bedrooms</div></div>` : ""}
+        </div>
+      </div>`
+    : s.property === null
+      ? `<div class="prop-section" style="color:#bbb;font-size:0.77rem;font-style:italic">Property data unavailable</div>`
+      : `<div class="prop-section"><div class="data-loading"><span class="spinner" style="width:12px;height:12px;border-width:2px"></span>Loading property data...</div></div>`;
+
+  return `<div class="stop-card" id="card-${i}">
+    <div class="card-header">
+      <div class="stop-num">${i+1}</div>
+      <div class="card-main">
+        <div class="stop-addr">${s.formatted||s.address}</div>
+        ${contactLines ? `<div class="stop-contact">${contactLines}</div>` : ""}
+      </div>
+    </div>
+    <div class="card-actions">
+      ${phone ? `<a href="tel:${phone}" class="act-btn btn-call">📞 Call</a>` : ""}
+      <a href="${svUrl}" target="_blank" class="act-btn btn-streetview">🏠 Street View</a>
+      <a href="${mapsDirectUrl}" target="_blank" class="act-btn btn-maps">🗺️ Directions</a>
+    </div>
+    ${propHTML}
+    ${solarHTML}
+    <div class="visit-section">
+      <div class="visit-label">Visit Result</div>
+      <div class="status-btns">
+        <button class="status-btn" data-status="interested" onclick="setStatus(${i},'interested')">✅ Interested</button>
+        <button class="status-btn" data-status="nothome" onclick="setStatus(${i},'nothome')">🚪 Not Home</button>
+        <button class="status-btn" data-status="notinterested" onclick="setStatus(${i},'notinterested')">❌ Not Interested</button>
+        <button class="status-btn" data-status="callback" onclick="setStatus(${i},'callback')">📅 Callback</button>
+      </div>
+      <textarea id="notes-${i}" class="notes-box hidden" placeholder="Add visit notes..."></textarea>
+      <button class="save-note-btn" onclick="saveNote(${i})">Save Note</button>
+    </div>
+    <div class="followup-section" id="followup-${i}">
+      <button class="chat-btn" onclick="launchCustomerChat(${i}, optimizedRoute[${i}])">💬 Start Customer Chat in Claude →</button>
+      <button class="draft-btn" onclick="draftFollowUp(${i}, optimizedRoute[${i}]); document.getElementById('ai-output-${i}').style.display='block'">✉️ Draft Follow-Up Text</button>
+      <div class="ai-output" id="ai-output-${i}" style="display:none"></div>
+    </div>
+  </div>`;
+}
+
+function originCard() {
+  return `<div class="stop-card"><div class="card-header"><div class="stop-num origin">🏁</div><div class="card-main"><div class="stop-addr">${CONFIG.ORIGIN}</div><div class="stop-contact" style="color:#888">Your starting &amp; ending point</div></div></div></div>`;
+}
+
+// ── MAIN ──
+async function main(rawStops) {
+  const setTxt = t => document.getElementById("status-txt").textContent = t;
+
+  setTxt("Locating your starting point...");
+  const og = await geocode(CONFIG.ORIGIN);
+  if(!og){ document.getElementById("status").innerHTML="❌ Could not geocode origin. Check your API key in ⚙️ Settings."; return; }
+  ORIGIN_COORDS={lat:og.lat,lng:og.lng};
+
+  setTxt(`Geocoding ${rawStops.length} addresses...`);
+  const stops=[];
+  for(const raw of rawStops){
+    const g=await geocode(raw.address);
+    if(g) stops.push({...raw, coords:{lat:g.lat,lng:g.lng}, formatted:g.formatted});
+  }
+
+  setTxt("Optimizing route...");
+  optimizedRoute = optimize(ORIGIN_COORDS, stops);
+
+  setTxt("Calculating drive time...");
+  const summary = await getRouteSummary(optimizedRoute);
+
+  document.getElementById("status").style.display="none";
+  const sumDiv=document.getElementById("summary");
+  sumDiv.style.display="block";
+  sumDiv.innerHTML=`<div class="sum-grid">
+    <div class="sum-item"><div class="sv">${optimizedRoute.length}</div><div class="sl">Stops</div></div>
+    ${summary?`<div class="sum-item"><div class="sv">${summary.time}</div><div class="sl">Drive Time</div></div>
+    <div class="sum-item"><div class="sv">${summary.miles} mi</div><div class="sl">Distance</div></div>`:""}
+  </div>`;
+
+  renderMap(optimizedRoute);
+
+  const navDiv=document.getElementById("nav-btns");
+  navDiv.style.display="block";
+  navDiv.innerHTML=mapsUrl(optimizedRoute).map(l=>`<a href="${l.url}" target="_blank" class="nav-btn">${l.label}</a>`).join("")+
+    `<p style="text-align:center;font-size:0.75rem;color:#bbb;margin-top:4px">Go get 'em — good luck out there! ☀️</p>`;
+
+  const list=document.getElementById("stop-list");
+  list.innerHTML = originCard() + optimizedRoute.map((s,i)=>stopCardHTML(s,i)).join("") + originCard();
+
+  // Load solar + property data progressively
+  for(let i=0;i<optimizedRoute.length;i++){
+    const s=optimizedRoute[i];
+    const solar=await getSolar(s.coords.lat,s.coords.lng);
+    optimizedRoute[i].solar=solar;
+    const property=await getPropertyData(s.formatted||s.address);
+    optimizedRoute[i].property=property;
+    const card=document.getElementById(`card-${i}`);
+    if(card) card.outerHTML=stopCardHTML(optimizedRoute[i],i);
+  }
+}
+</script>
+</body>
+</html>
