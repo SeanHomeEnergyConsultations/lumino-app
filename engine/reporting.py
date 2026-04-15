@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from engine.constants import PRIORITY
+from engine.constants import PRIORITY, get_priority_meta
 
 
 def build_zip_summary(all_results):
@@ -40,7 +40,7 @@ def build_zip_summary(all_results):
 
 
 def priority_badge_html(score):
-    priority = PRIORITY[score]
+    priority = get_priority_meta(score)
     return (
         f'<span style="background:{priority["bg"]};color:{priority["text"]};border:1px solid {priority["border"]};'
         f'padding:4px 14px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:1.5px;'
@@ -243,7 +243,7 @@ def build_route_csv(selected_results):
             rows.append(
                 {
                     "address": address,
-                    "priority": PRIORITY[result["priority_score"]]["label"],
+                    "priority": get_priority_meta(result["priority_score"])["label"],
                     "sale_price": result["price_display"],
                     "sqft": result["sqft_display"],
                     "sold_date": result["sold_date"],

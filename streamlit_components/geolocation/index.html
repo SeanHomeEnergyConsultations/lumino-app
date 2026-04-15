@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: transparent;
+        color: #e8eef8;
+      }
+      .wrap {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      button {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border: none;
+        border-radius: 0.5rem;
+        font-weight: 700;
+        cursor: pointer;
+        background: linear-gradient(135deg, #d4af50, #a07830);
+        color: #080608;
+      }
+      .status {
+        font-size: 0.875rem;
+        color: #8a95aa;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <button id="locate">Use My Current Location</button>
+      <div id="status" class="status">GPS idle</div>
+    </div>
+
+    <script type="module">
+      import { Streamlit } from "https://unpkg.com/streamlit-component-lib@2.0.0/dist/index.js";
+
+      const button = document.getElementById("locate");
+      const status = document.getElementById("status");
+
+      function setStatus(text) {
+        status.textContent = text;
+      }
+
+      button.addEventListener("click", () => {
+        if (!navigator.geolocation) {
+          setStatus("Geolocation unavailable");
+          Streamlit.setComponentValue({ error: "Geolocation unavailable" });
+          return;
+        }
+
+        setStatus("Requesting location...");
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const value = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+              timestamp: position.timestamp,
+            };
+            setStatus("Location captured");
+            Streamlit.setComponentValue(value);
+          },
+          (error) => {
+            setStatus(error.message || "Location failed");
+            Streamlit.setComponentValue({ error: error.message || "Location failed" });
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 60000,
+          }
+        );
+      });
+
+      Streamlit.setComponentReady();
+      Streamlit.setFrameHeight(72);
+    </script>
+  </body>
+</html>

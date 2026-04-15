@@ -1,9 +1,21 @@
-import time
+from math import asin, cos, radians, sin, sqrt
 
 import requests
 
-from engine.geo import extract_zip, get_coordinates
+from engine.geo import extract_zip
 from engine.solar import classify_sun_hours, get_solar_hours
+
+MAX_NEARBY_CANDIDATES = 20
+MAX_ROUTE_CHECKS = 12
+
+
+def crow_fly_distance_meters(lat1, lng1, lat2, lng2):
+    lat1_rad, lng1_rad = radians(lat1), radians(lng1)
+    lat2_rad, lng2_rad = radians(lat2), radians(lng2)
+    d_lat = lat2_rad - lat1_rad
+    d_lng = lng2_rad - lng1_rad
+    a = sin(d_lat / 2) ** 2 + cos(lat1_rad) * cos(lat2_rad) * sin(d_lng / 2) ** 2
+    return 2 * 6371000 * asin(sqrt(a))
 
 
 def get_walking_neighbors(lat, lng, key, walk_seconds=150):
@@ -18,7 +30,7 @@ def get_walking_neighbors(lat, lng, key, walk_seconds=150):
         "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.types,places.location",
     }
     body = {
-        "maxResultCount": 20,
+        "maxResultCount": MAX_NEARBY_CANDIDATES,
         "locationRestriction": {
             "circle": {"center": {"latitude": lat, "longitude": lng}, "radius": 250}
         },
@@ -40,6 +52,12 @@ def get_walking_neighbors(lat, lng, key, walk_seconds=150):
                             "address": address,
                             "lat": loc.get("latitude"),
                             "lng": loc.get("longitude"),
+                            "distance_meters": crow_fly_distance_meters(
+                                lat,
+                                lng,
+                                loc.get("latitude"),
+                                loc.get("longitude"),
+                            ),
                         }
                     )
     except Exception:
@@ -47,6 +65,17 @@ def get_walking_neighbors(lat, lng, key, walk_seconds=150):
 
     if not candidates:
         return []
+
+    deduped = []
+    seen_addresses = set()
+    for candidate in sorted(candidates, key=lambda item: item.get("distance_meters") or float("inf")):
+        address_key = candidate["address"].strip().lower()
+        if address_key in seen_addresses:
+            continue
+        seen_addresses.add(address_key)
+        deduped.append(candidate)
+
+    route_candidates = deduped[:MAX_ROUTE_CHECKS]
 
     walkable = []
     routes_url = "https://routes.googleapis.com/directions/v2:computeRoutes"
@@ -56,7 +85,7 @@ def get_walking_neighbors(lat, lng, key, walk_seconds=150):
         "X-Goog-FieldMask": "routes.duration",
     }
 
-    for candidate in candidates:
+    for candidate in route_candidates:
         if not candidate["lat"] or not candidate["lng"]:
             continue
 
@@ -80,10 +109,16 @@ def get_walking_neighbors(lat, lng, key, walk_seconds=150):
                     duration_str = routes[0].get("duration", "999s")
                     duration_sec = int(duration_str.replace("s", ""))
                     if duration_sec <= walk_seconds:
-                        walkable.append(candidate["address"])
+                        walkable.append(
+                            {
+                                "address": candidate["address"],
+                                "lat": candidate["lat"],
+                                "lng": candidate["lng"],
+                                "walk_duration_sec": duration_sec,
+                            }
+                        )
         except Exception:
             pass
-        time.sleep(0.1)
 
     return walkable
 
@@ -108,30 +143,32 @@ def make_neighbor_record(address, lat, lng, sun_hours, category, sun_score, pare
     }
 
 
-def build_neighbor_analysis(addresses, gmaps_client, key, parent_zip):
+def build_neighbor_analysis(candidates, key, parent_zip):
     neighbor_data = []
     neighbor_records = []
 
-    for neighbor in addresses:
-        n_lat, n_lng = get_coordinates(neighbor, gmaps_client)
-        if n_lat:
-            n_sun = get_solar_hours(n_lat, n_lng, key)
-            if n_sun:
-                n_cat, n_score = classify_sun_hours(n_sun)
-                neighbor_data.append(
-                    {
-                        "address": neighbor,
-                        "sun_hours": n_sun,
-                        "category": n_cat,
-                        "score": n_score,
-                        "lat": n_lat,
-                        "lng": n_lng,
-                    }
-                )
-                neighbor_records.append(
-                    make_neighbor_record(neighbor, n_lat, n_lng, n_sun, n_cat, n_score, parent_zip)
-                )
-        time.sleep(0.1)
+    for candidate in candidates:
+        n_lat = candidate.get("lat")
+        n_lng = candidate.get("lng")
+        neighbor = candidate.get("address", "")
+        if not n_lat or not n_lng:
+            continue
+
+        n_sun = get_solar_hours(n_lat, n_lng, key)
+        if n_sun:
+            n_cat, n_score = classify_sun_hours(n_sun)
+            neighbor_data.append(
+                {
+                    "address": neighbor,
+                    "sun_hours": n_sun,
+                    "category": n_cat,
+                    "score": n_score,
+                    "lat": n_lat,
+                    "lng": n_lng,
+                }
+            )
+            neighbor_records.append(
+                make_neighbor_record(neighbor, n_lat, n_lng, n_sun, n_cat, n_score, parent_zip)
+            )
 
     return neighbor_data, neighbor_records
-

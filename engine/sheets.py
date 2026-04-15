@@ -5,7 +5,7 @@ from datetime import datetime
 
 import streamlit as st
 
-from engine.constants import PRIORITY
+from engine.constants import get_priority_meta
 
 SPREADSHEET_ID = "1qpx34ySHm5XPYpkNQxVx33KWS_971K2X1aBwmKerGGs"
 
@@ -122,7 +122,7 @@ def get_existing_rows(service, tab_name):
 def build_row(r, source, first_analyzed, last_updated, knocked="0", lead_status="", notes=""):
     return [
         r["address"],
-        PRIORITY[r["priority_score"]]["label"],
+        get_priority_meta(r.get("priority_score"))["label"],
         r["price_display"],
         r["sqft_display"],
         str(r.get("beds", "")),
@@ -143,6 +143,15 @@ def build_row(r, source, first_analyzed, last_updated, knocked="0", lead_status=
     ]
 
 
+def summarize_result_sources(all_results):
+    original_count = len(all_results)
+    neighbor_count = sum(len(result.get("neighbor_records", [])) for result in all_results)
+    return {
+        "original_count": original_count,
+        "neighbor_count": neighbor_count,
+    }
+
+
 def sync_results_to_sheet(service, all_results):
     flat = []
     for result in all_results:
@@ -156,6 +165,10 @@ def sync_results_to_sheet(service, all_results):
 
     total_inserted = 0
     total_updated = 0
+    inserted_original = 0
+    inserted_neighbors = 0
+    updated_original = 0
+    updated_neighbors = 0
     today = datetime.now().strftime("%Y-%m-%d")
 
     for zipcode, results in by_zip.items():
@@ -167,8 +180,9 @@ def sync_results_to_sheet(service, all_results):
         to_update = []
 
         for result in results:
+            source = result.get("source", "")
             if not result.get("lat") or not result.get("lng"):
-                to_append.append(build_row(result, result.get("source", ""), today, today))
+                to_append.append((build_row(result, source, today, today), source))
                 continue
 
             key = (round_coord(result["lat"]), round_coord(result["lng"]))
@@ -179,17 +193,18 @@ def sync_results_to_sheet(service, all_results):
                         prev["row_index"],
                         build_row(
                             result,
-                            result.get("source", ""),
+                            source,
                             first_analyzed=prev["first_analyzed"] or today,
                             last_updated=today,
                             knocked=prev["knocked"],
                             lead_status=prev["lead_status"],
                             notes=prev["notes"],
                         ),
+                        source,
                     )
                 )
             else:
-                to_append.append(build_row(result, result.get("source", ""), today, today))
+                to_append.append((build_row(result, source, today, today), source))
 
         if to_append:
             try:
@@ -198,13 +213,15 @@ def sync_results_to_sheet(service, all_results):
                     range=f"'{tab_name}'!A1",
                     valueInputOption="RAW",
                     insertDataOption="INSERT_ROWS",
-                    body={"values": to_append},
+                    body={"values": [row for row, _source in to_append]},
                 ).execute()
                 total_inserted += len(to_append)
+                inserted_original += sum(1 for _row, source in to_append if source == "Original List")
+                inserted_neighbors += sum(1 for _row, source in to_append if source == "Cluster Neighbor")
             except Exception as err:
                 st.warning(f"Could not append to {tab_name}: {err}")
 
-        for row_index, row_vals in to_update:
+        for row_index, row_vals, source in to_update:
             try:
                 service.spreadsheets().values().update(
                     spreadsheetId=SPREADSHEET_ID,
@@ -213,8 +230,18 @@ def sync_results_to_sheet(service, all_results):
                     body={"values": [row_vals]},
                 ).execute()
                 total_updated += 1
+                if source == "Original List":
+                    updated_original += 1
+                elif source == "Cluster Neighbor":
+                    updated_neighbors += 1
             except Exception as err:
                 st.warning(f"Could not update row {row_index} in {tab_name}: {err}")
 
-    return total_inserted, total_updated
-
+    return {
+        "inserted_total": total_inserted,
+        "updated_total": total_updated,
+        "inserted_original": inserted_original,
+        "inserted_neighbors": inserted_neighbors,
+        "updated_original": updated_original,
+        "updated_neighbors": updated_neighbors,
+    }

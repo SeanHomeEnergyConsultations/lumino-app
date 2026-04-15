@@ -1,7 +1,6 @@
-import time
-
 import pandas as pd
 
+from engine.analysis_cache import get_cached_analysis, save_cached_analysis
 from engine.clustering import build_neighbor_analysis, get_walking_neighbors
 from engine.geo import extract_zip, get_coordinates, get_parking_ease, get_street_view_link
 from engine.scoring import combined_priority, score_home_value, score_sqft
@@ -37,6 +36,10 @@ def format_date(date_val):
 
 
 def process_address(row_data, gmaps_client, key):
+    cached_result = get_cached_analysis(row_data)
+    if cached_result:
+        return cached_result
+
     address = str(row_data.get("address", ""))
     sale_price = parse_sale_price(row_data.get("price"), row_data.get("price_remainder"))
     sqft = row_data.get("sqft")
@@ -93,7 +96,6 @@ def process_address(row_data, gmaps_client, key):
     walkable_addresses = get_walking_neighbors(lat, lng, key, walk_seconds=150)
     neighbor_data, neighbor_records = build_neighbor_analysis(
         walkable_addresses,
-        gmaps_client,
         key,
         zipcode,
     )
@@ -125,9 +127,7 @@ def process_address(row_data, gmaps_client, key):
             best_score = home["score"]
             best_home = home["address"]
 
-    time.sleep(0.1)
-
-    return {
+    result = {
         "address": address,
         "lat": lat,
         "lng": lng,
@@ -157,4 +157,54 @@ def process_address(row_data, gmaps_client, key):
         "value_score": value_score,
         "sqft_score": sqft_score,
     }
+    save_cached_analysis(row_data, result)
+    return result
 
+
+def build_processing_error_result(row_data, error_message):
+    address = str(row_data.get("address", ""))
+    sale_price = parse_sale_price(row_data.get("price"), row_data.get("price_remainder"))
+    sqft = row_data.get("sqft")
+    sold_date = format_date(row_data.get("sold_date"))
+    beds = row_data.get("beds")
+    baths = row_data.get("baths")
+
+    try:
+        sqft_val = float(str(sqft).replace(",", "")) if pd.notna(sqft) else None
+    except Exception:
+        sqft_val = None
+
+    value_score, price_display, value_badge = score_home_value(sale_price)
+    sqft_score, sqft_display = score_sqft(sqft_val)
+
+    return {
+        "address": address,
+        "lat": None,
+        "lng": None,
+        "zipcode": extract_zip(address),
+        "sun_hours": None,
+        "sun_hours_display": "N/A",
+        "category": "Unknown",
+        "street_view_link": get_street_view_link(None, None, address),
+        "parking_ease": get_parking_ease(address),
+        "walkable_count": 0,
+        "ideal_count": 0,
+        "good_count": 0,
+        "priority_score": 0,
+        "priority_label": "LOW — Analysis error",
+        "parking_address": address,
+        "doors_to_knock": 0,
+        "knock_addresses": [],
+        "neighbor_records": [],
+        "sale_price": sale_price,
+        "price_display": price_display,
+        "value_badge": value_badge,
+        "sqft": sqft_val,
+        "sqft_display": sqft_display,
+        "sold_date": sold_date,
+        "beds": beds,
+        "baths": baths,
+        "value_score": value_score,
+        "sqft_score": sqft_score,
+        "analysis_error": error_message,
+    }

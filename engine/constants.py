@@ -6,3 +6,8 @@ PRIORITY = {
     0: {"label": "LOW", "color": "#424242", "bg": "#111111", "text": "#757575", "border": "#424242", "dot": "#616161"},
 }
 
+DEFAULT_PRIORITY = PRIORITY[0]
+
+
+def get_priority_meta(score):
+    return PRIORITY.get(score, DEFAULT_PRIORITY)
