@@ -124,6 +124,5 @@ def geolocation_picker(key, label="Use My Current Location"):
         </script>
         """,
         height=74,
-        key=f"{key}_browser_geolocation",
     )
     return payload
