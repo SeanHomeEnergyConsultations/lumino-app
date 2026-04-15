@@ -86,6 +86,7 @@ create table if not exists public.lead_analysis (
   sun_hours double precision,
   sun_hours_display text,
   category text,
+  solar_details jsonb not null default '{}'::jsonb,
   priority_score integer not null default 0,
   priority_label text,
   parking_address text,
@@ -277,6 +278,8 @@ select
   a.priority_label,
   a.category,
   a.sun_hours,
+  a.sun_hours_display,
+  a.solar_details,
   a.doors_to_knock
 from public.leads l
 left join public.lead_analysis a

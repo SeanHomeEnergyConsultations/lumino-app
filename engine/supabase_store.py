@@ -109,6 +109,7 @@ def _analysis_payload(cache_key, lead_id, result):
         "sun_hours": result.get("sun_hours"),
         "sun_hours_display": result.get("sun_hours_display"),
         "category": result.get("category"),
+        "solar_details": _solar_details_payload(result),
         "priority_score": result.get("priority_score", 0),
         "priority_label": result.get("priority_label"),
         "parking_address": result.get("parking_address"),
@@ -123,6 +124,26 @@ def _analysis_payload(cache_key, lead_id, result):
         "analysis_error": result.get("analysis_error"),
         "source_hash": cache_key,
     }
+
+
+def _solar_details_payload(result):
+    return _json_safe(
+        {
+            "solar_fit_score": result.get("solar_fit_score"),
+            "roof_capacity_score": result.get("roof_capacity_score"),
+            "roof_complexity_score": result.get("roof_complexity_score"),
+            "max_array_panels_count": result.get("max_array_panels_count"),
+            "max_array_area_m2": result.get("max_array_area_m2"),
+            "panel_capacity_watts": result.get("panel_capacity_watts"),
+            "system_capacity_kw": result.get("system_capacity_kw"),
+            "yearly_energy_dc_kwh": result.get("yearly_energy_dc_kwh"),
+            "roof_segment_count": result.get("roof_segment_count"),
+            "south_facing_segment_count": result.get("south_facing_segment_count"),
+            "whole_roof_area_m2": result.get("whole_roof_area_m2"),
+            "building_area_m2": result.get("building_area_m2"),
+            "imagery_quality": result.get("imagery_quality"),
+        }
+    )
 
 
 def _neighbor_payloads(analysis_id, result):
@@ -146,7 +167,7 @@ def _neighbor_payloads(analysis_id, result):
 
 def _result_from_supabase_row(row):
     lead_row = row.get("leads") or {}
-    return {
+    result = {
         "address": lead_row.get("address", ""),
         "lat": lead_row.get("lat"),
         "lng": lead_row.get("lng"),
@@ -189,6 +210,7 @@ def _result_from_supabase_row(row):
         "unqualified_reason": lead_row.get("unqualified_reason"),
         "listing_agent": lead_row.get("listing_agent"),
     }
+    return _merge_solar_details(result, row.get("solar_details"))
 
 
 def _neighbor_record_from_row(row):
@@ -211,8 +233,52 @@ def _neighbor_record_from_row(row):
     }
 
 
+def _open_lead_pool_row_to_result(row):
+    result = {
+        "lead_id": row.get("id"),
+        "address": row.get("address", ""),
+        "lat": row.get("lat"),
+        "lng": row.get("lng"),
+        "zipcode": row.get("zipcode", "Unknown"),
+        "sun_hours": row.get("sun_hours"),
+        "sun_hours_display": row.get("sun_hours_display", "N/A"),
+        "category": row.get("category", "Unknown"),
+        "street_view_link": "",
+        "parking_ease": "",
+        "walkable_count": 0,
+        "ideal_count": 0,
+        "good_count": 0,
+        "priority_score": row.get("priority_score", 0),
+        "priority_label": row.get("priority_label", ""),
+        "parking_address": row.get("address", ""),
+        "doors_to_knock": row.get("doors_to_knock", 0),
+        "knock_addresses": _knock_addresses(row.get("address", ""), [], row.get("category")),
+        "neighbor_records": [],
+        "sale_price": None,
+        "price_display": "N/A",
+        "value_badge": "Unknown",
+        "sqft": None,
+        "sqft_display": "N/A",
+        "sold_date": "Unknown",
+        "beds": "",
+        "baths": "",
+        "value_score": 0,
+        "sqft_score": 0,
+        "analysis_error": None,
+        "first_name": row.get("first_name"),
+        "last_name": row.get("last_name"),
+        "phone": row.get("phone"),
+        "email": row.get("email"),
+        "notes": row.get("notes"),
+        "unqualified": row.get("unqualified"),
+        "unqualified_reason": row.get("unqualified_reason"),
+        "listing_agent": row.get("listing_agent"),
+    }
+    return _merge_solar_details(result, row.get("solar_details"))
+
+
 def _knock_addresses(primary_address, neighbor_rows, category):
-    knock_list = [primary_address] if category in {"Ideal", "Good"} and primary_address else []
+    knock_list = [primary_address] if category in {"Best", "Better", "Good"} and primary_address else []
     knock_list.extend(
         item.get("address")
         for item in neighbor_rows
@@ -246,6 +312,32 @@ def _coerce_bool(value):
     return None
 
 
+def _missing_solar_details_column(error):
+    message = str(error).lower()
+    return "solar_details" in message and ("column" in message or "schema cache" in message)
+
+
+def _merge_solar_details(result, solar_details):
+    merged = dict(result)
+    for key, default in {
+        "solar_fit_score": 0,
+        "roof_capacity_score": 0,
+        "roof_complexity_score": 0,
+        "max_array_panels_count": None,
+        "max_array_area_m2": None,
+        "panel_capacity_watts": None,
+        "system_capacity_kw": None,
+        "yearly_energy_dc_kwh": None,
+        "roof_segment_count": None,
+        "south_facing_segment_count": None,
+        "whole_roof_area_m2": None,
+        "building_area_m2": None,
+        "imagery_quality": None,
+    }.items():
+        merged[key] = (solar_details or {}).get(key, default)
+    return merged
+
+
 def get_cached_analysis(row_data):
     if not supabase_enabled():
         return None
@@ -276,23 +368,37 @@ def get_open_lead_pool(limit=500):
     if not supabase_enabled():
         return []
 
+    params = {
+        "select": (
+            "id,address,zipcode,lat,lng,first_name,last_name,phone,email,notes,"
+            "unqualified,unqualified_reason,listing_agent,priority_score,priority_label,"
+            "category,sun_hours,sun_hours_display,solar_details,doors_to_knock"
+        ),
+        "order": "priority_score.desc,doors_to_knock.desc,address.asc",
+        "limit": str(limit),
+    }
     try:
-        rows = _request(
-            "GET",
-            "open_lead_pool",
-            params={
-                "select": (
-                    "id,address,zipcode,lat,lng,first_name,last_name,phone,email,notes,"
-                    "unqualified,unqualified_reason,listing_agent,priority_score,priority_label,"
-                    "category,sun_hours,doors_to_knock"
-                ),
-                "order": "priority_score.desc,doors_to_knock.desc,address.asc",
-                "limit": str(limit),
-            },
-        )
-        return rows or []
-    except Exception:
-        return []
+        rows = _request("GET", "open_lead_pool", params=params)
+    except Exception as err:
+        if not _missing_solar_details_column(err):
+            return []
+        try:
+            rows = _request(
+                "GET",
+                "open_lead_pool",
+                params={
+                    "select": (
+                        "id,address,zipcode,lat,lng,first_name,last_name,phone,email,notes,"
+                        "unqualified,unqualified_reason,listing_agent,priority_score,priority_label,"
+                        "category,sun_hours,doors_to_knock"
+                    ),
+                    "order": "priority_score.desc,doors_to_knock.desc,address.asc",
+                    "limit": str(limit),
+                },
+            )
+        except Exception:
+            return []
+    return [_open_lead_pool_row_to_result(row) for row in (rows or [])]
 
 
 def get_rep_options():
@@ -615,28 +721,54 @@ def save_analysis_result(row_data, result):
         )
 
         analysis_payload = _analysis_payload(cache_key, lead_id, result)
+        legacy_analysis_payload = dict(analysis_payload)
+        legacy_analysis_payload.pop("solar_details", None)
         if existing_analysis:
             analysis_id = existing_analysis[0]["id"]
-            updated_rows = _request(
-                "PATCH",
-                "lead_analysis",
-                params={
-                    "id": f"eq.{analysis_id}",
-                    "select": "id",
-                },
-                json_body=analysis_payload,
-                prefer="return=representation",
-            )
+            try:
+                updated_rows = _request(
+                    "PATCH",
+                    "lead_analysis",
+                    params={
+                        "id": f"eq.{analysis_id}",
+                        "select": "id",
+                    },
+                    json_body=analysis_payload,
+                    prefer="return=representation",
+                )
+            except Exception as err:
+                if not _missing_solar_details_column(err):
+                    raise
+                updated_rows = _request(
+                    "PATCH",
+                    "lead_analysis",
+                    params={
+                        "id": f"eq.{analysis_id}",
+                        "select": "id",
+                    },
+                    json_body=legacy_analysis_payload,
+                    prefer="return=representation",
+                )
             if not updated_rows:
                 return None
             analysis_id = updated_rows[0]["id"]
         else:
-            created_rows = _request(
-                "POST",
-                "lead_analysis",
-                json_body=analysis_payload,
-                prefer="return=representation",
-            )
+            try:
+                created_rows = _request(
+                    "POST",
+                    "lead_analysis",
+                    json_body=analysis_payload,
+                    prefer="return=representation",
+                )
+            except Exception as err:
+                if not _missing_solar_details_column(err):
+                    raise
+                created_rows = _request(
+                    "POST",
+                    "lead_analysis",
+                    json_body=legacy_analysis_payload,
+                    prefer="return=representation",
+                )
             if not created_rows:
                 return None
             analysis_id = created_rows[0]["id"]
@@ -716,4 +848,4 @@ def _draft_result_from_parts(lead_row, analysis_row):
         "unqualified_reason": lead_row.get("unqualified_reason"),
         "listing_agent": lead_row.get("listing_agent"),
     }
-    return result
+    return _merge_solar_details(result, analysis_row.get("solar_details"))
