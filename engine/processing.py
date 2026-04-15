@@ -37,7 +37,11 @@ def format_date(date_val):
 
 def process_address(row_data, gmaps_client, key):
     cached_result = get_cached_analysis(row_data)
-    if cached_result:
+    if cached_result and (
+        cached_result.get("sun_hours") is not None
+        or cached_result.get("lat") is None
+        or cached_result.get("lng") is None
+    ):
         return cached_result
 
     address = str(row_data.get("address", ""))
