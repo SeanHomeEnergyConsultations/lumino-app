@@ -41,8 +41,8 @@ def priority_color(score):
     colors = {
         4: [201, 168, 76, 220],
         3: [67, 160, 71, 220],
-        2: [124, 179, 66, 220],
-        1: [255, 112, 67, 220],
+        2: [38, 166, 154, 220],
+        1: [230, 126, 34, 220],
         0: [97, 97, 97, 180],
     }
     return colors.get(score, [97, 97, 97, 180])
@@ -439,6 +439,24 @@ def navigation_links(result):
         "apple": apple_url,
         "waze": waze_url,
     }
+
+
+def display_kw(value):
+    if value is None:
+        return "N/A"
+    return f"{value:,.1f} kW"
+
+
+def display_kwh(value):
+    if value is None:
+        return "N/A"
+    return f"{value:,.0f} kWh/yr"
+
+
+def display_area(value):
+    if value is None:
+        return "N/A"
+    return f"{value:,.1f} m²"
 
 
 def default_start_location(results):
@@ -1328,6 +1346,55 @@ if "all_results" in st.session_state:
                     info_cols[1].caption(f"Solar: {property_record.get('category', 'Unknown')}")
                     info_cols[2].caption(f"Sun: {property_record.get('sun_hours_display', 'N/A')}")
                     info_cols[3].caption(f"Zip: {property_record.get('zipcode', 'Unknown')}")
+
+                    if property_record["property_type"] == "Primary Stop":
+                        solar_metric_cols = st.columns(4)
+                        solar_metric_cols[0].metric(
+                            "Solar Fit",
+                            str(property_record.get("solar_fit_score", 0)),
+                        )
+                        solar_metric_cols[1].metric(
+                            "System Size",
+                            display_kw(property_record.get("system_capacity_kw")),
+                        )
+                        solar_metric_cols[2].metric(
+                            "Annual Output",
+                            display_kwh(property_record.get("yearly_energy_dc_kwh")),
+                        )
+                        solar_metric_cols[3].metric(
+                            "Max Panels",
+                            property_record.get("max_array_panels_count") or "N/A",
+                        )
+
+                        solar_detail_cols = st.columns(4)
+                        solar_detail_cols[0].caption(
+                            f"Usable Array Area: {display_area(property_record.get('max_array_area_m2'))}"
+                        )
+                        solar_detail_cols[1].caption(
+                            f"Roof Segments: {property_record.get('roof_segment_count') or 'N/A'}"
+                        )
+                        solar_detail_cols[2].caption(
+                            f"South-Facing Segments: {property_record.get('south_facing_segment_count') or 'N/A'}"
+                        )
+                        solar_detail_cols[3].caption(
+                            f"Imagery Quality: {property_record.get('imagery_quality') or 'N/A'}"
+                        )
+
+                        if property_record.get("whole_roof_area_m2") is not None or property_record.get("panel_capacity_watts") is not None:
+                            solar_note_parts = []
+                            if property_record.get("whole_roof_area_m2") is not None:
+                                solar_note_parts.append(
+                                    f"Whole roof area: {display_area(property_record.get('whole_roof_area_m2'))}"
+                                )
+                            if property_record.get("building_area_m2") is not None:
+                                solar_note_parts.append(
+                                    f"Building area: {display_area(property_record.get('building_area_m2'))}"
+                                )
+                            if property_record.get("panel_capacity_watts") is not None:
+                                solar_note_parts.append(
+                                    f"Panel model: {property_record.get('panel_capacity_watts'):,.0f} W"
+                                )
+                            st.caption(" · ".join(solar_note_parts))
 
                     status_col, interest_col = st.columns(2)
                     entry["status"] = status_col.selectbox(

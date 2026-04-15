@@ -28,21 +28,49 @@ def score_sqft(sqft):
     return 0, f"{sqft:,.0f} sq ft"
 
 
-def combined_priority(sun_score, value_score, sqft_score, doors_to_knock):
+def score_roof_capacity(max_panels_count, max_array_area_m2, yearly_energy_dc_kwh):
+    panels = max_panels_count or 0
+    area = max_array_area_m2 or 0
+    energy = yearly_energy_dc_kwh or 0
+    if panels >= 24 or area >= 45 or energy >= 12000:
+        return 2
+    if panels >= 14 or area >= 26 or energy >= 7000:
+        return 1
+    return 0
+
+
+def score_roof_complexity(roof_segment_count, south_facing_segment_count):
+    segments = roof_segment_count or 0
+    south_segments = south_facing_segment_count or 0
+    if not segments:
+        return 0
+    if segments <= 4 or south_segments >= max(1, round(segments * 0.5)):
+        return 1
+    return 0
+
+
+def score_solar_fit(sun_score, roof_capacity_score, roof_complexity_score):
     if sun_score == 0:
+        return 0
+    return sun_score + roof_capacity_score + roof_complexity_score
+
+
+def combined_priority(solar_fit_score, value_score, sqft_score, doors_to_knock):
+    if solar_fit_score == 0:
         return 0, "LOW — Poor solar potential"
 
-    total = sun_score + value_score + sqft_score
-    if doors_to_knock >= 3:
+    total = solar_fit_score + value_score + sqft_score
+    if doors_to_knock >= 8:
+        total += 2
+    elif doors_to_knock >= 3:
         total += 1
 
-    if total >= 8:
+    if solar_fit_score >= 6 and total >= 10:
         return 4, "PREMIUM — High value + great solar"
-    if total >= 6:
+    if solar_fit_score >= 4 and total >= 7:
         return 3, "HIGHEST — Park and knock multiple"
-    if total >= 4:
+    if solar_fit_score >= 3 and total >= 5:
         return 2, "HIGH — Worth stopping"
-    if total >= 2:
+    if solar_fit_score >= 2 and total >= 3:
         return 1, "MEDIUM — Quick stop"
     return 0, "LOW — Skip"
-

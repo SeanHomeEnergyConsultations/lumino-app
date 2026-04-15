@@ -3,8 +3,15 @@ import pandas as pd
 from engine.analysis_cache import get_cached_analysis, save_cached_analysis
 from engine.clustering import build_neighbor_analysis, get_walking_neighbors
 from engine.geo import extract_zip, get_coordinates, get_parking_ease, get_street_view_link
-from engine.scoring import combined_priority, score_home_value, score_sqft
-from engine.solar import classify_sun_hours, get_solar_hours
+from engine.scoring import (
+    combined_priority,
+    score_home_value,
+    score_roof_capacity,
+    score_roof_complexity,
+    score_solar_fit,
+    score_sqft,
+)
+from engine.solar import classify_sun_hours, get_solar_insights
 
 
 def parse_sale_price(price_thousands, price_remainder):
@@ -37,12 +44,18 @@ def format_date(date_val):
 
 def process_address(row_data, gmaps_client, key):
     cached_result = get_cached_analysis(row_data)
-    if cached_result and (
-        cached_result.get("sun_hours") is not None
-        or cached_result.get("lat") is None
-        or cached_result.get("lng") is None
-    ):
-        return cached_result
+    if cached_result:
+        has_modern_solar_fields = (
+            "solar_fit_score" in cached_result
+            and "max_array_panels_count" in cached_result
+            and "roof_capacity_score" in cached_result
+        )
+        if has_modern_solar_fields and (
+            cached_result.get("sun_hours") is not None
+            or cached_result.get("lat") is None
+            or cached_result.get("lng") is None
+        ):
+            return cached_result
 
     address = str(row_data.get("address", ""))
     sale_price = parse_sale_price(row_data.get("price"), row_data.get("price_remainder"))
@@ -70,6 +83,19 @@ def process_address(row_data, gmaps_client, key):
             "sun_hours": None,
             "sun_hours_display": "N/A",
             "category": "Unknown",
+            "solar_fit_score": 0,
+            "roof_capacity_score": 0,
+            "roof_complexity_score": 0,
+            "max_array_panels_count": None,
+            "max_array_area_m2": None,
+            "panel_capacity_watts": None,
+            "system_capacity_kw": None,
+            "yearly_energy_dc_kwh": None,
+            "roof_segment_count": None,
+            "south_facing_segment_count": None,
+            "whole_roof_area_m2": None,
+            "building_area_m2": None,
+            "imagery_quality": None,
             "street_view_link": get_street_view_link(None, None, address),
             "parking_ease": get_parking_ease(address),
             "walkable_count": 0,
@@ -93,9 +119,20 @@ def process_address(row_data, gmaps_client, key):
             "sqft_score": sqft_score,
         }
 
-    sun_hours = get_solar_hours(lat, lng, key)
+    solar_insights = get_solar_insights(lat, lng, key)
+    sun_hours = solar_insights.get("sun_hours")
     category, sun_score = classify_sun_hours(sun_hours)
     sun_hours_display = f"{sun_hours:.0f}" if sun_hours else "N/A"
+    roof_capacity_score = score_roof_capacity(
+        solar_insights.get("max_array_panels_count"),
+        solar_insights.get("max_array_area_m2"),
+        solar_insights.get("yearly_energy_dc_kwh"),
+    )
+    roof_complexity_score = score_roof_complexity(
+        solar_insights.get("roof_segment_count"),
+        solar_insights.get("south_facing_segment_count"),
+    )
+    solar_fit_score = score_solar_fit(sun_score, roof_capacity_score, roof_complexity_score)
 
     walkable_addresses = get_walking_neighbors(lat, lng, key, walk_seconds=150)
     neighbor_data, neighbor_records = build_neighbor_analysis(
@@ -119,7 +156,7 @@ def process_address(row_data, gmaps_client, key):
     knock_doors = [home["address"] for home in cluster if home.get("score", 0) >= 2]
 
     priority_score, priority_label = combined_priority(
-        sun_score,
+        solar_fit_score,
         value_score,
         sqft_score,
         len(knock_doors),
@@ -139,6 +176,19 @@ def process_address(row_data, gmaps_client, key):
         "sun_hours": sun_hours,
         "sun_hours_display": sun_hours_display,
         "category": category,
+        "solar_fit_score": solar_fit_score,
+        "roof_capacity_score": roof_capacity_score,
+        "roof_complexity_score": roof_complexity_score,
+        "max_array_panels_count": solar_insights.get("max_array_panels_count"),
+        "max_array_area_m2": solar_insights.get("max_array_area_m2"),
+        "panel_capacity_watts": solar_insights.get("panel_capacity_watts"),
+        "system_capacity_kw": solar_insights.get("system_capacity_kw"),
+        "yearly_energy_dc_kwh": solar_insights.get("yearly_energy_dc_kwh"),
+        "roof_segment_count": solar_insights.get("roof_segment_count"),
+        "south_facing_segment_count": solar_insights.get("south_facing_segment_count"),
+        "whole_roof_area_m2": solar_insights.get("whole_roof_area_m2"),
+        "building_area_m2": solar_insights.get("building_area_m2"),
+        "imagery_quality": solar_insights.get("imagery_quality"),
         "street_view_link": get_street_view_link(lat, lng, address),
         "parking_ease": get_parking_ease(address),
         "walkable_count": len(neighbor_data),
@@ -189,6 +239,19 @@ def build_processing_error_result(row_data, error_message):
         "sun_hours": None,
         "sun_hours_display": "N/A",
         "category": "Unknown",
+        "solar_fit_score": 0,
+        "roof_capacity_score": 0,
+        "roof_complexity_score": 0,
+        "max_array_panels_count": None,
+        "max_array_area_m2": None,
+        "panel_capacity_watts": None,
+        "system_capacity_kw": None,
+        "yearly_energy_dc_kwh": None,
+        "roof_segment_count": None,
+        "south_facing_segment_count": None,
+        "whole_roof_area_m2": None,
+        "building_area_m2": None,
+        "imagery_quality": None,
         "street_view_link": get_street_view_link(None, None, address),
         "parking_ease": get_parking_ease(address),
         "walkable_count": 0,

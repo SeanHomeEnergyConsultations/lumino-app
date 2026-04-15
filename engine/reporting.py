@@ -191,9 +191,11 @@ body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
             else result["parking_address"]
         )
         solar_tag_class = {
-            "Ideal": "tag-solar-ideal",
+            "Best": "tag-solar-ideal",
+            "Better": "tag-solar-good",
             "Good": "tag-solar-good",
-            "Marginal": "tag-solar-marginal",
+            "Low": "tag-solar-marginal",
+            "Too Low": "tag-solar-poor",
         }.get(result["category"], "tag-solar-poor")
         value_tag_class = "tag-value-high" if result.get("value_score", 0) >= 2 else "tag-value-mid"
         size_label = "Large" if (result["sqft"] or 0) >= 3000 else "Mid-Size" if (result["sqft"] or 0) >= 2000 else "Compact"

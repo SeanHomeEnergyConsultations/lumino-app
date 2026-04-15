@@ -58,6 +58,19 @@ def build_execution_properties(selected_results):
                 "sun_hours": result.get("sun_hours"),
                 "sun_hours_display": result.get("sun_hours_display", "N/A"),
                 "category": result.get("category", "Unknown"),
+                "solar_fit_score": result.get("solar_fit_score", 0),
+                "roof_capacity_score": result.get("roof_capacity_score", 0),
+                "roof_complexity_score": result.get("roof_complexity_score", 0),
+                "max_array_panels_count": result.get("max_array_panels_count"),
+                "max_array_area_m2": result.get("max_array_area_m2"),
+                "panel_capacity_watts": result.get("panel_capacity_watts"),
+                "system_capacity_kw": result.get("system_capacity_kw"),
+                "yearly_energy_dc_kwh": result.get("yearly_energy_dc_kwh"),
+                "roof_segment_count": result.get("roof_segment_count"),
+                "south_facing_segment_count": result.get("south_facing_segment_count"),
+                "whole_roof_area_m2": result.get("whole_roof_area_m2"),
+                "building_area_m2": result.get("building_area_m2"),
+                "imagery_quality": result.get("imagery_quality"),
                 "price_display": result.get("price_display", "N/A"),
                 "sqft_display": result.get("sqft_display", "N/A"),
                 "beds": result.get("beds", ""),
@@ -127,6 +140,14 @@ def build_follow_up_prompt(property_record, execution_entry):
         ("Priority", property_record.get("priority_label")),
         ("Solar category", property_record.get("category")),
         ("Sun hours", property_record.get("sun_hours_display")),
+        ("Solar fit score", property_record.get("solar_fit_score")),
+        ("System capacity", _format_kw(property_record.get("system_capacity_kw"))),
+        ("Yearly solar energy", _format_kwh(property_record.get("yearly_energy_dc_kwh"))),
+        ("Max panels", property_record.get("max_array_panels_count")),
+        ("Max array area", _format_area(property_record.get("max_array_area_m2"))),
+        ("Roof segments", property_record.get("roof_segment_count")),
+        ("South-facing segments", property_record.get("south_facing_segment_count")),
+        ("Imagery quality", property_record.get("imagery_quality")),
         ("Home value", property_record.get("price_display")),
         ("Square footage", property_record.get("sqft_display")),
         ("Beds/Baths", _format_beds_baths(property_record)),
@@ -176,3 +197,21 @@ def _clean_value(value):
         stripped = value.strip()
         return "" if stripped in {"", "N/A", "Unknown"} else stripped
     return str(value)
+
+
+def _format_kw(value):
+    if value is None:
+        return ""
+    return f"{value:,.1f} kW"
+
+
+def _format_kwh(value):
+    if value is None:
+        return ""
+    return f"{value:,.0f} kWh/yr"
+
+
+def _format_area(value):
+    if value is None:
+        return ""
+    return f"{value:,.1f} m²"
