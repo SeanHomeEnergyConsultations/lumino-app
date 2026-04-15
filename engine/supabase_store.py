@@ -1,4 +1,5 @@
 import os
+import math
 from datetime import datetime, timezone
 
 import requests
@@ -30,12 +31,13 @@ def _headers(prefer=None):
 
 
 def _request(method, path, *, params=None, json_body=None, prefer=None):
+    safe_json_body = _json_safe(json_body)
     response = requests.request(
         method,
         f"{_base_url()}/rest/v1/{path.lstrip('/')}",
         headers=_headers(prefer=prefer),
         params=params,
-        json=json_body,
+        json=safe_json_body,
         timeout=TIMEOUT_SECONDS,
     )
     if response.status_code >= 400:
@@ -47,6 +49,25 @@ def _request(method, path, *, params=None, json_body=None, prefer=None):
     if not response.text:
         return None
     return response.json()
+
+
+def _json_safe(value):
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    try:
+        if value is not None and hasattr(value, "item"):
+            return _json_safe(value.item())
+    except Exception:
+        return value
+    return value
 
 
 def _normalize_address(address):
