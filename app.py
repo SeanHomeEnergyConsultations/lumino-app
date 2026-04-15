@@ -29,6 +29,7 @@ from engine.supabase_store import (
     get_rep_options,
     get_route_drafts,
     load_route_draft_results,
+    save_analysis_result,
     save_route_draft,
     supabase_enabled,
     update_route_run_stop,
@@ -836,6 +837,8 @@ if uploaded_file:
             use_supabase = supabase_enabled()
             sheets_service = None if use_supabase else get_sheets_service()
             failed_addresses = []
+            supabase_saved = 0
+            supabase_failed = 0
 
             for i, (idx, row) in enumerate(df.loc[valid_idx].iterrows()):
                 addr = str(row[col_address]).strip()
@@ -876,6 +879,14 @@ if uploaded_file:
                     )
                     failed_addresses.append(addr)
 
+                if use_supabase:
+                    saved_record = save_analysis_result(row_data, result)
+                    if saved_record:
+                        result["lead_id"] = saved_record["lead_id"]
+                        supabase_saved += 1
+                    else:
+                        supabase_failed += 1
+
                 all_results.append(result)
                 st.session_state["all_results"] = all_results
                 st.session_state["current_route_draft_id"] = None
@@ -892,11 +903,19 @@ if uploaded_file:
             status_text.markdown("Analysis complete.")
             if use_supabase:
                 source_counts = summarize_result_sources(all_results)
-                st.success(
-                    "Supabase updated — "
-                    f"{source_counts['original_count']} original addresses and "
-                    f"{source_counts['neighbor_count']} cluster neighbors are now available in the shared analysis store."
-                )
+                if supabase_failed == 0:
+                    st.success(
+                        "Supabase updated — "
+                        f"{source_counts['original_count']} original addresses and "
+                        f"{source_counts['neighbor_count']} cluster neighbors are now available in the shared analysis store. "
+                        f"({supabase_saved} lead records synced successfully.)"
+                    )
+                else:
+                    st.warning(
+                        "Supabase sync was partial — "
+                        f"{supabase_saved} saved, {supabase_failed} failed. "
+                        "Lead pool and draft actions may be incomplete for this run."
+                    )
             elif sheets_service:
                 status_text.markdown("Analysis complete — syncing to Google Sheets...")
                 sheet_counts = sync_results_to_sheet(sheets_service, all_results)

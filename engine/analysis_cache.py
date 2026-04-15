@@ -3,7 +3,6 @@ from pathlib import Path
 
 from engine.cache_keys import make_analysis_cache_key
 from engine.supabase_store import get_cached_analysis as get_supabase_cached_analysis
-from engine.supabase_store import save_analysis_result as save_supabase_analysis_result
 
 
 CACHE_VERSION = 1
@@ -46,9 +45,7 @@ def get_cached_analysis(row_data):
     return None
 
 
-def save_cached_analysis(row_data, result, remote=True):
+def save_cached_analysis(row_data, result, remote=False):
     entries = _load_cache()
     entries[make_analysis_cache_key(row_data)] = result
     _save_cache(entries)
-    if remote:
-        save_supabase_analysis_result(row_data, result)

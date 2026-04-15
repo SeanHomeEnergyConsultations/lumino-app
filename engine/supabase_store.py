@@ -549,7 +549,7 @@ def update_route_run_stop(route_run_stop_id, *, stop_status=None, outcome=None, 
 
 def save_analysis_result(row_data, result):
     if not supabase_enabled():
-        return False
+        return None
 
     cache_key = make_analysis_cache_key(row_data)
     try:
@@ -561,7 +561,7 @@ def save_analysis_result(row_data, result):
             prefer="resolution=merge-duplicates,return=representation",
         )
         if not lead_rows:
-            return False
+            return None
         lead_id = lead_rows[0]["id"]
 
         existing_analysis = _request(
@@ -589,7 +589,7 @@ def save_analysis_result(row_data, result):
                 prefer="return=representation",
             )
             if not updated_rows:
-                return False
+                return None
             analysis_id = updated_rows[0]["id"]
         else:
             created_rows = _request(
@@ -599,7 +599,7 @@ def save_analysis_result(row_data, result):
                 prefer="return=representation",
             )
             if not created_rows:
-                return False
+                return None
             analysis_id = created_rows[0]["id"]
 
         _request(
@@ -615,9 +615,12 @@ def save_analysis_result(row_data, result):
                 json_body=neighbor_payloads,
                 prefer="return=minimal",
             )
-        return True
+        return {
+            "lead_id": lead_id,
+            "lead_analysis_id": analysis_id,
+        }
     except Exception:
-        return False
+        return None
 
 
 def _quoted(value):
