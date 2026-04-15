@@ -839,6 +839,7 @@ if uploaded_file:
             failed_addresses = []
             supabase_saved = 0
             supabase_failed = 0
+            supabase_errors = []
 
             for i, (idx, row) in enumerate(df.loc[valid_idx].iterrows()):
                 addr = str(row[col_address]).strip()
@@ -881,11 +882,13 @@ if uploaded_file:
 
                 if use_supabase:
                     saved_record = save_analysis_result(row_data, result)
-                    if saved_record:
+                    if saved_record and saved_record.get("ok"):
                         result["lead_id"] = saved_record["lead_id"]
                         supabase_saved += 1
                     else:
                         supabase_failed += 1
+                        if saved_record and saved_record.get("error"):
+                            supabase_errors.append(saved_record["error"])
 
                 all_results.append(result)
                 st.session_state["all_results"] = all_results
@@ -916,6 +919,8 @@ if uploaded_file:
                         f"{supabase_saved} saved, {supabase_failed} failed. "
                         "Lead pool and draft actions may be incomplete for this run."
                     )
+                    if supabase_errors:
+                        st.code("\n\n".join(supabase_errors[:3]), language="text")
             elif sheets_service:
                 status_text.markdown("Analysis complete — syncing to Google Sheets...")
                 sheet_counts = sync_results_to_sheet(sheets_service, all_results)

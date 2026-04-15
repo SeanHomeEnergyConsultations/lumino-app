@@ -38,7 +38,12 @@ def _request(method, path, *, params=None, json_body=None, prefer=None):
         json=json_body,
         timeout=TIMEOUT_SECONDS,
     )
-    response.raise_for_status()
+    if response.status_code >= 400:
+        try:
+            detail = response.json()
+        except Exception:
+            detail = response.text
+        raise RuntimeError(f"Supabase {method} {path} failed: {detail}")
     if not response.text:
         return None
     return response.json()
@@ -61,7 +66,7 @@ def _lead_payload(result):
         "phone": result.get("phone"),
         "email": result.get("email"),
         "notes": result.get("notes"),
-        "unqualified": result.get("unqualified"),
+        "unqualified": _coerce_bool(result.get("unqualified")),
         "unqualified_reason": result.get("unqualified_reason"),
         "listing_agent": result.get("listing_agent"),
         "source": "imported",
@@ -205,6 +210,19 @@ def _string_or_none(value):
         return None
     text = str(value).strip()
     return text if text else None
+
+
+def _coerce_bool(value):
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in {"", "nan", "none", "null"}:
+        return None
+    if text in {"true", "t", "yes", "y", "1"}:
+        return True
+    if text in {"false", "f", "no", "n", "0"}:
+        return False
+    return None
 
 
 def get_cached_analysis(row_data):
@@ -616,11 +634,15 @@ def save_analysis_result(row_data, result):
                 prefer="return=minimal",
             )
         return {
+            "ok": True,
             "lead_id": lead_id,
             "lead_analysis_id": analysis_id,
         }
-    except Exception:
-        return None
+    except Exception as err:
+        return {
+            "ok": False,
+            "error": str(err),
+        }
 
 
 def _quoted(value):
