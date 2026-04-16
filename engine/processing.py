@@ -42,8 +42,8 @@ def format_date(date_val):
         return str(date_val)
 
 
-def process_address(row_data, gmaps_client, key):
-    cached_result = get_cached_analysis(row_data)
+def process_address(row_data, gmaps_client, key, auth_context=None):
+    cached_result = get_cached_analysis(row_data, auth_context=auth_context)
     if cached_result:
         has_modern_solar_fields = (
             "solar_fit_score" in cached_result

@@ -23,11 +23,14 @@ from engine.persistence import load_app_snapshot, save_app_snapshot
 from engine.processing import build_processing_error_result, process_address
 from engine.reporting import build_route_csv, build_zip_summary, generate_html_report
 from engine.routing import optimize_route
+from engine.supabase_auth import sign_in_with_password, sign_out, supabase_auth_enabled
 from engine.supabase_store import (
     create_route_run,
+    get_current_app_user,
     get_open_lead_pool,
     get_rep_options,
     get_route_drafts,
+    get_user_memberships,
     load_route_draft_results,
     save_analysis_result,
     save_route_draft,
@@ -631,9 +634,92 @@ if "snapshot_loaded" not in st.session_state:
     st.session_state["last_snapshot_results_count"] = len(snapshot.get("all_results", []))
     st.session_state["snapshot_loaded"] = True
 
+if "auth_session" not in st.session_state:
+    st.session_state["auth_session"] = None
+if "selected_org_id" not in st.session_state:
+    st.session_state["selected_org_id"] = None
+
+auth_context = None
+current_app_user = None
+current_memberships = []
+auth_enabled = supabase_auth_enabled()
+base_auth_context = None
+if auth_enabled and st.session_state.get("auth_session"):
+    session_payload = st.session_state["auth_session"]
+    base_auth_context = {
+        "access_token": session_payload.get("access_token"),
+        "api_key": session_payload.get("api_key"),
+        "user_id": (session_payload.get("user") or {}).get("id"),
+    }
+    current_app_user = get_current_app_user(auth_context=base_auth_context)
+    if current_app_user:
+        current_memberships = get_user_memberships(auth_context=base_auth_context)
+        membership_ids = [item["organization_id"] for item in current_memberships if item.get("organization_id")]
+        if membership_ids:
+            default_org_id = (
+                st.session_state.get("selected_org_id")
+                or current_app_user.get("default_organization_id")
+                or membership_ids[0]
+            )
+            if default_org_id not in membership_ids:
+                default_org_id = membership_ids[0]
+            st.session_state["selected_org_id"] = default_org_id
+            auth_context = {
+                **base_auth_context,
+                "app_user_id": current_app_user["id"],
+                "organization_id": default_org_id,
+            }
+
 with st.sidebar:
     st.markdown("## SolarIQ")
     st.markdown("*Intelligent Solar Prospecting*")
+    if auth_enabled:
+        st.markdown("---")
+        st.markdown("**Account**")
+        if not st.session_state.get("auth_session"):
+            with st.form("login_form", clear_on_submit=False):
+                login_email = st.text_input("Email", key="login_email")
+                login_password = st.text_input("Password", type="password", key="login_password")
+                login_submitted = st.form_submit_button("Log In", use_container_width=True)
+            if login_submitted:
+                login_result = sign_in_with_password(login_email.strip(), login_password)
+                if login_result.get("ok"):
+                    login_result["api_key"] = (
+                        os.getenv("SUPABASE_ANON_KEY", "").strip()
+                        or os.getenv("SUPABASE_PUBLISHABLE_KEY", "").strip()
+                        or os.getenv("SUPABASE_SECRET_KEY", "").strip()
+                    )
+                    st.session_state["auth_session"] = login_result
+                    st.rerun()
+                else:
+                    st.error(login_result.get("error", "Could not sign in."))
+        else:
+            st.caption(current_app_user.get("email") if current_app_user else "Authenticated")
+            if current_memberships:
+                membership_labels = {
+                    f"{item.get('organization_name') or item.get('organization_slug') or item['organization_id']} · {item.get('role', 'member')}": item["organization_id"]
+                    for item in current_memberships
+                }
+                org_label = next(
+                    (
+                        label
+                        for label, org_id in membership_labels.items()
+                        if org_id == st.session_state.get("selected_org_id")
+                    ),
+                    next(iter(membership_labels)),
+                )
+                selected_org_label = st.selectbox(
+                    "Organization",
+                    options=list(membership_labels.keys()),
+                    index=list(membership_labels.keys()).index(org_label),
+                    key="org_switcher",
+                )
+                st.session_state["selected_org_id"] = membership_labels[selected_org_label]
+            if st.button("Log Out", use_container_width=True):
+                sign_out()
+                st.session_state["auth_session"] = None
+                st.session_state["selected_org_id"] = None
+                st.rerun()
     workspace_mode = st.radio(
         "Workspace",
         options=["Manager View", "Rep View"],
@@ -659,6 +745,13 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("[Open Google Sheet](https://docs.google.com/spreadsheets/d/1qpx34ySHm5XPYpkNQxVx33KWS_971K2X1aBwmKerGGs)")
 
+if base_auth_context and current_app_user and current_memberships and st.session_state.get("selected_org_id"):
+    auth_context = {
+        **base_auth_context,
+        "app_user_id": current_app_user["id"],
+        "organization_id": st.session_state["selected_org_id"],
+    }
+
 st.markdown("""
 <div style="padding:2rem 0 1.5rem;">
     <div style="display:flex;align-items:baseline;gap:14px;">
@@ -674,6 +767,18 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+if auth_enabled and not st.session_state.get("auth_session"):
+    st.info("Log in from the sidebar to access your organization’s lead pool, drafts, and routes.")
+    st.stop()
+
+if auth_enabled and st.session_state.get("auth_session") and not current_app_user:
+    st.error("Your authenticated account is not linked to an app profile yet.")
+    st.stop()
+
+if auth_enabled and st.session_state.get("auth_session") and not current_memberships:
+    st.warning("Your account is authenticated but not assigned to any organization yet.")
+    st.stop()
+
 if st.session_state.get("last_snapshot_results_count"):
     st.caption(
         f"Previous session found {st.session_state['last_snapshot_results_count']} analyzed leads. "
@@ -687,52 +792,8 @@ if supabase_enabled():
     pool_col, drafts_col = st.columns(2)
 
     if workspace_mode == "Manager View" and pool_col.button("Load Open Lead Pool", use_container_width=True):
-        pool_rows = get_open_lead_pool()
-        if pool_rows:
-            pool_results = []
-            for row in pool_rows:
-                pool_results.append(
-                    {
-                        "lead_id": row.get("id"),
-                        "address": row.get("address", ""),
-                        "lat": row.get("lat"),
-                        "lng": row.get("lng"),
-                        "zipcode": row.get("zipcode", "Unknown"),
-                        "sun_hours": row.get("sun_hours"),
-                        "sun_hours_display": f"{row['sun_hours']:.0f}" if row.get("sun_hours") else "N/A",
-                        "category": row.get("category", "Unknown"),
-                        "street_view_link": "",
-                        "parking_ease": "",
-                        "walkable_count": 0,
-                        "ideal_count": 0,
-                        "good_count": 0,
-                        "priority_score": row.get("priority_score", 0),
-                        "priority_label": row.get("priority_label", ""),
-                        "parking_address": row.get("address", ""),
-                        "doors_to_knock": row.get("doors_to_knock", 0),
-                        "knock_addresses": [row.get("address")] if row.get("address") else [],
-                        "neighbor_records": [],
-                        "sale_price": None,
-                        "price_display": "N/A",
-                        "value_badge": "Unknown",
-                        "sqft": None,
-                        "sqft_display": "N/A",
-                        "sold_date": "Unknown",
-                        "beds": "",
-                        "baths": "",
-                        "value_score": 0,
-                        "sqft_score": 0,
-                        "first_name": row.get("first_name"),
-                        "last_name": row.get("last_name"),
-                        "phone": row.get("phone"),
-                        "email": row.get("email"),
-                        "notes": row.get("notes"),
-                        "unqualified": row.get("unqualified"),
-                        "unqualified_reason": row.get("unqualified_reason"),
-                        "listing_agent": row.get("listing_agent"),
-                    }
-                )
-
+        pool_results = get_open_lead_pool(auth_context=auth_context)
+        if pool_results:
             st.session_state["all_results"] = pool_results
             save_app_snapshot(
                 all_results=pool_results,
@@ -750,7 +811,7 @@ if supabase_enabled():
         st.session_state["show_route_drafts"] = True
 
     if st.session_state.get("show_route_drafts"):
-        draft_rows = get_route_drafts()
+        draft_rows = get_route_drafts(auth_context=auth_context)
         if draft_rows:
             draft_options = {
                 f"{draft['name']} · {draft['status']} · "
@@ -764,7 +825,10 @@ if supabase_enabled():
                 key="saved_draft_select",
             )
             if st.button("Open Draft", use_container_width=True):
-                draft_results = load_route_draft_results(draft_options[selected_draft_label])
+                draft_results = load_route_draft_results(
+                    draft_options[selected_draft_label],
+                    auth_context=auth_context,
+                )
                 if draft_results:
                     st.session_state["all_results"] = draft_results
                     st.session_state["selected_route_addresses"] = {
@@ -852,7 +916,7 @@ if uploaded_file:
             progress_bar = st.progress(0)
             status_text = st.empty()
             total = len(valid_idx)
-            use_supabase = supabase_enabled()
+            use_supabase = supabase_enabled() and auth_context is not None
             sheets_service = None if use_supabase else get_sheets_service()
             failed_addresses = []
             supabase_saved = 0
@@ -888,7 +952,7 @@ if uploaded_file:
                 }
                 try:
                     result = enrich_result_with_source_fields(
-                        process_address(row_data, gmaps_client, api_key),
+                        process_address(row_data, gmaps_client, api_key, auth_context=auth_context),
                         row_data,
                     )
                 except Exception as err:
@@ -899,7 +963,7 @@ if uploaded_file:
                     failed_addresses.append(addr)
 
                 if use_supabase:
-                    saved_record = save_analysis_result(row_data, result)
+                    saved_record = save_analysis_result(row_data, result, auth_context=auth_context)
                     if saved_record and saved_record.get("ok"):
                         result["lead_id"] = saved_record["lead_id"]
                         supabase_saved += 1
@@ -1062,7 +1126,7 @@ if "all_results" in st.session_state:
         if supabase_enabled():
             st.markdown('<div class="siq-section">Save Route Draft</div>', unsafe_allow_html=True)
             st.markdown("Save the selected stops for yourself or assign them to a rep.")
-            rep_rows = get_rep_options()
+            rep_rows = get_rep_options(auth_context=auth_context)
             rep_labels = ["Unassigned"] + [
                 f"{rep.get('full_name') or rep.get('email') or rep['id']} · {rep.get('role', 'rep')}"
                 for rep in rep_rows
@@ -1087,6 +1151,7 @@ if "all_results" in st.session_state:
                     draft_name.strip() or f"Route Draft {datetime.now().strftime('%Y-%m-%d %H:%M')}",
                     selected,
                     assigned_rep_id=rep_lookup.get(assigned_rep_label),
+                    auth_context=auth_context,
                 )
                 if draft:
                     st.session_state["current_route_draft_id"] = draft["id"]
@@ -1172,6 +1237,7 @@ if "all_results" in st.session_state:
                     start_lat=start_lat,
                     start_lng=start_lng,
                     start_label="Current location",
+                    auth_context=auth_context,
                 )
                 if route_run:
                     stop_map = {
@@ -1313,6 +1379,7 @@ if "all_results" in st.session_state:
                             active_result["route_run_stop_id"],
                             stop_status="completed",
                             outcome="callback",
+                            auth_context=auth_context,
                         ):
                             active_result["route_run_status"] = "completed"
                             st.success("Stop marked complete.")
@@ -1326,6 +1393,7 @@ if "all_results" in st.session_state:
                             active_result["route_run_stop_id"],
                             stop_status="skipped",
                             skipped_reason="Skipped in field",
+                            auth_context=auth_context,
                         ):
                             active_result["route_run_status"] = "skipped"
                             st.success("Stop marked skipped.")

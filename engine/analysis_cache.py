@@ -32,13 +32,13 @@ def _save_cache(entries):
     except Exception:
         pass
 
-def get_cached_analysis(row_data):
+def get_cached_analysis(row_data, auth_context=None):
     entries = _load_cache()
     cached = entries.get(make_analysis_cache_key(row_data))
     if cached:
         return cached
 
-    remote_cached = get_supabase_cached_analysis(row_data)
+    remote_cached = get_supabase_cached_analysis(row_data, auth_context=auth_context)
     if remote_cached:
         save_cached_analysis(row_data, remote_cached, remote=False)
         return remote_cached

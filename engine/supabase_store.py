@@ -18,11 +18,20 @@ def _base_url():
     return os.getenv("SUPABASE_URL", "").rstrip("/")
 
 
-def _headers(prefer=None):
-    key = os.getenv("SUPABASE_SECRET_KEY", "").strip()
+def _public_key():
+    return (
+        os.getenv("SUPABASE_ANON_KEY", "").strip()
+        or os.getenv("SUPABASE_PUBLISHABLE_KEY", "").strip()
+        or os.getenv("SUPABASE_SECRET_KEY", "").strip()
+    )
+
+
+def _headers(prefer=None, auth_context=None):
+    key = (auth_context or {}).get("api_key") or _public_key()
+    bearer = (auth_context or {}).get("access_token") or os.getenv("SUPABASE_SECRET_KEY", "").strip()
     headers = {
         "apikey": key,
-        "Authorization": f"Bearer {key}",
+        "Authorization": f"Bearer {bearer}",
         "Content-Type": "application/json",
     }
     if prefer:
@@ -30,12 +39,12 @@ def _headers(prefer=None):
     return headers
 
 
-def _request(method, path, *, params=None, json_body=None, prefer=None):
+def _request(method, path, *, params=None, json_body=None, prefer=None, auth_context=None):
     safe_json_body = _json_safe(json_body)
     response = requests.request(
         method,
         f"{_base_url()}/rest/v1/{path.lstrip('/')}",
-        headers=_headers(prefer=prefer),
+        headers=_headers(prefer=prefer, auth_context=auth_context),
         params=params,
         json=safe_json_body,
         timeout=TIMEOUT_SECONDS,
@@ -338,7 +347,7 @@ def _merge_solar_details(result, solar_details):
     return merged
 
 
-def get_cached_analysis(row_data):
+def get_cached_analysis(row_data, auth_context=None):
     if not supabase_enabled():
         return None
 
@@ -356,6 +365,7 @@ def get_cached_analysis(row_data):
                 ),
                 "limit": "1",
             },
+            auth_context=auth_context,
         )
         if rows:
             return _result_from_supabase_row(rows[0])
@@ -364,7 +374,7 @@ def get_cached_analysis(row_data):
     return None
 
 
-def get_open_lead_pool(limit=500):
+def get_open_lead_pool(limit=500, auth_context=None):
     if not supabase_enabled():
         return []
 
@@ -378,7 +388,7 @@ def get_open_lead_pool(limit=500):
         "limit": str(limit),
     }
     try:
-        rows = _request("GET", "open_lead_pool", params=params)
+        rows = _request("GET", "open_lead_pool", params=params, auth_context=auth_context)
     except Exception as err:
         if not _missing_solar_details_column(err):
             return []
@@ -395,33 +405,108 @@ def get_open_lead_pool(limit=500):
                     "order": "priority_score.desc,doors_to_knock.desc,address.asc",
                     "limit": str(limit),
                 },
+                auth_context=auth_context,
             )
         except Exception:
             return []
     return [_open_lead_pool_row_to_result(row) for row in (rows or [])]
 
 
-def get_rep_options():
+def get_rep_options(auth_context=None):
     if not supabase_enabled():
         return []
 
+    try:
+        app_user = get_current_app_user(auth_context=auth_context)
+        org_id = (auth_context or {}).get("organization_id")
+        if not app_user or not org_id:
+            return []
+        rows = _request(
+            "GET",
+            "organization_members",
+            params={
+                "organization_id": f"eq.{org_id}",
+                "is_active": "eq.true",
+                "select": "role,app_users!organization_members_user_id_fkey(id,full_name,email,role)",
+                "order": "app_users(full_name).asc",
+            },
+            auth_context=auth_context,
+        )
+        return [
+            {
+                "id": row["app_users"]["id"],
+                "full_name": row["app_users"].get("full_name"),
+                "email": row["app_users"].get("email"),
+                "role": row.get("role") or row["app_users"].get("role"),
+            }
+            for row in (rows or [])
+            if row.get("app_users")
+        ]
+    except Exception:
+        return []
+
+
+def get_current_app_user(auth_context=None):
+    if not supabase_enabled() or not auth_context:
+        return None
+    user_id = auth_context.get("user_id")
+    if not user_id:
+        return None
     try:
         rows = _request(
             "GET",
             "app_users",
             params={
-                "select": "id,full_name,email,role",
-                "is_active": "eq.true",
-                "order": "full_name.asc",
+                "external_auth_id": f"eq.{user_id}",
+                "select": "id,email,full_name,role,default_organization_id",
+                "limit": "1",
             },
+            auth_context=auth_context,
         )
-        return rows or []
+        return (rows or [None])[0]
+    except Exception:
+        return None
+
+
+def get_user_memberships(auth_context=None):
+    app_user = get_current_app_user(auth_context=auth_context)
+    if not app_user:
+        return []
+    try:
+        rows = _request(
+            "GET",
+            "organization_members",
+            params={
+                "user_id": f"eq.{app_user['id']}",
+                "is_active": "eq.true",
+                "select": "organization_id,role,organizations(id,name,slug,status,billing_plan)",
+            },
+            auth_context=auth_context,
+        )
+        memberships = []
+        for row in rows or []:
+            org = row.get("organizations") or {}
+            memberships.append(
+                {
+                    "organization_id": row.get("organization_id"),
+                    "role": row.get("role"),
+                    "organization_name": org.get("name"),
+                    "organization_slug": org.get("slug"),
+                    "organization_status": org.get("status"),
+                    "billing_plan": org.get("billing_plan"),
+                }
+            )
+        return memberships
     except Exception:
         return []
 
 
-def save_route_draft(name, selected_results, assigned_rep_id=None):
+def save_route_draft(name, selected_results, assigned_rep_id=None, auth_context=None):
     if not supabase_enabled() or not selected_results:
+        return None
+    organization_id = (auth_context or {}).get("organization_id")
+    current_user_id = (auth_context or {}).get("app_user_id")
+    if not organization_id:
         return None
 
     try:
@@ -429,12 +514,15 @@ def save_route_draft(name, selected_results, assigned_rep_id=None):
             "POST",
             "route_drafts",
             json_body={
+                "organization_id": organization_id,
                 "name": name,
+                "created_by": current_user_id,
                 "assigned_rep_id": assigned_rep_id or None,
                 "status": "assigned" if assigned_rep_id else "draft",
                 "selection_mode": "manual",
             },
             prefer="return=representation",
+            auth_context=auth_context,
         )
         if not draft_rows:
             return None
@@ -451,6 +539,7 @@ def save_route_draft(name, selected_results, assigned_rep_id=None):
                     "select": "id,address,normalized_address",
                     "id": f"in.({','.join(_quoted(lead_id) for lead_id in direct_lead_ids)})",
                 },
+                auth_context=auth_context,
             )
             lead_lookup = {row["id"]: row for row in (lead_rows or [])}
         else:
@@ -461,6 +550,7 @@ def save_route_draft(name, selected_results, assigned_rep_id=None):
                     "select": "id,address,normalized_address",
                     "normalized_address": f"in.({','.join(_quoted(_normalize_address(item.get('address'))) for item in selected_results if item.get('address'))})",
                 },
+                auth_context=auth_context,
             )
             lead_lookup = {row["normalized_address"]: row for row in (lead_rows or [])}
 
@@ -478,6 +568,7 @@ def save_route_draft(name, selected_results, assigned_rep_id=None):
                 {
                     "route_draft_id": draft_id,
                     "lead_id": lead_row["id"],
+                    "selected_by": current_user_id,
                     "priority_score": result.get("priority_score"),
                     "sort_order": idx,
                     "selection_reason": "Selected in planning workspace",
@@ -490,6 +581,7 @@ def save_route_draft(name, selected_results, assigned_rep_id=None):
                 "route_draft_stops",
                 json_body=stop_payloads,
                 prefer="return=minimal",
+                auth_context=auth_context,
             )
 
             _request(
@@ -503,6 +595,7 @@ def save_route_draft(name, selected_results, assigned_rep_id=None):
                     "assigned_to": assigned_rep_id or None,
                 },
                 prefer="return=minimal",
+                auth_context=auth_context,
             )
 
         return draft_rows[0]
@@ -510,7 +603,7 @@ def save_route_draft(name, selected_results, assigned_rep_id=None):
         return None
 
 
-def get_route_drafts(limit=100):
+def get_route_drafts(limit=100, auth_context=None):
     if not supabase_enabled():
         return []
 
@@ -523,13 +616,14 @@ def get_route_drafts(limit=100):
                 "order": "created_at.desc",
                 "limit": str(limit),
             },
+            auth_context=auth_context,
         )
         return rows or []
     except Exception:
         return []
 
 
-def load_route_draft_results(route_draft_id):
+def load_route_draft_results(route_draft_id, auth_context=None):
     if not supabase_enabled():
         return []
 
@@ -542,6 +636,7 @@ def load_route_draft_results(route_draft_id):
                 "select": "lead_id,sort_order",
                 "order": "sort_order.asc",
             },
+            auth_context=auth_context,
         )
         if not stop_rows:
             return []
@@ -557,6 +652,7 @@ def load_route_draft_results(route_draft_id):
                 "id": f"in.({','.join(_quoted(lead_id) for lead_id in lead_ids)})",
                 "select": "id,address,zipcode,lat,lng,first_name,last_name,phone,email,notes,unqualified,unqualified_reason,listing_agent",
             },
+            auth_context=auth_context,
         ) or []
         lead_lookup = {row["id"]: row for row in lead_rows}
 
@@ -567,6 +663,7 @@ def load_route_draft_results(route_draft_id):
                 "lead_id": f"in.({','.join(_quoted(lead_id) for lead_id in lead_ids)})",
                 "select": "*",
             },
+            auth_context=auth_context,
         ) or []
         analysis_lookup = {row["lead_id"]: row for row in analysis_rows}
 
@@ -580,6 +677,7 @@ def load_route_draft_results(route_draft_id):
                     "lead_analysis_id": f"in.({','.join(_quoted(analysis_id) for analysis_id in analysis_ids)})",
                     "select": "lead_analysis_id,address,zipcode,lat,lng,sun_hours,sun_hours_display,category,priority_score",
                 },
+                auth_context=auth_context,
             ) or []
             for neighbor in neighbor_rows:
                 neighbor_lookup.setdefault(neighbor["lead_analysis_id"], []).append(neighbor)
@@ -599,8 +697,12 @@ def load_route_draft_results(route_draft_id):
         return []
 
 
-def create_route_run(route_draft_id, selected_results, start_lat=None, start_lng=None, start_label=None):
+def create_route_run(route_draft_id, selected_results, start_lat=None, start_lng=None, start_label=None, auth_context=None):
     if not supabase_enabled() or not selected_results:
+        return None
+    organization_id = (auth_context or {}).get("organization_id")
+    current_user_id = (auth_context or {}).get("app_user_id")
+    if not organization_id:
         return None
 
     try:
@@ -608,7 +710,9 @@ def create_route_run(route_draft_id, selected_results, start_lat=None, start_lng
             "POST",
             "route_runs",
             json_body={
+                "organization_id": organization_id,
                 "route_draft_id": route_draft_id,
+                "rep_id": current_user_id,
                 "status": "active",
                 "optimization_mode": "drive_time",
                 "started_from_lat": start_lat,
@@ -616,6 +720,7 @@ def create_route_run(route_draft_id, selected_results, start_lat=None, start_lng
                 "started_from_label": start_label or "Current location placeholder",
             },
             prefer="return=representation",
+            auth_context=auth_context,
         )
         if not route_run_rows:
             return None
@@ -643,6 +748,7 @@ def create_route_run(route_draft_id, selected_results, start_lat=None, start_lng
                 "route_run_stops",
                 json_body=stop_payloads,
                 prefer="return=representation",
+                auth_context=auth_context,
             ) or []
 
         _request(
@@ -656,8 +762,10 @@ def create_route_run(route_draft_id, selected_results, start_lat=None, start_lng
                     "start_lng": start_lng,
                     "stop_count": len(stop_payloads),
                 },
+                "created_by": current_user_id,
             },
             prefer="return=minimal",
+            auth_context=auth_context,
         )
 
         return {"route_run": route_run, "route_run_stops": route_run_stops}
@@ -665,7 +773,7 @@ def create_route_run(route_draft_id, selected_results, start_lat=None, start_lng
         return None
 
 
-def update_route_run_stop(route_run_stop_id, *, stop_status=None, outcome=None, skipped_reason=None):
+def update_route_run_stop(route_run_stop_id, *, stop_status=None, outcome=None, skipped_reason=None, auth_context=None):
     if not supabase_enabled():
         return False
 
@@ -686,24 +794,34 @@ def update_route_run_stop(route_run_stop_id, *, stop_status=None, outcome=None, 
             params={"id": f"eq.{route_run_stop_id}"},
             json_body=payload,
             prefer="return=minimal",
+            auth_context=auth_context,
         )
         return True
     except Exception:
         return False
 
 
-def save_analysis_result(row_data, result):
+def save_analysis_result(row_data, result, auth_context=None):
     if not supabase_enabled():
         return None
+    organization_id = (auth_context or {}).get("organization_id")
+    current_user_id = (auth_context or {}).get("app_user_id")
+    if not organization_id:
+        return {"ok": False, "error": "No active organization selected."}
 
     cache_key = make_analysis_cache_key(row_data)
     try:
         lead_rows = _request(
             "POST",
             "leads",
-            params={"on_conflict": "normalized_address"},
-            json_body=_lead_payload(result),
+            params={"on_conflict": "organization_id,normalized_address"},
+            json_body={
+                **_lead_payload(result),
+                "organization_id": organization_id,
+                "created_by": current_user_id,
+            },
             prefer="resolution=merge-duplicates,return=representation",
+            auth_context=auth_context,
         )
         if not lead_rows:
             return None
@@ -718,6 +836,7 @@ def save_analysis_result(row_data, result):
                 "order": "updated_at.desc",
                 "limit": "1",
             },
+            auth_context=auth_context,
         )
 
         analysis_payload = _analysis_payload(cache_key, lead_id, result)
@@ -735,6 +854,7 @@ def save_analysis_result(row_data, result):
                     },
                     json_body=analysis_payload,
                     prefer="return=representation",
+                    auth_context=auth_context,
                 )
             except Exception as err:
                 if not _missing_solar_details_column(err):
@@ -748,6 +868,7 @@ def save_analysis_result(row_data, result):
                     },
                     json_body=legacy_analysis_payload,
                     prefer="return=representation",
+                    auth_context=auth_context,
                 )
             if not updated_rows:
                 return None
@@ -759,6 +880,7 @@ def save_analysis_result(row_data, result):
                     "lead_analysis",
                     json_body=analysis_payload,
                     prefer="return=representation",
+                    auth_context=auth_context,
                 )
             except Exception as err:
                 if not _missing_solar_details_column(err):
@@ -768,6 +890,7 @@ def save_analysis_result(row_data, result):
                     "lead_analysis",
                     json_body=legacy_analysis_payload,
                     prefer="return=representation",
+                    auth_context=auth_context,
                 )
             if not created_rows:
                 return None
@@ -777,6 +900,7 @@ def save_analysis_result(row_data, result):
             "DELETE",
             "lead_neighbors",
             params={"lead_analysis_id": f"eq.{analysis_id}"},
+            auth_context=auth_context,
         )
         neighbor_payloads = _neighbor_payloads(analysis_id, result)
         if neighbor_payloads:
@@ -785,6 +909,7 @@ def save_analysis_result(row_data, result):
                 "lead_neighbors",
                 json_body=neighbor_payloads,
                 prefer="return=minimal",
+                auth_context=auth_context,
             )
         return {
             "ok": True,
