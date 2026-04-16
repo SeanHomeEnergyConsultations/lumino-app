@@ -29,14 +29,22 @@ def _public_key():
     )
 
 
+def _looks_like_jwt(value):
+    token = str(value or "").strip()
+    return token.count(".") == 2
+
+
 def _headers(prefer=None, auth_context=None):
     key = (auth_context or {}).get("api_key") or _public_key()
-    bearer = (auth_context or {}).get("access_token") or os.getenv("SUPABASE_SECRET_KEY", "").strip()
     headers = {
         "apikey": key,
-        "Authorization": f"Bearer {bearer}",
         "Content-Type": "application/json",
     }
+    bearer = (auth_context or {}).get("access_token")
+    if bearer:
+        headers["Authorization"] = f"Bearer {bearer}"
+    elif _looks_like_jwt(key):
+        headers["Authorization"] = f"Bearer {key}"
     if prefer:
         headers["Prefer"] = prefer
     return headers
