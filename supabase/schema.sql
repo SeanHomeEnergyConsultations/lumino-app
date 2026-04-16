@@ -589,7 +589,16 @@ drop policy if exists "org members view leads" on public.leads;
 create policy "org members view leads"
 on public.leads
 for select
-using (organization_id in (select public.current_org_ids()));
+using (
+  public.has_org_role(organization_id, array['owner', 'admin', 'manager'])
+  or (
+    public.has_org_role(organization_id, array['rep'])
+    and (
+      assigned_to = public.current_app_user_id()
+      or created_by = public.current_app_user_id()
+    )
+  )
+);
 
 drop policy if exists "org managers manage leads" on public.leads;
 create policy "org managers manage leads"
@@ -607,7 +616,16 @@ using (
     select 1
     from public.leads l
     where l.id = public.lead_analysis.lead_id
-      and l.organization_id in (select public.current_org_ids())
+      and (
+        public.has_org_role(l.organization_id, array['owner', 'admin', 'manager'])
+        or (
+          public.has_org_role(l.organization_id, array['rep'])
+          and (
+            l.assigned_to = public.current_app_user_id()
+            or l.created_by = public.current_app_user_id()
+          )
+        )
+      )
   )
 );
 
@@ -642,7 +660,16 @@ using (
     from public.lead_analysis la
     join public.leads l on l.id = la.lead_id
     where la.id = public.lead_neighbors.lead_analysis_id
-      and l.organization_id in (select public.current_org_ids())
+      and (
+        public.has_org_role(l.organization_id, array['owner', 'admin', 'manager'])
+        or (
+          public.has_org_role(l.organization_id, array['rep'])
+          and (
+            l.assigned_to = public.current_app_user_id()
+            or l.created_by = public.current_app_user_id()
+          )
+        )
+      )
   )
 );
 

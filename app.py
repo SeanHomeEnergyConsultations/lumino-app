@@ -40,6 +40,7 @@ from engine.supabase_store import (
     create_route_run,
     get_current_app_user,
     get_open_lead_pool,
+    get_visible_leads,
     get_rep_options,
     get_route_drafts,
     get_user_memberships,
@@ -2159,6 +2160,110 @@ def render_people_hub(current_app_user, auth_context):
     st.dataframe(profile_preview, use_container_width=True, hide_index=True)
 
 
+def render_leads_hub(current_app_user, auth_context, active_org_role):
+    st.markdown('<div class="siq-section">Leads</div>', unsafe_allow_html=True)
+    st.markdown("Review every saved lead in one place, with visibility scoped to the signed-in role.")
+
+    if not auth_context or not supabase_enabled():
+        st.info("Lead storage becomes available once Supabase auth and data access are active.")
+        return
+
+    lead_rows = get_visible_leads(auth_context=auth_context)
+    if not lead_rows:
+        if can_access_manager_workspace(active_org_role):
+            st.info("No leads are stored for this organization yet.")
+        else:
+            st.info("No leads assigned to you or created by you are stored yet.")
+        return
+
+    people_lookup = {}
+    if current_app_user and current_app_user.get("id"):
+        people_lookup[current_app_user["id"]] = (
+            current_app_user.get("full_name") or current_app_user.get("email") or current_app_user["id"]
+        )
+    for person in get_rep_options(auth_context=auth_context):
+        if person.get("id"):
+            people_lookup[person["id"]] = person.get("full_name") or person.get("email") or person["id"]
+
+    prepared_rows = []
+    for row in lead_rows:
+        homeowner_name = " ".join(
+            part.strip()
+            for part in [row.get("first_name") or "", row.get("last_name") or ""]
+            if part and str(part).strip()
+        ).strip()
+        assigned_to_label = people_lookup.get(row.get("assigned_to")) or (
+            "Unassigned" if not row.get("assigned_to") else row.get("assigned_to")
+        )
+        created_by_label = people_lookup.get(row.get("created_by")) or (
+            "Unknown" if not row.get("created_by") else row.get("created_by")
+        )
+        prepared_rows.append(
+            {
+                "Address": row.get("address") or "",
+                "Homeowner": homeowner_name,
+                "Phone": row.get("phone") or "",
+                "Email": row.get("email") or "",
+                "Status": str(row.get("status") or "open").replace("_", " ").title(),
+                "Assignment": str(row.get("assignment_status") or "unassigned").replace("_", " ").title(),
+                "Assigned To": assigned_to_label,
+                "Created By": created_by_label,
+                "ZIP": row.get("zipcode") or "",
+                "Qualified": "No" if row.get("unqualified") else "Yes",
+                "Updated": (row.get("updated_at") or row.get("created_at") or "")[:10],
+                "_search_blob": " ".join(
+                    str(value or "")
+                    for value in [
+                        row.get("address"),
+                        homeowner_name,
+                        row.get("phone"),
+                        row.get("email"),
+                        assigned_to_label,
+                        created_by_label,
+                    ]
+                ).lower(),
+            }
+        )
+
+    search_col, status_col, assignment_col = st.columns([1.6, 0.8, 0.8])
+    search_term = search_col.text_input(
+        "Search Leads",
+        placeholder="Address, homeowner, phone, email, or owner",
+        key="leads_search",
+    ).strip().lower()
+    status_filter = status_col.selectbox(
+        "Status",
+        options=["All"] + sorted({row["Status"] for row in prepared_rows}),
+        key="leads_status_filter",
+    )
+    assignment_filter = assignment_col.selectbox(
+        "Assignment",
+        options=["All"] + sorted({row["Assignment"] for row in prepared_rows}),
+        key="leads_assignment_filter",
+    )
+
+    filtered_rows = [
+        row
+        for row in prepared_rows
+        if (not search_term or search_term in row["_search_blob"])
+        and (status_filter == "All" or row["Status"] == status_filter)
+        and (assignment_filter == "All" or row["Assignment"] == assignment_filter)
+    ]
+
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Visible Leads", len(filtered_rows))
+    metric_cols[1].metric("Assigned", sum(1 for row in filtered_rows if row["Assignment"] != "Unassigned"))
+    metric_cols[2].metric("Unassigned", sum(1 for row in filtered_rows if row["Assignment"] == "Unassigned"))
+    metric_cols[3].metric("Qualified", sum(1 for row in filtered_rows if row["Qualified"] == "Yes"))
+
+    if not filtered_rows:
+        st.info("No leads matched the current filters.")
+        return
+
+    display_rows = [{key: value for key, value in row.items() if not key.startswith("_")} for row in filtered_rows]
+    st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True, height=520)
+
+
 def render_onboarding_hub(current_app_user, auth_context):
     st.markdown('<div class="siq-section">Onboarding</div>', unsafe_allow_html=True)
     st.markdown("Bring new reps into the system with a simple intake flow, readiness checklist, and onboarding pipeline.")
@@ -3740,11 +3845,11 @@ if workspace_mode == "Manager View" and st.session_state.get("last_snapshot_resu
 
 workspace_tab_label = "Workspace" if workspace_mode == "Manager View" else "Turf"
 if manager_workspace_enabled:
-    workspace_tab, team_tab, performance_tab, onboarding_tab = st.tabs(
-        [workspace_tab_label, "People", "Performance", "Onboarding"]
+    workspace_tab, leads_tab, team_tab, performance_tab, onboarding_tab = st.tabs(
+        [workspace_tab_label, "Leads", "People", "Performance", "Onboarding"]
     )
 else:
-    workspace_tab, team_tab = st.tabs([workspace_tab_label, "People"])
+    workspace_tab, leads_tab, team_tab = st.tabs([workspace_tab_label, "Leads", "People"])
     performance_tab = None
     onboarding_tab = None
 
@@ -3829,6 +3934,14 @@ with team_tab:
         ["Profiles", "Badges", "Contact", "Recognition"],
     )
     render_people_hub(current_app_user, auth_context)
+
+with leads_tab:
+    render_context_shell(
+        "Leads Context",
+        "Browse the organization lead book in one place, with rep visibility limited to their own created or assigned leads.",
+        ["Search", "Ownership", "Status", "Follow-up"],
+    )
+    render_leads_hub(current_app_user, auth_context, active_org_role)
 
 if performance_tab is not None:
     with performance_tab:

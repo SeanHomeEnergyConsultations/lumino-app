@@ -454,6 +454,38 @@ def get_open_lead_pool(limit=500, auth_context=None):
     return [_open_lead_pool_row_to_result(row) for row in (rows or [])]
 
 
+def get_visible_leads(limit=1000, auth_context=None):
+    if not supabase_enabled():
+        return []
+
+    organization_id = (auth_context or {}).get("organization_id")
+    current_user_id = (auth_context or {}).get("app_user_id")
+    if not organization_id:
+        return []
+
+    params = {
+        "organization_id": f"eq.{organization_id}",
+        "select": (
+            "id,address,zipcode,status,assignment_status,assigned_to,created_by,"
+            "first_name,last_name,phone,email,notes,unqualified,unqualified_reason,"
+            "listing_agent,created_at,updated_at"
+        ),
+        "order": "updated_at.desc,address.asc",
+        "limit": str(limit),
+    }
+
+    if auth_context and not can_access_manager_workspace(auth_context=auth_context):
+        if not current_user_id:
+            return []
+        params["or"] = f"(created_by.eq.{current_user_id},assigned_to.eq.{current_user_id})"
+
+    try:
+        rows = _request("GET", "leads", params=params, auth_context=auth_context)
+        return rows or []
+    except Exception:
+        return []
+
+
 def get_rep_options(auth_context=None):
     if not supabase_enabled():
         return []
