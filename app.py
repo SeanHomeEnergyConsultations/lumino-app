@@ -27,7 +27,14 @@ from engine.persistence import load_app_snapshot, save_app_snapshot
 from engine.processing import build_processing_error_result, process_address
 from engine.reporting import build_route_csv, build_zip_summary, generate_html_report
 from engine.routing import optimize_route
-from engine.supabase_auth import sign_in_with_password, sign_out, supabase_auth_enabled
+from engine.supabase_auth import (
+    send_password_reset_email,
+    sign_in_with_password,
+    sign_out,
+    supabase_auth_enabled,
+    update_user_password,
+    verify_otp_token,
+)
 from engine.supabase_store import (
     create_onboarding_user,
     create_route_run,
@@ -154,6 +161,98 @@ def map_center(map_df):
     if not (-90 <= lat <= 90 and -180 <= lng <= 180):
         return 42.3601, -71.0589
     return lat, lng
+
+
+def public_app_url():
+    for env_name in ["APP_URL", "PUBLIC_APP_URL", "RAILWAY_STATIC_URL", "RAILWAY_PUBLIC_DOMAIN"]:
+        value = str(os.getenv(env_name, "")).strip()
+        if not value:
+            continue
+        if value.startswith("http://") or value.startswith("https://"):
+            return value.rstrip("/")
+        return f"https://{value}".rstrip("/")
+    return None
+
+
+def password_setup_redirect_url():
+    base_url = public_app_url()
+    if not base_url:
+        return None
+    return f"{base_url}/?mode=set-password"
+
+
+def render_password_setup_screen():
+    st.markdown("## Set Your Password")
+    st.markdown("Choose a password for your Lumino account to finish setup.")
+
+    query_params = st.query_params
+    token_hash = str(query_params.get("token_hash", "")).strip()
+    otp_type = str(query_params.get("type", "recovery")).strip() or "recovery"
+    recovery_error = str(query_params.get("error_description") or query_params.get("error") or "").strip()
+
+    if recovery_error:
+        st.error(urllib.parse.unquote(recovery_error))
+
+    recovery_session = st.session_state.get("recovery_session")
+    if token_hash and (
+        not recovery_session
+        or recovery_session.get("token_hash") != token_hash
+        or recovery_session.get("type") != otp_type
+    ):
+        verify_result = verify_otp_token(token_hash, otp_type=otp_type)
+        if verify_result.get("ok"):
+            st.session_state["recovery_session"] = {
+                "token_hash": token_hash,
+                "type": otp_type,
+                "access_token": verify_result.get("access_token"),
+                "refresh_token": verify_result.get("refresh_token"),
+                "user": verify_result.get("user") or {},
+            }
+            recovery_session = st.session_state.get("recovery_session")
+        else:
+            st.error(verify_result.get("error", "This password setup link is invalid or expired."))
+
+    if not recovery_session:
+        st.info("Open the password setup link from your email to continue.")
+        st.stop()
+
+    user_email = (recovery_session.get("user") or {}).get("email")
+    if user_email:
+        st.caption(f"Setting password for {user_email}")
+
+    with st.form("password_setup_form"):
+        new_password = st.text_input("New Password", type="password")
+        confirm_password = st.text_input("Confirm Password", type="password")
+        submitted = st.form_submit_button("Save Password", use_container_width=True)
+
+    if submitted:
+        if len(new_password) < 8:
+            st.error("Use a password with at least 8 characters.")
+        elif new_password != confirm_password:
+            st.error("Passwords do not match.")
+        else:
+            update_result = update_user_password(
+                recovery_session.get("access_token"),
+                new_password,
+            )
+            if update_result.get("ok"):
+                st.session_state["auth_session"] = {
+                    "access_token": recovery_session.get("access_token"),
+                    "refresh_token": recovery_session.get("refresh_token"),
+                    "user": update_result.get("user") or recovery_session.get("user") or {},
+                    "api_key": (
+                        os.getenv("SUPABASE_ANON_KEY", "").strip()
+                        or os.getenv("SUPABASE_PUBLISHABLE_KEY", "").strip()
+                        or os.getenv("SUPABASE_SECRET_KEY", "").strip()
+                    ),
+                }
+                st.session_state["recovery_session"] = None
+                st.success("Password saved. You can return to Lumino and sign in.")
+                if public_app_url():
+                    st.link_button("Open Lumino", public_app_url(), use_container_width=True)
+            else:
+                st.error(update_result.get("error", "Could not update your password."))
+    st.stop()
 
 
 def render_planning_map(results, selected_addresses):
@@ -1767,6 +1866,17 @@ hr { border-color: #1A2540 !important; }
 </style>
 """, unsafe_allow_html=True)
 
+if "auth_session" not in st.session_state:
+    st.session_state["auth_session"] = None
+if "recovery_session" not in st.session_state:
+    st.session_state["recovery_session"] = None
+
+password_setup_mode = str(st.query_params.get("mode", "")).strip().lower() == "set-password" or bool(
+    str(st.query_params.get("token_hash", "")).strip()
+)
+if password_setup_mode:
+    render_password_setup_screen()
+
 
 def render_platform_home():
     if BRAND_WORDMARK_PATH.exists():
@@ -2000,6 +2110,7 @@ def render_onboarding_hub(current_app_user, auth_context):
                 "notes": "Waiting on tax forms.",
                 "app_user_id": "",
                 "temporary_password": "",
+                "password_setup_sent_at": "",
             }
         ]
 
@@ -2049,6 +2160,7 @@ def render_onboarding_hub(current_app_user, auth_context):
                 "notes": new_notes.strip(),
                 "app_user_id": "",
                 "temporary_password": "",
+                "password_setup_sent_at": "",
             }
 
             if create_now and new_email.strip() and supabase_enabled() and auth_context and auth_context.get("organization_id"):
@@ -2104,6 +2216,7 @@ def render_onboarding_hub(current_app_user, auth_context):
                         "Ride Along": "Yes" if row.get("ride_along") else "No",
                         "Payroll": "Yes" if row.get("payroll") else "No",
                         "App User": "Created" if row.get("app_user_id") else "Pending",
+                        "Password Setup": row.get("password_setup_sent_at") or "Not Sent",
                         "Notes": row.get("notes") or "",
                     }
                     for row in onboarding_rows
@@ -2188,6 +2301,35 @@ def render_onboarding_hub(current_app_user, auth_context):
                 )
             elif not active_record.get("app_user_id"):
                 create_col2.caption("Create the app user to generate login credentials.")
+
+            reset_col1, reset_col2 = st.columns(2)
+            reset_redirect_url = password_setup_redirect_url()
+            can_send_password_setup = bool(
+                active_record.get("app_user_id")
+                and active_record.get("email")
+                and reset_redirect_url
+            )
+            if reset_col1.button(
+                "Send Set Password Email",
+                use_container_width=True,
+                disabled=not can_send_password_setup,
+            ):
+                reset_result = send_password_reset_email(
+                    active_record.get("email"),
+                    redirect_to=reset_redirect_url,
+                )
+                if reset_result.get("ok"):
+                    active_record["password_setup_sent_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    st.success(f"Sent password setup email to {active_record.get('email')}.")
+                else:
+                    st.warning(reset_result.get("error", "Could not send the password setup email."))
+
+            if active_record.get("password_setup_sent_at"):
+                reset_col2.caption(f"Password setup email sent {active_record['password_setup_sent_at']}.")
+            elif active_record.get("app_user_id") and not reset_redirect_url:
+                reset_col2.caption("Set `APP_URL` or `PUBLIC_APP_URL` so Lumino can build the password setup link.")
+            elif active_record.get("app_user_id"):
+                reset_col2.caption("Sends a self-serve password setup email through Supabase.")
 
 
 def render_performance_hub(all_results, execution_state, current_app_user, auth_context):
