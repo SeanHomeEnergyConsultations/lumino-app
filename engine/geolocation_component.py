@@ -54,11 +54,12 @@ def _consume_query_payload(prefix):
     return payload
 
 
-def geolocation_picker(key, label="Use My Current Location"):
+def geolocation_picker(key, label="Use My Current Location", auto_request=False):
     prefix = f"lumino_geo_{key}"
     payload = _consume_query_payload(prefix)
     escaped_label = html.escape(label, quote=True)
     encoded_prefix = json.dumps(prefix)
+    encoded_auto_request = json.dumps(bool(auto_request))
 
     components.html(
         f"""
@@ -77,8 +78,11 @@ def geolocation_picker(key, label="Use My Current Location"):
         </div>
         <script>
           const prefix = {encoded_prefix};
+          const autoRequest = {encoded_auto_request};
           const button = document.getElementById("{prefix}_button");
           const status = document.getElementById("{prefix}_status");
+          const storageKey = `${{prefix}}_last_location`;
+          const requestedKey = `${{prefix}}_requested_once`;
 
           function updateParentUrl(mutator) {{
             const rootWindow = window.parent || window.top || window;
@@ -87,7 +91,7 @@ def geolocation_picker(key, label="Use My Current Location"):
             rootWindow.location.href = nextUrl.toString();
           }}
 
-          button.addEventListener("click", () => {{
+          function requestLocation() {{
             if (!navigator.geolocation) {{
               status.textContent = "Geolocation unavailable";
               updateParentUrl((params) => {{
@@ -100,6 +104,15 @@ def geolocation_picker(key, label="Use My Current Location"):
             navigator.geolocation.getCurrentPosition(
               (position) => {{
                 status.textContent = "Location captured";
+                try {{
+                  localStorage.setItem(storageKey, JSON.stringify({{
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    accuracy: position.coords.accuracy,
+                    timestamp: position.timestamp
+                  }}));
+                  sessionStorage.setItem(requestedKey, "1");
+                }} catch (e) {{}}
                 updateParentUrl((params) => {{
                   params.set(`${{prefix}}_lat`, String(position.coords.latitude));
                   params.set(`${{prefix}}_lng`, String(position.coords.longitude));
@@ -110,6 +123,9 @@ def geolocation_picker(key, label="Use My Current Location"):
               }},
               (error) => {{
                 status.textContent = error.message || "Location failed";
+                try {{
+                  sessionStorage.setItem(requestedKey, "1");
+                }} catch (e) {{}}
                 updateParentUrl((params) => {{
                   params.set(`${{prefix}}_error`, error.message || "Location failed");
                 }});
@@ -120,7 +136,30 @@ def geolocation_picker(key, label="Use My Current Location"):
                 maximumAge: 60000,
               }}
             );
-          }});
+          }}
+
+          button.addEventListener("click", requestLocation);
+
+          try {{
+            const cached = localStorage.getItem(storageKey);
+            const requested = sessionStorage.getItem(requestedKey);
+            if (cached && !requested) {{
+              const parsed = JSON.parse(cached);
+              updateParentUrl((params) => {{
+                params.set(`${{prefix}}_lat`, String(parsed.latitude));
+                params.set(`${{prefix}}_lng`, String(parsed.longitude));
+                if (parsed.accuracy !== undefined) params.set(`${{prefix}}_accuracy`, String(parsed.accuracy));
+                if (parsed.timestamp !== undefined) params.set(`${{prefix}}_timestamp`, String(parsed.timestamp));
+                params.delete(`${{prefix}}_error`);
+              }});
+            }} else if (autoRequest && !requested) {{
+              requestLocation();
+            }}
+          }} catch (e) {{
+            if (autoRequest) {{
+              requestLocation();
+            }}
+          }}
         </script>
         """,
         height=74,

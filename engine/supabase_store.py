@@ -1,5 +1,8 @@
 import os
 import math
+import secrets
+import string
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -55,6 +58,34 @@ def _request(method, path, *, params=None, json_body=None, prefer=None, auth_con
         except Exception:
             detail = response.text
         raise RuntimeError(f"Supabase {method} {path} failed: {detail}")
+    if not response.text:
+        return None
+    return response.json()
+
+
+def _service_headers():
+    secret = os.getenv("SUPABASE_SECRET_KEY", "").strip()
+    return {
+        "apikey": secret,
+        "Authorization": f"Bearer {secret}",
+        "Content-Type": "application/json",
+    }
+
+
+def _auth_admin_request(method, path, *, json_body=None):
+    response = requests.request(
+        method,
+        f"{_base_url()}/auth/v1/admin/{path.lstrip('/')}",
+        headers=_service_headers(),
+        json=_json_safe(json_body),
+        timeout=TIMEOUT_SECONDS,
+    )
+    if response.status_code >= 400:
+        try:
+            detail = response.json()
+        except Exception:
+            detail = response.text
+        raise RuntimeError(f"Supabase auth admin {method} {path} failed: {detail}")
     if not response.text:
         return None
     return response.json()
@@ -499,6 +530,156 @@ def get_user_memberships(auth_context=None):
         return memberships
     except Exception:
         return []
+
+
+def create_onboarding_user(
+    *,
+    full_name,
+    email,
+    role="rep",
+    organization_id,
+    invited_by=None,
+    temporary_password=None,
+):
+    if not supabase_enabled():
+        return {"ok": False, "error": "Supabase is not configured."}
+    if not organization_id:
+        return {"ok": False, "error": "No organization selected."}
+    if not email or not full_name:
+        return {"ok": False, "error": "Full name and email are required."}
+
+    normalized_role = str(role or "rep").strip().lower()
+    app_role = normalized_role if normalized_role in {"rep", "manager", "admin"} else "rep"
+    member_role = normalized_role if normalized_role in {"rep", "manager", "admin"} else "rep"
+    temp_password = temporary_password or _generate_temporary_password()
+
+    auth_user_id = None
+    try:
+        auth_payload = _auth_admin_request(
+            "POST",
+            "users",
+            json_body={
+                "email": email.strip(),
+                "password": temp_password,
+                "email_confirm": True,
+                "user_metadata": {
+                    "full_name": full_name.strip(),
+                    "name": full_name.strip(),
+                },
+            },
+        )
+        auth_user_id = ((auth_payload or {}).get("user") or {}).get("id")
+    except Exception as err:
+        message = str(err)
+        if "already been registered" not in message and "User already registered" not in message:
+            return {"ok": False, "error": message}
+
+    app_user_row = None
+    for _ in range(8):
+        app_user_row = _find_app_user_by_email(email)
+        if app_user_row:
+            break
+        if auth_user_id:
+            app_user_row = _find_app_user_by_external_auth_id(auth_user_id)
+            if app_user_row:
+                break
+        time.sleep(0.35)
+
+    if not app_user_row and auth_user_id:
+        created_rows = _request(
+            "POST",
+            "app_users",
+            json_body={
+                "external_auth_id": auth_user_id,
+                "email": email.strip(),
+                "full_name": full_name.strip(),
+                "role": app_role,
+                "default_organization_id": organization_id,
+            },
+            prefer="return=representation",
+            auth_context=None,
+        ) or []
+        app_user_row = created_rows[0] if created_rows else None
+
+    if not app_user_row:
+        return {"ok": False, "error": "Could not create or find the app user record."}
+
+    _request(
+        "PATCH",
+        "app_users",
+        params={"id": f"eq.{app_user_row['id']}"},
+        json_body={
+            "full_name": full_name.strip(),
+            "email": email.strip(),
+            "role": app_role,
+            "default_organization_id": organization_id,
+            "is_active": True,
+        },
+        prefer="return=minimal",
+        auth_context=None,
+    )
+
+    _request(
+        "POST",
+        "organization_members",
+        params={"on_conflict": "organization_id,user_id"},
+        json_body={
+            "organization_id": organization_id,
+            "user_id": app_user_row["id"],
+            "role": member_role,
+            "is_active": True,
+            "invited_by": invited_by,
+        },
+        prefer="resolution=merge-duplicates,return=representation",
+        auth_context=None,
+    )
+
+    return {
+        "ok": True,
+        "app_user_id": app_user_row["id"],
+        "email": email.strip(),
+        "temporary_password": temp_password,
+        "role": member_role,
+    }
+
+
+def _find_app_user_by_email(email):
+    try:
+        rows = _request(
+            "GET",
+            "app_users",
+            params={
+                "email": f"eq.{email.strip()}",
+                "select": "id,email,full_name,role,external_auth_id,default_organization_id",
+                "limit": "1",
+            },
+            auth_context=None,
+        )
+        return (rows or [None])[0]
+    except Exception:
+        return None
+
+
+def _find_app_user_by_external_auth_id(external_auth_id):
+    try:
+        rows = _request(
+            "GET",
+            "app_users",
+            params={
+                "external_auth_id": f"eq.{external_auth_id}",
+                "select": "id,email,full_name,role,external_auth_id,default_organization_id",
+                "limit": "1",
+            },
+            auth_context=None,
+        )
+        return (rows or [None])[0]
+    except Exception:
+        return None
+
+
+def _generate_temporary_password(length=12):
+    alphabet = string.ascii_letters + string.digits
+    return "Lumino!" + "".join(secrets.choice(alphabet) for _ in range(max(6, length - 7)))
 
 
 def save_route_draft(name, selected_results, assigned_rep_id=None, auth_context=None):

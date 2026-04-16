@@ -5,6 +5,8 @@ STATUS_OPTIONS = [
     "",
     "Interested",
     "Callback",
+    "Appt Set",
+    "Closed",
     "Not Interested",
     "Not Home 1",
     "Not Home 2",

@@ -29,6 +29,7 @@ from engine.reporting import build_route_csv, build_zip_summary, generate_html_r
 from engine.routing import optimize_route
 from engine.supabase_auth import sign_in_with_password, sign_out, supabase_auth_enabled
 from engine.supabase_store import (
+    create_onboarding_user,
     create_route_run,
     get_current_app_user,
     get_open_lead_pool,
@@ -269,6 +270,20 @@ def route_status_meta(result, execution_entry=None):
             "line_color": [232, 238, 248, 255],
         }
     if route_status == "completed":
+        if "closed" in execution_status:
+            return {
+                "status_key": "closed",
+                "label": "Closed",
+                "fill_color": [88, 28, 135, 235],
+                "line_color": [230, 214, 255, 255],
+            }
+        if "appt set" in execution_status:
+            return {
+                "status_key": "appt_set",
+                "label": "Appt Set",
+                "fill_color": [124, 58, 237, 235],
+                "line_color": [221, 214, 254, 255],
+            }
         if "interested" in execution_status:
             return {
                 "status_key": "interested",
@@ -695,6 +710,59 @@ def build_appointment_ics(address, homeowner_name, appointment_label, notes):
     )
 
 
+def parse_activity_timestamp(timestamp_value):
+    if not timestamp_value:
+        return None
+    try:
+        return datetime.strptime(str(timestamp_value), "%b %d, %Y %I:%M %p")
+    except Exception:
+        return None
+
+
+def performance_activity_df(all_results, execution_state):
+    rows = []
+    for result in all_results or []:
+        property_id = make_property_id("primary_stop", result.get("address"))
+        entry = (execution_state or {}).get(property_id, {})
+        for item in entry.get("activity_log") or []:
+            parsed_time = parse_activity_timestamp(item.get("timestamp"))
+            if not parsed_time:
+                continue
+            rows.append(
+                {
+                    "address": result.get("address"),
+                    "timestamp": parsed_time,
+                    "type": item.get("type"),
+                    "summary": item.get("summary") or "",
+                    "doors": 1 if item.get("type") == "Disposition" else 0,
+                    "appointments": 1 if item.get("type") == "Appointment" else 0,
+                    "calls": 1 if item.get("type") == "Call" else 0,
+                    "texts": 1 if item.get("type") == "Text" else 0,
+                    "tasks": 1 if item.get("type") == "Task" else 0,
+                }
+            )
+    if not rows:
+        return pd.DataFrame(columns=["address", "timestamp", "type", "summary", "doors", "appointments", "calls", "texts", "tasks"])
+    df = pd.DataFrame(rows).sort_values("timestamp")
+    df["day"] = df["timestamp"].dt.strftime("%Y-%m-%d")
+    df["week"] = df["timestamp"].dt.strftime("%G-W%V")
+    df["month"] = df["timestamp"].dt.strftime("%Y-%m")
+    df["year"] = df["timestamp"].dt.strftime("%Y")
+    return df
+
+
+def grouped_kpi(activity_df, period_key, metric_key):
+    if activity_df.empty:
+        return pd.DataFrame(columns=[period_key, metric_key])
+    grouped = (
+        activity_df.groupby(period_key, dropna=False)[metric_key]
+        .sum()
+        .reset_index()
+        .rename(columns={period_key: "Period", metric_key: "Value"})
+    )
+    return grouped
+
+
 def crm_summary_rows(execution_results, execution_state):
     appointment_rows = []
     follow_up_rows = []
@@ -764,6 +832,70 @@ def current_workspace_owner_label(current_app_user, auth_context):
     if current_app_user:
         return current_app_user.get("full_name") or current_app_user.get("email") or "Current User"
     return "Workspace"
+
+
+def build_rep_kpi_frames(all_results, execution_state, current_app_user, auth_context):
+    owner_label = current_workspace_owner_label(current_app_user, auth_context)
+    rep_rows = get_rep_options(auth_context=auth_context) if auth_context else []
+    rep_names = [rep.get("full_name") or rep.get("email") or rep.get("id") for rep in rep_rows]
+    if owner_label not in rep_names:
+        rep_names.insert(0, owner_label)
+    if not rep_names:
+        rep_names = ["Current Workspace"]
+
+    rep_summary = {
+        rep_name: {
+            "Rep": rep_name,
+            "Doors Knocked": 0,
+            "Conversations": 0,
+            "Appointments Set": 0,
+            "Closed": 0,
+        }
+        for rep_name in rep_names
+    }
+
+    trend_rows = []
+    for result in all_results or []:
+        property_id = make_property_id("primary_stop", result.get("address"))
+        entry = (execution_state or {}).get(property_id, {})
+        status_text = str(entry.get("status") or "").strip().lower()
+        if status_text:
+            rep_summary[owner_label]["Doors Knocked"] += 1
+        if status_text in {"interested", "callback", "not interested", "appt set"}:
+            rep_summary[owner_label]["Conversations"] += 1
+        if status_text == "appt set":
+            rep_summary[owner_label]["Appointments Set"] += 1
+        if status_text == "closed":
+            rep_summary[owner_label]["Closed"] += 1
+
+        for item in entry.get("activity_log") or []:
+            parsed_time = parse_activity_timestamp(item.get("timestamp"))
+            if not parsed_time:
+                continue
+            row = {
+                "Rep": owner_label,
+                "Period": parsed_time.strftime("%Y-%m-%d"),
+                "Doors Knocked": 1 if item.get("type") == "Disposition" else 0,
+                "Conversations": 1 if status_text in {"interested", "callback", "not interested", "appt set"} and item.get("type") == "Disposition" else 0,
+                "Appointments Set": 1 if (
+                    (item.get("type") == "Appointment")
+                    or ("appointment set" in str(item.get("summary") or "").lower())
+                    or status_text == "appt set"
+                ) else 0,
+                "Closed": 1 if ("closed" in str(item.get("summary") or "").lower() or status_text == "closed") and item.get("type") == "Disposition" else 0,
+            }
+            trend_rows.append(row)
+
+    rep_kpi_df = pd.DataFrame(rep_summary.values())
+    rep_trend_df = pd.DataFrame(trend_rows)
+    if not rep_trend_df.empty:
+        rep_trend_df = (
+            rep_trend_df.groupby(["Rep", "Period"], dropna=False)[["Doors Knocked", "Conversations", "Appointments Set", "Closed"]]
+            .sum()
+            .reset_index()
+            .sort_values(["Rep", "Period"])
+        )
+    return rep_kpi_df, rep_trend_df
 
 
 def render_manager_followup_board(all_results, execution_state, current_app_user, auth_context):
@@ -1846,13 +1978,205 @@ def render_people_hub(current_app_user, auth_context):
     st.dataframe(profile_preview, use_container_width=True, hide_index=True)
 
 
+def render_onboarding_hub(current_app_user, auth_context):
+    st.markdown('<div class="siq-section">Onboarding</div>', unsafe_allow_html=True)
+    st.markdown("Bring new reps into the system with a simple intake flow, readiness checklist, and onboarding pipeline.")
+
+    if "onboarding_queue" not in st.session_state:
+        st.session_state["onboarding_queue"] = [
+            {
+                "name": "Jordan Lee",
+                "role": "Rep",
+                "manager": current_app_user.get("full_name") if current_app_user else "Manager",
+                "start_date": datetime.now().strftime("%Y-%m-%d"),
+                "status": "Paperwork",
+                "phone": "",
+                "email": "",
+                "territory": "South Team",
+                "training": False,
+                "app_access": False,
+                "ride_along": False,
+                "payroll": False,
+                "notes": "Waiting on tax forms.",
+                "app_user_id": "",
+                "temporary_password": "",
+            }
+        ]
+
+    onboarding_rows = st.session_state["onboarding_queue"]
+
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("New Hires", len(onboarding_rows))
+    metric_cols[1].metric("Ready To Field", sum(1 for row in onboarding_rows if row.get("status") == "Ready"))
+    metric_cols[2].metric("Training In Progress", sum(1 for row in onboarding_rows if row.get("status") == "Training"))
+    metric_cols[3].metric("Needs Manager Action", sum(1 for row in onboarding_rows if row.get("status") in {"Paperwork", "Setup Blocked"}))
+
+    intake_col, pipeline_col = st.columns([0.9, 1.1], gap="large")
+    with intake_col:
+        st.markdown("#### Add New User")
+        with st.form("new_onboarding_user"):
+            new_name = st.text_input("Full Name")
+            new_role = st.selectbox("Role", ["Rep", "Manager", "Admin"])
+            new_email = st.text_input("Email")
+            new_phone = st.text_input("Phone")
+            new_manager = st.text_input(
+                "Manager",
+                value=current_app_user.get("full_name") if current_app_user else "",
+            )
+            new_start = st.date_input("Start Date", value=datetime.now().date())
+            new_territory = st.text_input("Team / Territory", placeholder="North Team")
+            new_notes = st.text_area("Notes", placeholder="Background, prior experience, special setup needs")
+            submitted = st.form_submit_button("Add To Onboarding", use_container_width=True)
+        if submitted and new_name.strip():
+            onboarding_rows.append(
+                {
+                    "name": new_name.strip(),
+                    "role": new_role,
+                    "manager": new_manager.strip() or "Manager",
+                    "start_date": new_start.strftime("%Y-%m-%d"),
+                    "status": "Paperwork",
+                    "phone": new_phone.strip(),
+                    "email": new_email.strip(),
+                    "territory": new_territory.strip(),
+                    "training": False,
+                    "app_access": False,
+                    "ride_along": False,
+                    "payroll": False,
+                    "notes": new_notes.strip(),
+                    "app_user_id": "",
+                    "temporary_password": "",
+                }
+            )
+            st.success(f"{new_name.strip()} added to onboarding.")
+            st.rerun()
+
+        st.markdown("#### Onboarding Checklist")
+        checklist_df = pd.DataFrame(
+            [
+                {"Step": "Profile created", "Owner": "Manager / Admin", "Purpose": "Gets the user into Lumino and assigns role"},
+                {"Step": "App access granted", "Owner": "Admin", "Purpose": "Lets the rep log in and use Turf Mode"},
+                {"Step": "Paperwork complete", "Owner": "Recruiting / Ops", "Purpose": "Tax, pay, contractor setup, IDs"},
+                {"Step": "Training complete", "Owner": "Manager", "Purpose": "Pitch, workflow, disposition standards"},
+                {"Step": "Ride-along complete", "Owner": "Manager", "Purpose": "Field readiness and coaching"},
+                {"Step": "Territory assigned", "Owner": "Manager", "Purpose": "Rep can start working live turf"},
+            ]
+        )
+        st.dataframe(checklist_df, use_container_width=True, hide_index=True, height=260)
+
+    with pipeline_col:
+        st.markdown("#### Onboarding Pipeline")
+        if not onboarding_rows:
+            st.info("No users in onboarding yet.")
+        else:
+            pipeline_df = pd.DataFrame(
+                [
+                    {
+                        "Name": row.get("name"),
+                        "Role": row.get("role"),
+                        "Manager": row.get("manager"),
+                        "Start Date": row.get("start_date"),
+                        "Status": row.get("status"),
+                        "Territory": row.get("territory"),
+                        "Training": "Yes" if row.get("training") else "No",
+                        "App Access": "Yes" if row.get("app_access") else "No",
+                        "Ride Along": "Yes" if row.get("ride_along") else "No",
+                        "Payroll": "Yes" if row.get("payroll") else "No",
+                        "App User": "Created" if row.get("app_user_id") else "Pending",
+                        "Notes": row.get("notes") or "",
+                    }
+                    for row in onboarding_rows
+                ]
+            )
+            st.dataframe(pipeline_df, use_container_width=True, hide_index=True, height=300)
+
+            selected_name = st.selectbox(
+                "Review Onboarding Record",
+                options=[row["name"] for row in onboarding_rows],
+                key="selected_onboarding_user",
+            )
+            active_record = next(row for row in onboarding_rows if row["name"] == selected_name)
+            detail_col1, detail_col2 = st.columns(2)
+            active_record["status"] = detail_col1.selectbox(
+                "Onboarding Status",
+                options=["Paperwork", "Setup Blocked", "Training", "Shadowing", "Ready"],
+                index=["Paperwork", "Setup Blocked", "Training", "Shadowing", "Ready"].index(active_record.get("status", "Paperwork")),
+                key=f"onboarding_status_{selected_name}",
+            )
+            active_record["territory"] = detail_col2.text_input(
+                "Assigned Team / Territory",
+                value=active_record.get("territory", ""),
+                key=f"onboarding_territory_{selected_name}",
+            )
+            flag_col1, flag_col2, flag_col3, flag_col4 = st.columns(4)
+            active_record["app_access"] = flag_col1.checkbox("App Access", value=active_record.get("app_access", False), key=f"onboarding_access_{selected_name}")
+            active_record["training"] = flag_col2.checkbox("Training", value=active_record.get("training", False), key=f"onboarding_training_{selected_name}")
+            active_record["ride_along"] = flag_col3.checkbox("Ride Along", value=active_record.get("ride_along", False), key=f"onboarding_ride_{selected_name}")
+            active_record["payroll"] = flag_col4.checkbox("Payroll", value=active_record.get("payroll", False), key=f"onboarding_payroll_{selected_name}")
+            active_record["notes"] = st.text_area(
+                "Manager Notes",
+                value=active_record.get("notes", ""),
+                key=f"onboarding_notes_{selected_name}",
+                height=120,
+            )
+
+            action_col1, action_col2 = st.columns(2)
+            if active_record.get("email"):
+                action_col1.link_button(
+                    "Email User",
+                    f"mailto:{active_record['email']}",
+                    use_container_width=True,
+                )
+            else:
+                action_col1.button("Email User", disabled=True, use_container_width=True)
+            if action_col2.button("Save Onboarding Updates", use_container_width=True):
+                st.success(f"Updated onboarding record for {selected_name}.")
+
+            create_col1, create_col2 = st.columns(2)
+            can_create = bool(
+                supabase_enabled()
+                and auth_context
+                and auth_context.get("organization_id")
+                and active_record.get("email")
+            )
+            if create_col1.button(
+                "Create Real App User",
+                use_container_width=True,
+                disabled=(not can_create or bool(active_record.get("app_user_id"))),
+            ):
+                result = create_onboarding_user(
+                    full_name=active_record.get("name"),
+                    email=active_record.get("email"),
+                    role=str(active_record.get("role") or "Rep").lower(),
+                    organization_id=auth_context.get("organization_id"),
+                    invited_by=(auth_context or {}).get("app_user_id"),
+                )
+                if result.get("ok"):
+                    active_record["app_user_id"] = result.get("app_user_id")
+                    active_record["temporary_password"] = result.get("temporary_password")
+                    active_record["app_access"] = True
+                    active_record["status"] = "Training" if active_record.get("training") else "Paperwork"
+                    st.success(f"Created real app user for {selected_name}.")
+                else:
+                    st.warning(result.get("error", "Could not create the app user."))
+
+            if active_record.get("temporary_password"):
+                create_col2.code(
+                    f"Email: {active_record.get('email')}\nTemp password: {active_record.get('temporary_password')}",
+                    language="text",
+                )
+            elif not active_record.get("app_user_id"):
+                create_col2.caption("Create the app user to generate login credentials.")
+
+
 def render_performance_hub(all_results, execution_state, current_app_user, auth_context):
     st.markdown('<div class="siq-section">Performance</div>', unsafe_allow_html=True)
-    st.markdown("Leaderboard, report builder, and competition foundations now sit on top of the same field activity data.")
+    st.markdown("Leaderboard, KPI trends, and coaching analytics now sit on top of the same field activity data.")
 
     queue_results = all_results or []
     total_stops = len(queue_results)
     total_doors = sum(result.get("doors_to_knock", 0) for result in queue_results)
+    activity_df = performance_activity_df(queue_results, execution_state)
+    rep_kpi_df, rep_trend_df = build_rep_kpi_frames(queue_results, execution_state, current_app_user, auth_context)
 
     interested = 0
     callbacks = 0
@@ -1881,6 +2205,85 @@ def render_performance_hub(all_results, execution_state, current_app_user, auth_
     perf_cols[2].metric("Interested", interested)
     perf_cols[3].metric("Callbacks", callbacks)
     perf_cols[4].metric("Doors", total_doors)
+
+    trend_cols = st.columns(4)
+    today_key = datetime.now().strftime("%Y-%m-%d")
+    week_key = datetime.now().strftime("%G-W%V")
+    month_key = datetime.now().strftime("%Y-%m")
+    year_key = datetime.now().strftime("%Y")
+    daily_doors = int(activity_df.loc[activity_df["day"] == today_key, "doors"].sum()) if not activity_df.empty else 0
+    weekly_doors = int(activity_df.loc[activity_df["week"] == week_key, "doors"].sum()) if not activity_df.empty else 0
+    monthly_doors = int(activity_df.loc[activity_df["month"] == month_key, "doors"].sum()) if not activity_df.empty else 0
+    yearly_doors = int(activity_df.loc[activity_df["year"] == year_key, "doors"].sum()) if not activity_df.empty else 0
+    trend_cols[0].metric("Doors Today", daily_doors)
+    trend_cols[1].metric("Doors This Week", weekly_doors)
+    trend_cols[2].metric("Doors This Month", monthly_doors)
+    trend_cols[3].metric("Doors This Year", yearly_doors)
+
+    manager_kpi_cols = st.columns(4)
+    manager_kpi_cols[0].metric("Contact Rate", f"{(completed / total_stops * 100):.0f}%" if total_stops else "0%")
+    manager_kpi_cols[1].metric("Interest Rate", f"{(interested / completed * 100):.0f}%" if completed else "0%")
+    manager_kpi_cols[2].metric("Appointment Count", int(activity_df["appointments"].sum()) if not activity_df.empty else 0)
+    manager_kpi_cols[3].metric("Avg Doors / Stop", f"{(total_doors / total_stops):.1f}" if total_stops else "0.0")
+
+    chart_tab1, chart_tab2 = st.tabs(["Door Trends", "Coaching Charts"])
+    with chart_tab1:
+        door_chart_cols = st.columns(2)
+        daily_chart_df = grouped_kpi(activity_df, "day", "doors")
+        weekly_chart_df = grouped_kpi(activity_df, "week", "doors")
+        monthly_chart_df = grouped_kpi(activity_df, "month", "doors")
+        yearly_chart_df = grouped_kpi(activity_df, "year", "doors")
+        with door_chart_cols[0]:
+            st.markdown("#### Doors Knocked by Day")
+            if daily_chart_df.empty:
+                st.info("Door trend data appears once reps log dispositions.")
+            else:
+                st.bar_chart(daily_chart_df.set_index("Period")["Value"], use_container_width=True)
+            st.markdown("#### Doors Knocked by Week")
+            if weekly_chart_df.empty:
+                st.info("Weekly door data not available yet.")
+            else:
+                st.line_chart(weekly_chart_df.set_index("Period")["Value"], use_container_width=True)
+        with door_chart_cols[1]:
+            st.markdown("#### Doors Knocked by Month")
+            if monthly_chart_df.empty:
+                st.info("Monthly door data not available yet.")
+            else:
+                st.bar_chart(monthly_chart_df.set_index("Period")["Value"], use_container_width=True)
+            st.markdown("#### Doors Knocked by Year")
+            if yearly_chart_df.empty:
+                st.info("Yearly door data not available yet.")
+            else:
+                st.line_chart(yearly_chart_df.set_index("Period")["Value"], use_container_width=True)
+
+    with chart_tab2:
+        coaching_cols = st.columns(2)
+        with coaching_cols[0]:
+            stage_rows = []
+            for result in queue_results:
+                property_id = make_property_id("primary_stop", result.get("address"))
+                entry = (execution_state or {}).get(property_id, {})
+                stage_rows.append(entry.get("lead_stage") or "New Lead")
+            if stage_rows:
+                stage_df = pd.Series(stage_rows).value_counts().rename_axis("Stage").reset_index(name="Count")
+                st.markdown("#### Pipeline Stage Mix")
+                st.bar_chart(stage_df.set_index("Stage")["Count"], use_container_width=True)
+            else:
+                st.info("Pipeline stage mix appears once leads are loaded.")
+        with coaching_cols[1]:
+            activity_mix = pd.DataFrame(
+                [
+                    {"Activity": "Calls", "Count": int(activity_df["calls"].sum()) if not activity_df.empty else 0},
+                    {"Activity": "Texts", "Count": int(activity_df["texts"].sum()) if not activity_df.empty else 0},
+                    {"Activity": "Appointments", "Count": int(activity_df["appointments"].sum()) if not activity_df.empty else 0},
+                    {"Activity": "Tasks", "Count": int(activity_df["tasks"].sum()) if not activity_df.empty else 0},
+                ]
+            )
+            st.markdown("#### Follow-Up Activity Mix")
+            if activity_mix["Count"].sum() == 0:
+                st.info("Follow-up charts appear once reps log calls, texts, tasks, or appointments.")
+            else:
+                st.bar_chart(activity_mix.set_index("Activity")["Count"], use_container_width=True)
 
     leaderboard_rows = []
     rep_rows = get_rep_options(auth_context=auth_context) if auth_context else []
@@ -1933,11 +2336,59 @@ def render_performance_hub(all_results, execution_state, current_app_user, auth_
         else:
             st.dataframe(leaderboard_df, use_container_width=True, hide_index=True)
     with reports_col:
-        st.markdown("#### Report Builder Preview")
-        st.dataframe(report_templates_df, use_container_width=True, hide_index=True)
+        st.markdown("#### KPI Snapshot")
+        kpi_snapshot = pd.DataFrame(
+            [
+                {"Metric": "Completed Stops", "Value": completed},
+                {"Metric": "Interested Leads", "Value": interested},
+                {"Metric": "Callbacks", "Value": callbacks},
+                {"Metric": "Not Home", "Value": not_home},
+                {"Metric": "Not Interested", "Value": not_interested},
+                {"Metric": "Appointments Logged", "Value": int(activity_df["appointments"].sum()) if not activity_df.empty else 0},
+            ]
+        )
+        st.dataframe(kpi_snapshot, use_container_width=True, hide_index=True)
+
+    st.markdown("#### Report Builder Preview")
+    st.dataframe(report_templates_df, use_container_width=True, hide_index=True)
 
     st.markdown("#### Competition Builder Preview")
     st.dataframe(competition_df, use_container_width=True, hide_index=True)
+
+    st.markdown("#### Rep KPI Comparison")
+    rep_chart_col1, rep_chart_col2 = st.columns([1.1, 0.9], gap="large")
+    with rep_chart_col1:
+        rep_kpi_options = ["Doors Knocked", "Conversations", "Appointments Set", "Closed"]
+        selected_rep_kpi = st.selectbox(
+            "Bar Chart KPI",
+            options=rep_kpi_options,
+            key="rep_kpi_bar_metric",
+        )
+        if rep_kpi_df.empty:
+            st.info("Rep comparison data will appear as reps start working leads.")
+        else:
+            st.bar_chart(rep_kpi_df.set_index("Rep")[selected_rep_kpi], use_container_width=True)
+            st.dataframe(rep_kpi_df, use_container_width=True, hide_index=True, height=220)
+
+    with rep_chart_col2:
+        if rep_kpi_df.empty:
+            st.info("Rep trend data will appear once activity is logged.")
+        else:
+            selected_rep = st.selectbox(
+                "Rep Trend",
+                options=rep_kpi_df["Rep"].tolist(),
+                key="rep_kpi_trend_rep",
+            )
+            selected_trend_kpi = st.selectbox(
+                "Trend KPI",
+                options=["Doors Knocked", "Conversations", "Appointments Set", "Closed"],
+                key="rep_kpi_trend_metric",
+            )
+            rep_history = rep_trend_df[rep_trend_df["Rep"] == selected_rep].copy() if not rep_trend_df.empty else pd.DataFrame()
+            if rep_history.empty:
+                st.info("No time-series data for this rep yet. Once they log status updates, the line graph will appear here.")
+            else:
+                st.line_chart(rep_history.set_index("Period")[selected_trend_kpi], use_container_width=True)
 
 
 def render_workspace_shell(workspace_mode, all_results, execution_state):
@@ -1945,16 +2396,32 @@ def render_workspace_shell(workspace_mode, all_results, execution_state):
         title = "Manager Workspace"
         kicker = "Operate"
         copy = (
-            "Load lead pools, analyze lists, shape territories, and assign polished route drafts without leaving the main workflow."
+            "Track field execution, coach follow-up, and watch the pipeline move from knocked doors to closed and installed deals."
         )
-        primary_metric = len(all_results or [])
-        primary_label = "Leads In Workspace"
-        secondary_metric = sum(result.get("doors_to_knock", 0) for result in (all_results or []))
-        secondary_label = "Potential Doors"
-        tertiary_metric = sum(1 for result in (all_results or []) if result.get("priority_score", 0) >= 2)
-        tertiary_label = "High Priority"
-        fourth_metric = "Ready"
-        fourth_label = "Draft Status"
+        doors_knocked = 0
+        conversations = 0
+        appointments_set = 0
+        deals_closed = 0
+        for result in all_results or []:
+            property_id = make_property_id("primary_stop", result.get("address"))
+            entry = (execution_state or {}).get(property_id, {})
+            status_text = str(entry.get("status") or "").lower()
+            if status_text:
+                doors_knocked += 1
+            if status_text in {"interested", "callback", "not interested", "appt set"}:
+                conversations += 1
+            if status_text == "appt set":
+                appointments_set += 1
+            if status_text == "closed":
+                deals_closed += 1
+        primary_metric = doors_knocked
+        primary_label = "Doors Knocked"
+        secondary_metric = conversations
+        secondary_label = "Conversations"
+        tertiary_metric = appointments_set
+        tertiary_label = "Appointments Set"
+        fourth_metric = deals_closed
+        fourth_label = "Closed"
     else:
         pending = 0
         interested = 0
@@ -2062,6 +2529,7 @@ def render_blank_rep_map(auth_context):
     geolocation_result = geolocation_picker(
         key="blank_turf_live_geolocation",
         label="Center Map On My Location",
+        auto_request=True,
     )
     if geolocation_result and not geolocation_result.get("error"):
         st.session_state["turf_live_lat"] = geolocation_result["latitude"]
@@ -2190,7 +2658,26 @@ def render_blank_rep_map(auth_context):
             height=760,
         )
     else:
-        st.info("Use your current location to center the map, then load a draft or drop a field pin.")
+        blank_view = pdk.ViewState(
+            latitude=39.8283,
+            longitude=-98.5795,
+            zoom=4.2,
+            pitch=0,
+            bearing=0,
+            controller=True,
+        )
+        st.pydeck_chart(
+            pdk.Deck(
+                layers=[],
+                initial_view_state=blank_view,
+                map_provider="carto",
+                map_style="light_no_labels",
+            ),
+            key="blank_rep_map_empty",
+            use_container_width=True,
+            height=760,
+        )
+        st.info("Allow location once and the map will center on the rep automatically from then on.")
 
     if st.session_state.get("turf_pin_feedback"):
         st.info(st.session_state["turf_pin_feedback"])
@@ -2210,6 +2697,7 @@ def render_rep_turf_mode(
     geolocation_result = geolocation_picker(
         key="turf_live_geolocation",
         label="Center Map On My Location",
+        auto_request=True,
     )
     if geolocation_result and not geolocation_result.get("error"):
         st.session_state["turf_live_lat"] = geolocation_result["latitude"]
@@ -2475,6 +2963,7 @@ def render_rep_turf_mode(
                 "Quoted",
                 "Negotiation",
                 "Closed Won",
+                "Installed",
                 "Closed Lost",
             ]
             crm_action_options = [
@@ -2507,7 +2996,7 @@ def render_rep_turf_mode(
                 key=f"crm_next_action_{active_property_id}",
             )
 
-            disposition_col1, disposition_col2 = st.columns(2)
+            disposition_col1, disposition_col2, disposition_col3 = st.columns(3)
             if disposition_col1.button("Interested", key=f"quick_interested_{active_property_id}", use_container_width=True):
                 if apply_quick_disposition(
                     active_result or active_property,
@@ -2547,9 +3036,30 @@ def render_rep_turf_mode(
                     )
                     st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
                     st.rerun()
+            if disposition_col3.button("Appt Set", key=f"quick_apptset_{active_property_id}", use_container_width=True):
+                if apply_quick_disposition(
+                    active_result or active_property,
+                    st.session_state["route_execution"],
+                    property_id_override=active_property_id,
+                    status_label="Appt Set",
+                    route_status="completed",
+                    outcome="appointment_set",
+                    interest_level=active_entry.get("interest_level") or "Warm",
+                    auth_context=auth_context,
+                ):
+                    active_entry["lead_stage"] = "Appointment Set"
+                    active_entry["appointment_status"] = "Scheduled"
+                    active_entry["next_action"] = active_entry.get("next_action") or "Confirm Appointment"
+                    append_activity_event(active_entry, "Disposition", "Marked as appointment set.")
+                    save_app_snapshot(
+                        all_results=st.session_state.get("all_results", []),
+                        route_execution=st.session_state["route_execution"],
+                    )
+                    st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
+                    st.rerun()
 
-            disposition_col3, disposition_col4, disposition_col5 = st.columns(3)
-            if disposition_col3.button("Not Home", key=f"quick_nothome_{active_property_id}", use_container_width=True):
+            disposition_col4, disposition_col5, disposition_col6 = st.columns(3)
+            if disposition_col4.button("Not Home", key=f"quick_nothome_{active_property_id}", use_container_width=True):
                 next_not_home = next_not_home_status(active_entry.get("status"))
                 if apply_quick_disposition(
                     active_result or active_property,
@@ -2567,7 +3077,7 @@ def render_rep_turf_mode(
                     )
                     st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
                     st.rerun()
-            if disposition_col4.button("Not Interested", key=f"quick_notinterested_{active_property_id}", use_container_width=True):
+            if disposition_col5.button("Not Interested", key=f"quick_notinterested_{active_property_id}", use_container_width=True):
                 if apply_quick_disposition(
                     active_result or active_property,
                     st.session_state["route_execution"],
@@ -2586,7 +3096,28 @@ def render_rep_turf_mode(
                     )
                     st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
                     st.rerun()
-            if disposition_col5.button("Skip", key=f"quick_skip_{active_property_id}", use_container_width=True):
+            if disposition_col6.button("Closed", key=f"quick_closed_{active_property_id}", use_container_width=True):
+                if apply_quick_disposition(
+                    active_result or active_property,
+                    st.session_state["route_execution"],
+                    property_id_override=active_property_id,
+                    status_label="Closed",
+                    route_status="completed",
+                    outcome="closed",
+                    interest_level=active_entry.get("interest_level") or "Hot",
+                    auth_context=auth_context,
+                ):
+                    active_entry["lead_stage"] = "Closed Won"
+                    append_activity_event(active_entry, "Disposition", "Marked as closed.")
+                    save_app_snapshot(
+                        all_results=st.session_state.get("all_results", []),
+                        route_execution=st.session_state["route_execution"],
+                    )
+                    st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
+                    st.rerun()
+
+            skip_col = st.columns(1)[0]
+            if skip_col.button("Skip", key=f"quick_skip_{active_property_id}", use_container_width=True):
                 if apply_quick_disposition(
                     active_result or active_property,
                     st.session_state["route_execution"],
@@ -2762,9 +3293,9 @@ def render_rep_turf_mode(
                     active_result or active_property,
                     st.session_state["route_execution"],
                     property_id_override=active_property_id,
-                    status_label="Callback",
+                    status_label="Appt Set",
                     route_status="completed",
-                    outcome="callback",
+                    outcome="appointment_set",
                     interest_level="Warm",
                     auth_context=auth_context,
                 ):
@@ -3034,16 +3565,9 @@ if workspace_mode == "Manager View" and st.session_state.get("last_snapshot_resu
     )
 
 workspace_tab_label = "Workspace" if workspace_mode == "Manager View" else "Turf"
-workspace_tab, team_tab, performance_tab = st.tabs([workspace_tab_label, "People", "Performance"])
+workspace_tab, team_tab, performance_tab, onboarding_tab = st.tabs([workspace_tab_label, "People", "Performance", "Onboarding"])
 
 with workspace_tab:
-    if workspace_mode == "Manager View":
-        render_workspace_shell(
-            workspace_mode,
-            st.session_state.get("all_results", []),
-            st.session_state.get("route_execution", {}),
-        )
-
     if workspace_mode == "Manager View" and supabase_enabled():
         section_title = "Open Lead Pool" if workspace_mode == "Manager View" else "My Turf Drafts"
         section_copy = (
@@ -3137,6 +3661,14 @@ with performance_tab:
         current_app_user,
         auth_context,
     )
+
+with onboarding_tab:
+    render_context_shell(
+        "Onboarding Context",
+        "Bring new reps into the platform with structured setup, readiness tracking, and manager-owned onboarding notes.",
+        ["New Hires", "Checklist", "Readiness", "Setup"],
+    )
+    render_onboarding_hub(current_app_user, auth_context)
 
 with workspace_tab:
     if workspace_mode == "Manager View":
