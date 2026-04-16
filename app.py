@@ -2026,28 +2026,50 @@ def render_onboarding_hub(current_app_user, auth_context):
             new_start = st.date_input("Start Date", value=datetime.now().date())
             new_territory = st.text_input("Team / Territory", placeholder="North Team")
             new_notes = st.text_area("Notes", placeholder="Background, prior experience, special setup needs")
-            submitted = st.form_submit_button("Add To Onboarding", use_container_width=True)
-        if submitted and new_name.strip():
-            onboarding_rows.append(
-                {
-                    "name": new_name.strip(),
-                    "role": new_role,
-                    "manager": new_manager.strip() or "Manager",
-                    "start_date": new_start.strftime("%Y-%m-%d"),
-                    "status": "Paperwork",
-                    "phone": new_phone.strip(),
-                    "email": new_email.strip(),
-                    "territory": new_territory.strip(),
-                    "training": False,
-                    "app_access": False,
-                    "ride_along": False,
-                    "payroll": False,
-                    "notes": new_notes.strip(),
-                    "app_user_id": "",
-                    "temporary_password": "",
-                }
+            create_now = st.checkbox(
+                "Create real app user immediately",
+                value=True,
+                help="Creates the Supabase login and organization membership right away.",
             )
-            st.success(f"{new_name.strip()} added to onboarding.")
+            submitted = st.form_submit_button("Save New User", use_container_width=True)
+        if submitted and new_name.strip():
+            new_record = {
+                "name": new_name.strip(),
+                "role": new_role,
+                "manager": new_manager.strip() or "Manager",
+                "start_date": new_start.strftime("%Y-%m-%d"),
+                "status": "Paperwork",
+                "phone": new_phone.strip(),
+                "email": new_email.strip(),
+                "territory": new_territory.strip(),
+                "training": False,
+                "app_access": False,
+                "ride_along": False,
+                "payroll": False,
+                "notes": new_notes.strip(),
+                "app_user_id": "",
+                "temporary_password": "",
+            }
+
+            if create_now and new_email.strip() and supabase_enabled() and auth_context and auth_context.get("organization_id"):
+                result = create_onboarding_user(
+                    full_name=new_record["name"],
+                    email=new_record["email"],
+                    role=str(new_record["role"] or "Rep").lower(),
+                    organization_id=auth_context.get("organization_id"),
+                    invited_by=(auth_context or {}).get("app_user_id"),
+                )
+                if result.get("ok"):
+                    new_record["app_user_id"] = result.get("app_user_id")
+                    new_record["temporary_password"] = result.get("temporary_password")
+                    new_record["app_access"] = True
+                    st.success(f"{new_name.strip()} added and created as a real app user.")
+                else:
+                    st.warning(result.get("error", "Could not create the app user. Added to onboarding only."))
+            else:
+                st.success(f"{new_name.strip()} added to onboarding.")
+
+            onboarding_rows.append(new_record)
             st.rerun()
 
         st.markdown("#### Onboarding Checklist")

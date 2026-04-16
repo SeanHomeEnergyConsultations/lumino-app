@@ -568,7 +568,7 @@ def create_onboarding_user(
                 },
             },
         )
-        auth_user_id = ((auth_payload or {}).get("user") or {}).get("id")
+        auth_user_id = _extract_auth_user_id(auth_payload)
     except Exception as err:
         message = str(err)
         if "already been registered" not in message and "User already registered" not in message:
@@ -641,6 +641,18 @@ def create_onboarding_user(
         "temporary_password": temp_password,
         "role": member_role,
     }
+
+
+def _extract_auth_user_id(auth_payload):
+    if not auth_payload:
+        return None
+    if isinstance(auth_payload, dict):
+        if auth_payload.get("id"):
+            return auth_payload.get("id")
+        nested_user = auth_payload.get("user") or {}
+        if isinstance(nested_user, dict) and nested_user.get("id"):
+            return nested_user.get("id")
+    return None
 
 
 def _find_app_user_by_email(email):
