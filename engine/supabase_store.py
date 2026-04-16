@@ -72,11 +72,12 @@ def _service_headers():
     }
 
 
-def _auth_admin_request(method, path, *, json_body=None):
+def _auth_admin_request(method, path, *, params=None, json_body=None):
     response = requests.request(
         method,
         f"{_base_url()}/auth/v1/admin/{path.lstrip('/')}",
         headers=_service_headers(),
+        params=params,
         json=_json_safe(json_body),
         timeout=TIMEOUT_SECONDS,
     )
@@ -548,6 +549,7 @@ def create_onboarding_user(
     if not email or not full_name:
         return {"ok": False, "error": "Full name and email are required."}
 
+    normalized_email = (email or "").strip().lower()
     normalized_role = str(role or "rep").strip().lower()
     app_role = normalized_role if normalized_role in {"rep", "manager", "admin"} else "rep"
     member_role = normalized_role if normalized_role in {"rep", "manager", "admin"} else "rep"
@@ -559,7 +561,7 @@ def create_onboarding_user(
             "POST",
             "users",
             json_body={
-                "email": email.strip(),
+                "email": normalized_email,
                 "password": temp_password,
                 "email_confirm": True,
                 "user_metadata": {
@@ -573,10 +575,11 @@ def create_onboarding_user(
         message = str(err)
         if "already been registered" not in message and "User already registered" not in message:
             return {"ok": False, "error": message}
+        auth_user_id = _find_auth_user_id_by_email(normalized_email)
 
     app_user_row = None
     for _ in range(8):
-        app_user_row = _find_app_user_by_email(email)
+        app_user_row = _find_app_user_by_email(normalized_email)
         if app_user_row:
             break
         if auth_user_id:
@@ -586,20 +589,21 @@ def create_onboarding_user(
         time.sleep(0.35)
 
     if not app_user_row and auth_user_id:
-        created_rows = _request(
+        _request(
             "POST",
             "app_users",
+            params={"on_conflict": "external_auth_id"},
             json_body={
                 "external_auth_id": auth_user_id,
-                "email": email.strip(),
+                "email": normalized_email,
                 "full_name": full_name.strip(),
                 "role": app_role,
                 "default_organization_id": organization_id,
             },
-            prefer="return=representation",
+            prefer="resolution=merge-duplicates,return=representation",
             auth_context=None,
-        ) or []
-        app_user_row = created_rows[0] if created_rows else None
+        )
+        app_user_row = _find_app_user_by_external_auth_id(auth_user_id) or _find_app_user_by_email(normalized_email)
 
     if not app_user_row:
         return {"ok": False, "error": "Could not create or find the app user record."}
@@ -610,7 +614,7 @@ def create_onboarding_user(
         params={"id": f"eq.{app_user_row['id']}"},
         json_body={
             "full_name": full_name.strip(),
-            "email": email.strip(),
+            "email": normalized_email,
             "role": app_role,
             "default_organization_id": organization_id,
             "is_active": True,
@@ -637,7 +641,7 @@ def create_onboarding_user(
     return {
         "ok": True,
         "app_user_id": app_user_row["id"],
-        "email": email.strip(),
+        "email": normalized_email,
         "temporary_password": temp_password,
         "role": member_role,
     }
@@ -687,6 +691,24 @@ def _find_app_user_by_external_auth_id(external_auth_id):
         return (rows or [None])[0]
     except Exception:
         return None
+
+
+def _find_auth_user_id_by_email(email):
+    if not email:
+        return None
+    try:
+        payload = _auth_admin_request(
+            "GET",
+            "users",
+            params={"email": email.strip().lower()},
+        )
+        for row in (payload.get("users") if isinstance(payload, dict) else payload) or []:
+            row_email = str(row.get("email") or "").strip().lower()
+            if row_email == email.strip().lower() and row.get("id"):
+                return row.get("id")
+    except Exception:
+        return None
+    return None
 
 
 def _generate_temporary_password(length=12):
