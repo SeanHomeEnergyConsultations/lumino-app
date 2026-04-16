@@ -1178,6 +1178,66 @@ def sync_route_stop_details(result, execution_entry, auth_context=None):
     )
 
 
+def persist_rep_stop_update(result, execution_entry, auth_context=None):
+    status_value = str(execution_entry.get("status") or "").strip()
+    normalized_status = status_value.lower()
+    stop_status = "pending"
+    outcome = None
+    skipped_reason = None
+
+    if normalized_status:
+        stop_status = "completed"
+        if normalized_status == "interested":
+            outcome = "interested"
+            if execution_entry.get("lead_stage") in {"", "New Lead", "Attempting Contact"}:
+                execution_entry["lead_stage"] = "Contacted"
+            execution_entry["interest_level"] = execution_entry.get("interest_level") or "Hot"
+        elif normalized_status == "callback":
+            outcome = "callback"
+            if execution_entry.get("lead_stage") in {"", "New Lead", "Attempting Contact"}:
+                execution_entry["lead_stage"] = "Contacted"
+            execution_entry["next_action"] = execution_entry.get("next_action") or "Call Back"
+            execution_entry["interest_level"] = execution_entry.get("interest_level") or "Warm"
+        elif normalized_status == "appt set":
+            outcome = "appointment_set"
+            execution_entry["lead_stage"] = "Appointment Set"
+            execution_entry["next_action"] = execution_entry.get("next_action") or "Confirm Appointment"
+            if execution_entry.get("appointment_status") in {"", "Not Set"}:
+                execution_entry["appointment_status"] = "Scheduled"
+            execution_entry["interest_level"] = execution_entry.get("interest_level") or "Warm"
+        elif normalized_status == "closed":
+            outcome = "closed"
+            execution_entry["lead_stage"] = "Closed Won"
+        elif normalized_status == "not interested":
+            outcome = "not_interested"
+            execution_entry["lead_stage"] = "Closed Lost"
+            execution_entry["interest_level"] = execution_entry.get("interest_level") or "Cold"
+        elif normalized_status.startswith("not home"):
+            outcome = "not_home"
+
+    route_stop_id = (result or {}).get("route_run_stop_id")
+    if route_stop_id:
+        updated = update_route_run_stop(
+            route_stop_id,
+            stop_status=stop_status,
+            outcome=outcome,
+            skipped_reason=skipped_reason,
+            homeowner_name=execution_entry.get("homeowner_name"),
+            phone=execution_entry.get("phone"),
+            email=execution_entry.get("email"),
+            best_follow_up_time=execution_entry.get("best_follow_up_time"),
+            interest_level=(execution_entry.get("interest_level") or "").lower() or None,
+            notes=execution_entry.get("notes"),
+            auth_context=auth_context,
+        )
+        if not updated:
+            return False
+
+    if result is not None:
+        result["route_run_status"] = stop_status
+    return True
+
+
 def apply_quick_disposition(
     result,
     execution_state,
@@ -3014,542 +3074,463 @@ def render_rep_turf_mode(
     turf_metrics[3].metric("Callbacks", callback_count)
     turf_metrics[4].metric("Not Home / Skipped", not_home_count + skipped_count)
 
-    focus_col, support_col = st.columns([1.4, 0.9], gap="large")
-    with focus_col:
-        focus_options = [property_record["property_id"] for property_record in execution_properties]
-        focus_labels = {
-            property_record["property_id"]: (
-                f"Stop {property_record['route_stop_number']} · {property_record['property_type']} · {property_record['address']}"
-            )
+    focus_options = [property_record["property_id"] for property_record in execution_properties]
+    focus_labels = {
+        property_record["property_id"]: (
+            f"Stop {property_record['route_stop_number']} · {property_record['property_type']} · {property_record['address']}"
+        )
+        for property_record in execution_properties
+    }
+    current_focus = st.session_state.get("active_property_id")
+    if focus_options:
+        if current_focus not in focus_options:
+            current_focus = focus_options[0]
+        selected_focus = st.selectbox(
+            "Focused Building",
+            options=focus_options,
+            index=focus_options.index(current_focus),
+            format_func=lambda option: focus_labels.get(option, option),
+            key="focused_stop_picker",
+        )
+        st.session_state["active_property_id"] = selected_focus
+
+    active_property = next(
+        (
+            property_record
             for property_record in execution_properties
-        }
-        current_focus = st.session_state.get("active_property_id")
-        if focus_options:
-            if current_focus not in focus_options:
-                current_focus = focus_options[0]
-            selected_focus = st.selectbox(
-                "Focused Building",
-                options=focus_options,
-                index=focus_options.index(current_focus),
-                format_func=lambda option: focus_labels.get(option, option),
-                key="focused_stop_picker",
-            )
-            st.session_state["active_property_id"] = selected_focus
+            if property_record.get("property_id") == st.session_state.get("active_property_id")
+        ),
+        execution_properties[0] if execution_properties else None,
+    )
+    active_result = next(
+        (
+            result for result in execution_results
+            if active_property and result.get("address") == active_property.get("source_result_address")
+        ),
+        execution_results[0] if execution_results else None,
+    )
 
-        active_property = next(
-            (
-                property_record
-                for property_record in execution_properties
-                if property_record.get("property_id") == st.session_state.get("active_property_id")
-            ),
-            execution_properties[0] if execution_properties else None,
+    appointment_rows, follow_up_rows, hot_lead_rows, recent_activity_rows = crm_summary_rows(
+        execution_results,
+        st.session_state["route_execution"],
+    )
+    queue_rows = []
+    for idx, result in enumerate(execution_results, start=1):
+        property_id = make_property_id("primary_stop", result.get("address"))
+        execution_entry = st.session_state["route_execution"].get(property_id, {})
+        status_meta = route_status_meta(result, execution_entry)
+        queue_rows.append(
+            {
+                "Stop": idx,
+                "Address": result.get("address"),
+                "Status": status_meta["label"],
+                "Doors": result.get("doors_to_knock", 0),
+                "Stage": execution_entry.get("lead_stage") or "New Lead",
+            }
         )
-        active_result = next(
-            (
-                result for result in execution_results
-                if active_property and result.get("address") == active_property.get("source_result_address")
-            ),
-            execution_results[0] if execution_results else None,
-        )
 
-        if active_property:
-            active_property_id = active_property["property_id"]
-            active_entry = st.session_state["route_execution"][active_property_id]
-            synthetic_result = dict(active_result or {})
-            if active_property.get("property_type") != "Primary Stop":
-                synthetic_result["route_run_status"] = "completed" if active_entry.get("status") else "pending"
-            active_status = route_status_meta(synthetic_result, active_entry)
+    route_tab, leads_tab = st.tabs(["Route", "Leads"])
 
-            st.markdown(f"### Stop {active_property.get('route_stop_number')}")
-            st.markdown(f"**{active_property.get('address')}**")
-            st.caption(
-                f"{active_property.get('property_type')} · {active_status['label']} · "
-                f"{get_priority_meta(active_property.get('priority_score', 0))['label']} · "
-                f"{active_property.get('category', 'Unknown')}"
-            )
+    with route_tab:
+        focus_col, support_col = st.columns([1.4, 0.9], gap="large")
+        with focus_col:
+            if active_property:
+                active_property_id = active_property["property_id"]
+                active_entry = st.session_state["route_execution"][active_property_id]
+                synthetic_result = dict(active_result or {})
+                if active_property.get("property_type") != "Primary Stop":
+                    synthetic_result["route_run_status"] = "completed" if active_entry.get("status") else "pending"
+                active_status = route_status_meta(synthetic_result, active_entry)
 
-            active_distance = None
-            if turf_user_location:
-                active_distance = turf_distance_miles(
-                    turf_user_location["latitude"],
-                    turf_user_location["longitude"],
-                    active_property.get("lat"),
-                    active_property.get("lng"),
+                st.markdown(f"### Stop {active_property.get('route_stop_number')}")
+                st.markdown(f"**{active_property.get('address')}**")
+                st.caption(
+                    f"{active_property.get('property_type')} · {active_status['label']} · "
+                    f"{get_priority_meta(active_property.get('priority_score', 0))['label']} · "
+                    f"{active_property.get('category', 'Unknown')}"
                 )
-            pin_distance = None
+
+                active_distance = None
+                if turf_user_location:
+                    active_distance = turf_distance_miles(
+                        turf_user_location["latitude"],
+                        turf_user_location["longitude"],
+                        active_property.get("lat"),
+                        active_property.get("lng"),
+                    )
+                pin_distance = None
+                dropped_pin = st.session_state.get("turf_dropped_pin")
+                if dropped_pin:
+                    pin_distance = turf_distance_miles(
+                        dropped_pin["latitude"],
+                        dropped_pin["longitude"],
+                        active_property.get("lat"),
+                        active_property.get("lng"),
+                    )
+                distance_bits = []
+                if active_distance is not None:
+                    distance_bits.append(f"{active_distance:.2f} mi from you")
+                if pin_distance is not None:
+                    distance_bits.append(f"{pin_distance:.2f} mi from dropped pin")
+                if distance_bits:
+                    st.caption(" · ".join(distance_bits))
+
+                property_meta_col1, property_meta_col2 = st.columns(2)
+                property_meta_col1.metric("Home Value", active_property.get("price_display", "N/A"))
+                property_meta_col2.metric("Size", active_property.get("sqft_display", "N/A"))
+                property_meta_col3, property_meta_col4 = st.columns(2)
+                property_meta_col3.metric(
+                    "Beds / Baths",
+                    f"{active_property.get('beds') or '?'} / {active_property.get('baths') or '?'}",
+                )
+                property_meta_col4.metric("Sold", active_property.get("sold_date", "Unknown"))
+
+                detail_bits = []
+                if active_property.get("zipcode"):
+                    detail_bits.append(f"ZIP {active_property['zipcode']}")
+                if active_property.get("parking_address"):
+                    detail_bits.append(f"Park at {active_property['parking_address']}")
+                if active_property.get("sun_hours_display"):
+                    detail_bits.append(f"{active_property['sun_hours_display']} sun hrs")
+                st.caption(" · ".join(detail_bits))
+
+                active_links = navigation_links(active_property)
+                st.link_button("Directions", active_links["google"], use_container_width=True)
+                if active_property.get("street_view_link"):
+                    st.caption(f"[Street View]({active_property['street_view_link']})")
+
+                status_col, interest_col = st.columns(2)
+                active_entry["status"] = status_col.selectbox(
+                    "Status",
+                    STATUS_OPTIONS,
+                    index=STATUS_OPTIONS.index(active_entry["status"]) if active_entry["status"] in STATUS_OPTIONS else 0,
+                    key=f"turf_status_{active_property_id}",
+                )
+                active_entry["interest_level"] = interest_col.selectbox(
+                    "Interest Level",
+                    INTEREST_LEVEL_OPTIONS,
+                    index=INTEREST_LEVEL_OPTIONS.index(active_entry["interest_level"])
+                    if active_entry["interest_level"] in INTEREST_LEVEL_OPTIONS
+                    else 0,
+                    key=f"turf_interest_{active_property_id}",
+                )
+
+                contact_bits = []
+                if active_entry.get("homeowner_name"):
+                    contact_bits.append(active_entry["homeowner_name"])
+                if active_entry.get("phone"):
+                    contact_bits.append(active_entry["phone"])
+                if active_entry.get("email"):
+                    contact_bits.append(active_entry["email"])
+                if contact_bits:
+                    st.caption(" · ".join(contact_bits))
+
+                route_action_col1, route_action_col2 = st.columns(2)
+                if route_action_col1.button("Save Stop", key=f"save_stop_{active_property_id}", use_container_width=True):
+                    if persist_rep_stop_update(active_result or active_property, active_entry, auth_context=auth_context):
+                        status_suffix = f" as {active_entry.get('status')}" if active_entry.get("status") else ""
+                        append_activity_event(
+                            active_entry,
+                            "Disposition" if active_entry.get("status") else "Notes",
+                            f"Saved stop update{status_suffix}.",
+                        )
+                        save_app_snapshot(
+                            all_results=st.session_state.get("all_results", []),
+                            route_execution=st.session_state["route_execution"],
+                        )
+                        st.success("Stop details saved.")
+                    else:
+                        st.warning("Could not save stop details.")
+                if route_action_col2.button("Mark Skipped", key=f"route_skip_{active_property_id}", use_container_width=True):
+                    if apply_quick_disposition(
+                        active_result or active_property,
+                        st.session_state["route_execution"],
+                        property_id_override=active_property_id,
+                        status_label="",
+                        route_status="skipped",
+                        skipped_reason="Skipped in field",
+                        auth_context=auth_context,
+                    ):
+                        append_activity_event(active_entry, "Disposition", "Skipped in field.")
+                        save_app_snapshot(
+                            all_results=st.session_state.get("all_results", []),
+                            route_execution=st.session_state["route_execution"],
+                        )
+                        st.success("Stop marked skipped.")
+                        st.rerun()
+
+        with support_col:
+            if turf_user_location:
+                st.caption(
+                    f"Current location: {turf_user_location['latitude']:.5f}, {turf_user_location['longitude']:.5f}"
+                )
             dropped_pin = st.session_state.get("turf_dropped_pin")
             if dropped_pin:
-                pin_distance = turf_distance_miles(
-                    dropped_pin["latitude"],
-                    dropped_pin["longitude"],
-                    active_property.get("lat"),
-                    active_property.get("lng"),
+                st.caption(f"Dropped pin: {dropped_pin['latitude']:.5f}, {dropped_pin['longitude']:.5f}")
+            st.markdown("#### Live Queue")
+            st.dataframe(pd.DataFrame(queue_rows), use_container_width=True, hide_index=True, height=260)
+            if route_preview_df is not None:
+                with st.expander("Route Order", expanded=False):
+                    st.dataframe(route_preview_df, use_container_width=True, hide_index=True)
+
+    with leads_tab:
+        leads_focus_col, leads_support_col = st.columns([1.4, 0.9], gap="large")
+        with leads_focus_col:
+            if active_property:
+                active_property_id = active_property["property_id"]
+                active_entry = st.session_state["route_execution"][active_property_id]
+                crm_stage_options = [
+                    "New Lead",
+                    "Attempting Contact",
+                    "Contacted",
+                    "Appointment Set",
+                    "Quoted",
+                    "Negotiation",
+                    "Closed Won",
+                    "Installed",
+                    "Closed Lost",
+                ]
+                crm_action_options = [
+                    "",
+                    "Call Back",
+                    "Text Follow-Up",
+                    "Send Proposal",
+                    "Confirm Appointment",
+                    "Knock Again",
+                    "Manager Review",
+                ]
+                crm_priority_options = ["Low", "Medium", "High", "Urgent"]
+                appointment_status_options = ["Not Set", "Scheduled", "Confirmed", "Completed", "Rescheduled", "Canceled"]
+
+                st.markdown(f"### Lead Follow-Up")
+                st.markdown(f"**{active_property.get('address')}**")
+                st.caption(
+                    f"Status: {active_entry.get('status') or 'Not set'} · "
+                    f"Stage: {active_entry.get('lead_stage') or 'New Lead'}"
                 )
-            distance_bits = []
-            if active_distance is not None:
-                distance_bits.append(f"{active_distance:.2f} mi from you")
-            if pin_distance is not None:
-                distance_bits.append(f"{pin_distance:.2f} mi from dropped pin")
-            if distance_bits:
-                st.caption(" · ".join(distance_bits))
 
-            property_meta_col1, property_meta_col2 = st.columns(2)
-            property_meta_col1.metric("Home Value", active_property.get("price_display", "N/A"))
-            property_meta_col2.metric("Size", active_property.get("sqft_display", "N/A"))
-            property_meta_col3, property_meta_col4 = st.columns(2)
-            property_meta_col3.metric(
-                "Beds / Baths",
-                f"{active_property.get('beds') or '?'} / {active_property.get('baths') or '?'}",
-            )
-            property_meta_col4.metric("Sold", active_property.get("sold_date", "Unknown"))
-            detail_bits = []
-            if active_property.get("zipcode"):
-                detail_bits.append(f"ZIP {active_property['zipcode']}")
-            if active_property.get("parking_address"):
-                detail_bits.append(f"Park at {active_property['parking_address']}")
-            if active_property.get("sun_hours_display"):
-                detail_bits.append(f"{active_property['sun_hours_display']} sun hrs")
-            st.caption(" · ".join(detail_bits))
+                crm_col1, crm_col2 = st.columns(2)
+                active_entry["lead_stage"] = crm_col1.selectbox(
+                    "Lead Stage",
+                    options=crm_stage_options,
+                    index=crm_stage_options.index(active_entry.get("lead_stage", "New Lead"))
+                    if active_entry.get("lead_stage", "New Lead") in crm_stage_options
+                    else 0,
+                    key=f"crm_stage_{active_property_id}",
+                )
+                active_entry["next_action"] = crm_col2.selectbox(
+                    "Next Action",
+                    options=crm_action_options,
+                    index=crm_action_options.index(active_entry.get("next_action", ""))
+                    if active_entry.get("next_action", "") in crm_action_options
+                    else 0,
+                    key=f"crm_next_action_{active_property_id}",
+                )
 
-            active_links = navigation_links(active_property)
-            focus_nav_col1, focus_nav_col2, focus_nav_col3 = st.columns(3)
-            focus_nav_col1.link_button("Google", active_links["google"], use_container_width=True)
-            focus_nav_col2.link_button("Apple", active_links["apple"], use_container_width=True)
-            focus_nav_col3.link_button("Waze", active_links["waze"], use_container_width=True)
+                leads_contact_col1, leads_contact_col2 = st.columns(2)
+                active_entry["homeowner_name"] = leads_contact_col1.text_input(
+                    "Homeowner Name",
+                    value=active_entry["homeowner_name"],
+                    key=f"lead_name_{active_property_id}",
+                )
+                active_entry["phone"] = leads_contact_col2.text_input(
+                    "Phone",
+                    value=active_entry["phone"],
+                    key=f"lead_phone_{active_property_id}",
+                )
+                leads_contact_col3, leads_contact_col4 = st.columns(2)
+                active_entry["email"] = leads_contact_col3.text_input(
+                    "Email",
+                    value=active_entry["email"],
+                    key=f"lead_email_{active_property_id}",
+                )
+                active_entry["best_follow_up_time"] = leads_contact_col4.text_input(
+                    "Best Follow-Up Time",
+                    value=active_entry["best_follow_up_time"],
+                    key=f"turf_followup_{active_property_id}",
+                )
 
-            st.info(active_entry.get("best_follow_up_time") or "No appointment scheduled yet.")
+                crm_task_col1, crm_task_col2 = st.columns(2)
+                active_entry["task_due_date"] = crm_task_col1.text_input(
+                    "Task Due Date",
+                    value=active_entry.get("task_due_date", ""),
+                    placeholder="Apr 18, 2026",
+                    key=f"crm_task_due_{active_property_id}",
+                )
+                active_entry["task_priority"] = crm_task_col2.selectbox(
+                    "Task Priority",
+                    options=crm_priority_options,
+                    index=crm_priority_options.index(active_entry.get("task_priority", "Medium"))
+                    if active_entry.get("task_priority", "Medium") in crm_priority_options
+                    else 1,
+                    key=f"crm_task_priority_{active_property_id}",
+                )
+                active_entry["notes"] = st.text_area(
+                    "Lead Notes",
+                    value=active_entry["notes"],
+                    key=f"lead_notes_{active_property_id}",
+                    height=140,
+                )
 
-            crm_stage_options = [
-                "New Lead",
-                "Attempting Contact",
-                "Contacted",
-                "Appointment Set",
-                "Quoted",
-                "Negotiation",
-                "Closed Won",
-                "Installed",
-                "Closed Lost",
-            ]
-            crm_action_options = [
-                "",
-                "Call Back",
-                "Text Follow-Up",
-                "Send Proposal",
-                "Confirm Appointment",
-                "Knock Again",
-                "Manager Review",
-            ]
-            crm_priority_options = ["Low", "Medium", "High", "Urgent"]
-            appointment_status_options = ["Not Set", "Scheduled", "Confirmed", "Completed", "Rescheduled", "Canceled"]
+                phone_value = urllib.parse.quote(str(active_entry.get("phone") or ""))
+                email_value = urllib.parse.quote(str(active_entry.get("email") or ""))
+                address_value = urllib.parse.quote(str(active_property.get("address") or ""))
+                quick_contact_col1, quick_contact_col2, quick_contact_col3 = st.columns(3)
+                quick_contact_col1.link_button(
+                    "Call",
+                    f"tel:{phone_value}" if phone_value else "https://example.com",
+                    use_container_width=True,
+                    disabled=not bool(phone_value),
+                )
+                quick_contact_col2.link_button(
+                    "Text",
+                    f"sms:{phone_value}" if phone_value else "https://example.com",
+                    use_container_width=True,
+                    disabled=not bool(phone_value),
+                )
+                quick_contact_col3.link_button(
+                    "Email",
+                    f"mailto:{email_value}?subject=Follow%20up%20for%20{address_value}" if email_value else "https://example.com",
+                    use_container_width=True,
+                    disabled=not bool(email_value),
+                )
 
-            crm_col1, crm_col2 = st.columns(2)
-            active_entry["lead_stage"] = crm_col1.selectbox(
-                "Lead Stage",
-                options=crm_stage_options,
-                index=crm_stage_options.index(active_entry.get("lead_stage", "New Lead"))
-                if active_entry.get("lead_stage", "New Lead") in crm_stage_options
-                else 0,
-                key=f"crm_stage_{active_property_id}",
-            )
-            active_entry["next_action"] = crm_col2.selectbox(
-                "Next Action",
-                options=crm_action_options,
-                index=crm_action_options.index(active_entry.get("next_action", ""))
-                if active_entry.get("next_action", "") in crm_action_options
-                else 0,
-                key=f"crm_next_action_{active_property_id}",
-            )
-
-            disposition_col1, disposition_col2, disposition_col3 = st.columns(3)
-            if disposition_col1.button("Interested", key=f"quick_interested_{active_property_id}", use_container_width=True):
-                if apply_quick_disposition(
-                    active_result or active_property,
-                    st.session_state["route_execution"],
-                    property_id_override=active_property_id,
-                    status_label="Interested",
-                    route_status="completed",
-                    outcome="interested",
-                    interest_level="Hot",
-                    auth_context=auth_context,
-                ):
-                    active_entry["lead_stage"] = "Contacted"
-                    append_activity_event(active_entry, "Disposition", "Marked as interested in the field.")
+                activity_col1, activity_col2, activity_col3 = st.columns(3)
+                if activity_col1.button("Log Call", key=f"log_call_{active_property_id}", use_container_width=True):
+                    append_activity_event(active_entry, "Call", "Logged an outbound call attempt.")
+                    if not active_entry.get("next_action"):
+                        active_entry["next_action"] = "Call Back"
                     save_app_snapshot(
                         all_results=st.session_state.get("all_results", []),
                         route_execution=st.session_state["route_execution"],
                     )
-                    st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
                     st.rerun()
-            if disposition_col2.button("Callback", key=f"quick_callback_{active_property_id}", use_container_width=True):
-                if apply_quick_disposition(
-                    active_result or active_property,
-                    st.session_state["route_execution"],
-                    property_id_override=active_property_id,
-                    status_label="Callback",
-                    route_status="completed",
-                    outcome="callback",
-                    interest_level="Warm",
-                    auth_context=auth_context,
-                ):
-                    active_entry["lead_stage"] = "Contacted"
-                    active_entry["next_action"] = active_entry.get("next_action") or "Call Back"
-                    append_activity_event(active_entry, "Disposition", "Marked for callback.")
+                if activity_col2.button("Log Text", key=f"log_text_{active_property_id}", use_container_width=True):
+                    append_activity_event(active_entry, "Text", "Sent a follow-up text.")
+                    if active_entry.get("lead_stage") == "New Lead":
+                        active_entry["lead_stage"] = "Attempting Contact"
                     save_app_snapshot(
                         all_results=st.session_state.get("all_results", []),
                         route_execution=st.session_state["route_execution"],
                     )
-                    st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
                     st.rerun()
-            if disposition_col3.button("Appt Set", key=f"quick_apptset_{active_property_id}", use_container_width=True):
-                if apply_quick_disposition(
-                    active_result or active_property,
-                    st.session_state["route_execution"],
-                    property_id_override=active_property_id,
-                    status_label="Appt Set",
-                    route_status="completed",
-                    outcome="appointment_set",
-                    interest_level=active_entry.get("interest_level") or "Warm",
-                    auth_context=auth_context,
-                ):
+                if activity_col3.button("Create Task", key=f"create_task_{active_property_id}", use_container_width=True):
+                    task_summary = active_entry.get("next_action") or "Follow up"
+                    due_summary = active_entry.get("task_due_date") or "Open"
+                    append_activity_event(active_entry, "Task", f"{task_summary} task set for {due_summary}.")
+                    save_app_snapshot(
+                        all_results=st.session_state.get("all_results", []),
+                        route_execution=st.session_state["route_execution"],
+                    )
+                    st.rerun()
+
+                st.markdown("#### Appointment")
+                appointment_col1, appointment_col2 = st.columns(2)
+                default_date = datetime.now().date()
+                default_time = datetime.now().replace(minute=0, second=0, microsecond=0).time()
+                appointment_date = appointment_col1.date_input(
+                    "Appointment Date",
+                    value=default_date,
+                    key=f"turf_appt_date_{active_property_id}",
+                )
+                appointment_time = appointment_col2.time_input(
+                    "Appointment Time",
+                    value=default_time,
+                    step=1800,
+                    key=f"turf_appt_time_{active_property_id}",
+                )
+                appointment_label = format_follow_up_slot(appointment_date, appointment_time)
+                active_entry["appointment_status"] = st.selectbox(
+                    "Appointment Status",
+                    options=appointment_status_options,
+                    index=appointment_status_options.index(active_entry.get("appointment_status", "Not Set"))
+                    if active_entry.get("appointment_status", "Not Set") in appointment_status_options
+                    else 0,
+                    key=f"appt_status_{active_property_id}",
+                )
+
+                notes_action_col1, notes_action_col2 = st.columns(2)
+                if notes_action_col1.button("Save Lead", key=f"save_lead_{active_property_id}", use_container_width=True):
+                    if persist_rep_stop_update(active_result or active_property, active_entry, auth_context=auth_context):
+                        append_activity_event(active_entry, "Notes", "Saved lead follow-up details.")
+                        save_app_snapshot(
+                            all_results=st.session_state.get("all_results", []),
+                            route_execution=st.session_state["route_execution"],
+                        )
+                        st.success("Lead details saved.")
+                    else:
+                        st.warning("Could not save lead details.")
+                active_prompt = build_follow_up_prompt(active_property, active_entry)
+                notes_action_col2.download_button(
+                    "Prompt",
+                    data=active_prompt,
+                    file_name=f"followup_prompt_{active_property_id.replace(':', '_')}.txt",
+                    mime="text/plain",
+                    use_container_width=True,
+                )
+
+                appt_action_col1, appt_action_col2 = st.columns(2)
+                if appt_action_col1.button("Set Appointment", key=f"set_appt_{active_property_id}", use_container_width=True):
+                    active_entry["best_follow_up_time"] = appointment_label
+                    if not active_entry.get("interest_level"):
+                        active_entry["interest_level"] = "Warm"
+                    active_entry["status"] = "Appt Set"
                     active_entry["lead_stage"] = "Appointment Set"
                     active_entry["appointment_status"] = "Scheduled"
-                    active_entry["next_action"] = active_entry.get("next_action") or "Confirm Appointment"
-                    append_activity_event(active_entry, "Disposition", "Marked as appointment set.")
-                    save_app_snapshot(
-                        all_results=st.session_state.get("all_results", []),
-                        route_execution=st.session_state["route_execution"],
+                    active_entry["next_action"] = "Confirm Appointment"
+                    note_line = f"Appointment scheduled for {appointment_label}"
+                    active_entry["notes"] = (
+                        f"{active_entry['notes']}\n\n{note_line}".strip()
+                        if active_entry.get("notes") and note_line not in active_entry["notes"]
+                        else active_entry.get("notes") or note_line
                     )
-                    st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
-                    st.rerun()
-
-            disposition_col4, disposition_col5, disposition_col6 = st.columns(3)
-            if disposition_col4.button("Not Home", key=f"quick_nothome_{active_property_id}", use_container_width=True):
-                next_not_home = next_not_home_status(active_entry.get("status"))
-                if apply_quick_disposition(
-                    active_result or active_property,
-                    st.session_state["route_execution"],
-                    property_id_override=active_property_id,
-                    status_label=next_not_home,
-                    route_status="completed",
-                    outcome="not_home",
-                    auth_context=auth_context,
-                ):
-                    append_activity_event(active_entry, "Disposition", f"Marked {next_not_home}.")
-                    save_app_snapshot(
-                        all_results=st.session_state.get("all_results", []),
-                        route_execution=st.session_state["route_execution"],
-                    )
-                    st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
-                    st.rerun()
-            if disposition_col5.button("Not Interested", key=f"quick_notinterested_{active_property_id}", use_container_width=True):
-                if apply_quick_disposition(
-                    active_result or active_property,
-                    st.session_state["route_execution"],
-                    property_id_override=active_property_id,
-                    status_label="Not Interested",
-                    route_status="completed",
-                    outcome="not_interested",
-                    interest_level="Cold",
-                    auth_context=auth_context,
-                ):
-                    active_entry["lead_stage"] = "Closed Lost"
-                    append_activity_event(active_entry, "Disposition", "Marked as not interested.")
-                    save_app_snapshot(
-                        all_results=st.session_state.get("all_results", []),
-                        route_execution=st.session_state["route_execution"],
-                    )
-                    st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
-                    st.rerun()
-            if disposition_col6.button("Closed", key=f"quick_closed_{active_property_id}", use_container_width=True):
-                if apply_quick_disposition(
-                    active_result or active_property,
-                    st.session_state["route_execution"],
-                    property_id_override=active_property_id,
-                    status_label="Closed",
-                    route_status="completed",
-                    outcome="closed",
-                    interest_level=active_entry.get("interest_level") or "Hot",
-                    auth_context=auth_context,
-                ):
-                    active_entry["lead_stage"] = "Closed Won"
-                    append_activity_event(active_entry, "Disposition", "Marked as closed.")
-                    save_app_snapshot(
-                        all_results=st.session_state.get("all_results", []),
-                        route_execution=st.session_state["route_execution"],
-                    )
-                    st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
-                    st.rerun()
-
-            skip_col = st.columns(1)[0]
-            if skip_col.button("Skip", key=f"quick_skip_{active_property_id}", use_container_width=True):
-                if apply_quick_disposition(
-                    active_result or active_property,
-                    st.session_state["route_execution"],
-                    property_id_override=active_property_id,
-                    status_label="",
-                    route_status="skipped",
-                    skipped_reason="Skipped in field",
-                    auth_context=auth_context,
-                ):
-                    append_activity_event(active_entry, "Disposition", "Skipped in field.")
-                    save_app_snapshot(
-                        all_results=st.session_state.get("all_results", []),
-                        route_execution=st.session_state["route_execution"],
-                    )
-                    st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
-                    st.rerun()
-
-            active_entry["homeowner_name"] = st.text_input(
-                "Homeowner Name",
-                value=active_entry["homeowner_name"],
-                key=f"turf_name_{active_property_id}",
-            )
-            active_entry["phone"] = st.text_input(
-                "Phone",
-                value=active_entry["phone"],
-                key=f"turf_phone_{active_property_id}",
-            )
-            active_entry["email"] = st.text_input(
-                "Email",
-                value=active_entry["email"],
-                key=f"turf_email_{active_property_id}",
-            )
-            active_entry["best_follow_up_time"] = st.text_input(
-                "Best Follow-Up Time",
-                value=active_entry["best_follow_up_time"],
-                key=f"turf_followup_{active_property_id}",
-            )
-            crm_task_col1, crm_task_col2 = st.columns(2)
-            active_entry["task_due_date"] = crm_task_col1.text_input(
-                "Task Due Date",
-                value=active_entry.get("task_due_date", ""),
-                placeholder="Apr 18, 2026",
-                key=f"crm_task_due_{active_property_id}",
-            )
-            active_entry["task_priority"] = crm_task_col2.selectbox(
-                "Task Priority",
-                options=crm_priority_options,
-                index=crm_priority_options.index(active_entry.get("task_priority", "Medium"))
-                if active_entry.get("task_priority", "Medium") in crm_priority_options
-                else 1,
-                key=f"crm_task_priority_{active_property_id}",
-            )
-            active_entry["notes"] = st.text_area(
-                "Field Notes",
-                value=active_entry["notes"],
-                key=f"turf_notes_{active_property_id}",
-                height=120,
-            )
-
-            quick_contact_col1, quick_contact_col2, quick_contact_col3 = st.columns(3)
-            phone_value = urllib.parse.quote(str(active_entry.get("phone") or ""))
-            email_value = urllib.parse.quote(str(active_entry.get("email") or ""))
-            address_value = urllib.parse.quote(str(active_property.get("address") or ""))
-            quick_contact_col1.link_button(
-                "Call",
-                f"tel:{phone_value}" if phone_value else "https://example.com",
-                use_container_width=True,
-                disabled=not bool(phone_value),
-            )
-            quick_contact_col2.link_button(
-                "Text",
-                f"sms:{phone_value}" if phone_value else "https://example.com",
-                use_container_width=True,
-                disabled=not bool(phone_value),
-            )
-            quick_contact_col3.link_button(
-                "Email",
-                f"mailto:{email_value}?subject=Follow%20up%20for%20{address_value}" if email_value else "https://example.com",
-                use_container_width=True,
-                disabled=not bool(email_value),
-            )
-
-            activity_col1, activity_col2, activity_col3 = st.columns(3)
-            if activity_col1.button("Log Call", key=f"log_call_{active_property_id}", use_container_width=True):
-                append_activity_event(active_entry, "Call", "Logged an outbound call attempt.")
-                if not active_entry.get("next_action"):
-                    active_entry["next_action"] = "Call Back"
-                save_app_snapshot(
-                    all_results=st.session_state.get("all_results", []),
-                    route_execution=st.session_state["route_execution"],
+                    append_activity_event(active_entry, "Appointment", note_line)
+                    if persist_rep_stop_update(active_result or active_property, active_entry, auth_context=auth_context):
+                        save_app_snapshot(
+                            all_results=st.session_state.get("all_results", []),
+                            route_execution=st.session_state["route_execution"],
+                        )
+                        st.success("Appointment saved.")
+                        st.rerun()
+                    else:
+                        st.warning("Could not save the appointment.")
+                ics_data = build_appointment_ics(
+                    active_property.get("address"),
+                    active_entry.get("homeowner_name"),
+                    active_entry.get("best_follow_up_time") or appointment_label,
+                    active_entry.get("notes"),
                 )
-                st.rerun()
-            if activity_col2.button("Log Text", key=f"log_text_{active_property_id}", use_container_width=True):
-                append_activity_event(active_entry, "Text", "Sent a follow-up text.")
-                if active_entry.get("lead_stage") == "New Lead":
-                    active_entry["lead_stage"] = "Attempting Contact"
-                save_app_snapshot(
-                    all_results=st.session_state.get("all_results", []),
-                    route_execution=st.session_state["route_execution"],
-                )
-                st.rerun()
-            if activity_col3.button("Create Task", key=f"create_task_{active_property_id}", use_container_width=True):
-                task_summary = active_entry.get("next_action") or "Follow up"
-                due_summary = active_entry.get("task_due_date") or "Open"
-                append_activity_event(active_entry, "Task", f"{task_summary} task set for {due_summary}.")
-                save_app_snapshot(
-                    all_results=st.session_state.get("all_results", []),
-                    route_execution=st.session_state["route_execution"],
-                )
-                st.rerun()
-
-            st.markdown("#### Set Appointment")
-            appointment_col1, appointment_col2 = st.columns(2)
-            default_date = datetime.now().date()
-            default_time = datetime.now().replace(minute=0, second=0, microsecond=0).time()
-            appointment_date = appointment_col1.date_input(
-                "Appointment Date",
-                value=default_date,
-                key=f"turf_appt_date_{active_property_id}",
-            )
-            appointment_time = appointment_col2.time_input(
-                "Appointment Time",
-                value=default_time,
-                step=1800,
-                key=f"turf_appt_time_{active_property_id}",
-            )
-            appointment_label = format_follow_up_slot(appointment_date, appointment_time)
-            active_entry["appointment_status"] = st.selectbox(
-                "Appointment Status",
-                options=appointment_status_options,
-                index=appointment_status_options.index(active_entry.get("appointment_status", "Not Set"))
-                if active_entry.get("appointment_status", "Not Set") in appointment_status_options
-                else 0,
-                key=f"appt_status_{active_property_id}",
-            )
-
-            notes_action_col1, notes_action_col2 = st.columns(2)
-            if notes_action_col1.button("Save Notes", key=f"save_notes_{active_property_id}", use_container_width=True):
-                if sync_route_stop_details(active_result or active_property, active_entry, auth_context=auth_context):
-                    append_activity_event(active_entry, "Notes", "Saved updated field notes.")
-                    save_app_snapshot(
-                        all_results=st.session_state.get("all_results", []),
-                        route_execution=st.session_state["route_execution"],
-                    )
-                    st.success("Field notes saved.")
-                else:
-                    st.warning("Could not save stop details.")
-            active_prompt = build_follow_up_prompt(active_property, active_entry)
-            notes_action_col2.download_button(
-                "Prompt",
-                data=active_prompt,
-                file_name=f"followup_prompt_{active_property_id.replace(':', '_')}.txt",
-                mime="text/plain",
-                use_container_width=True,
-            )
-
-            appt_action_col1, appt_action_col2 = st.columns(2)
-            if appt_action_col1.button("Set Appointment", key=f"set_appt_{active_property_id}", use_container_width=True):
-                active_entry["best_follow_up_time"] = appointment_label
-                if not active_entry.get("interest_level"):
-                    active_entry["interest_level"] = "Warm"
-                active_entry["lead_stage"] = "Appointment Set"
-                active_entry["appointment_status"] = "Scheduled"
-                active_entry["next_action"] = "Confirm Appointment"
-                note_line = f"Appointment scheduled for {appointment_label}"
-                active_entry["notes"] = (
-                    f"{active_entry['notes']}\n\n{note_line}".strip()
-                    if active_entry.get("notes") and note_line not in active_entry["notes"]
-                    else active_entry.get("notes") or note_line
-                )
-                append_activity_event(active_entry, "Appointment", note_line)
-                if apply_quick_disposition(
-                    active_result or active_property,
-                    st.session_state["route_execution"],
-                    property_id_override=active_property_id,
-                    status_label="Appt Set",
-                    route_status="completed",
-                    outcome="appointment_set",
-                    interest_level="Warm",
-                    auth_context=auth_context,
-                ):
-                    save_app_snapshot(
-                        all_results=st.session_state.get("all_results", []),
-                        route_execution=st.session_state["route_execution"],
-                    )
-                    st.session_state["active_property_id"] = next_pending_property_id(execution_results) or active_property_id
-                    st.rerun()
-                else:
-                    st.warning("Could not save the appointment.")
-            if appt_action_col2.button("Save Contact", key=f"save_contact_{active_property_id}", use_container_width=True):
-                if sync_route_stop_details(active_result or active_property, active_entry, auth_context=auth_context):
-                    append_activity_event(active_entry, "Contact", "Saved updated contact details.")
-                    save_app_snapshot(
-                        all_results=st.session_state.get("all_results", []),
-                        route_execution=st.session_state["route_execution"],
-                    )
-                    st.success("Contact details saved.")
-                else:
-                    st.warning("Could not save contact details.")
-
-            ics_data = build_appointment_ics(
-                active_property.get("address"),
-                active_entry.get("homeowner_name"),
-                active_entry.get("best_follow_up_time") or appointment_label,
-                active_entry.get("notes"),
-            )
-            st.download_button(
-                "Download Calendar Invite",
-                data=ics_data,
-                file_name=f"lumino_appointment_{active_property_id.replace(':', '_')}.ics",
-                mime="text/calendar",
-                use_container_width=True,
-            )
-
-            activity_history = active_entry.get("activity_log") or []
-            if activity_history:
-                st.markdown("#### Recent Activity")
-                st.dataframe(
-                    pd.DataFrame(activity_history),
+                appt_action_col2.download_button(
+                    "Calendar Invite",
+                    data=ics_data,
+                    file_name=f"lumino_appointment_{active_property_id.replace(':', '_')}.ics",
+                    mime="text/calendar",
                     use_container_width=True,
-                    hide_index=True,
-                    height=220,
                 )
 
-    with support_col:
-        if turf_user_location:
-            st.caption(
-                f"Current location: {turf_user_location['latitude']:.5f}, {turf_user_location['longitude']:.5f}"
-            )
-        dropped_pin = st.session_state.get("turf_dropped_pin")
-        if dropped_pin:
-            st.caption(f"Dropped pin: {dropped_pin['latitude']:.5f}, {dropped_pin['longitude']:.5f}")
-        appointment_rows, follow_up_rows, hot_lead_rows, recent_activity_rows = crm_summary_rows(
-            execution_results,
-            st.session_state["route_execution"],
-        )
-        queue_rows = []
-        for idx, result in enumerate(execution_results, start=1):
-            property_id = make_property_id("primary_stop", result.get("address"))
-            execution_entry = st.session_state["route_execution"].get(property_id, {})
-            status_meta = route_status_meta(result, execution_entry)
-            queue_rows.append(
-                {
-                    "Stop": idx,
-                    "Address": result.get("address"),
-                    "Status": status_meta["label"],
-                    "Doors": result.get("doors_to_knock", 0),
-                    "Stage": execution_entry.get("lead_stage") or "New Lead",
-                }
-            )
+                activity_history = active_entry.get("activity_log") or []
+                if activity_history:
+                    st.markdown("#### Recent Activity")
+                    st.dataframe(
+                        pd.DataFrame(activity_history),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=220,
+                    )
 
-        st.markdown("#### Live Queue")
-        st.dataframe(pd.DataFrame(queue_rows), use_container_width=True, hide_index=True, height=260)
-        if appointment_rows:
-            st.markdown("#### Upcoming Appointments")
-            st.dataframe(pd.DataFrame(appointment_rows), use_container_width=True, hide_index=True, height=220)
-        if follow_up_rows:
-            st.markdown("#### Follow-Up Queue")
-            st.dataframe(pd.DataFrame(follow_up_rows), use_container_width=True, hide_index=True, height=220)
-        if hot_lead_rows:
-            st.markdown("#### Hot Leads")
-            st.dataframe(pd.DataFrame(hot_lead_rows), use_container_width=True, hide_index=True, height=180)
-        if recent_activity_rows:
-            with st.expander("Recent CRM Activity", expanded=False):
-                st.dataframe(pd.DataFrame(recent_activity_rows), use_container_width=True, hide_index=True, height=240)
-        if route_preview_df is not None:
-            with st.expander("Route Order", expanded=False):
-                st.dataframe(route_preview_df, use_container_width=True, hide_index=True)
+        with leads_support_col:
+            if appointment_rows:
+                st.markdown("#### Upcoming Appointments")
+                st.dataframe(pd.DataFrame(appointment_rows), use_container_width=True, hide_index=True, height=220)
+            if follow_up_rows:
+                st.markdown("#### Follow-Up Queue")
+                st.dataframe(pd.DataFrame(follow_up_rows), use_container_width=True, hide_index=True, height=220)
+            if hot_lead_rows:
+                st.markdown("#### Hot Leads")
+                st.dataframe(pd.DataFrame(hot_lead_rows), use_container_width=True, hide_index=True, height=180)
+            if recent_activity_rows:
+                with st.expander("Recent CRM Activity", expanded=False):
+                    st.dataframe(pd.DataFrame(recent_activity_rows), use_container_width=True, hide_index=True, height=240)
 
 api_key = GOOGLE_API_KEY
 
