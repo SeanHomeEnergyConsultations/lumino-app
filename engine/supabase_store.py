@@ -773,7 +773,20 @@ def create_route_run(route_draft_id, selected_results, start_lat=None, start_lng
         return None
 
 
-def update_route_run_stop(route_run_stop_id, *, stop_status=None, outcome=None, skipped_reason=None, auth_context=None):
+def update_route_run_stop(
+    route_run_stop_id,
+    *,
+    stop_status=None,
+    outcome=None,
+    skipped_reason=None,
+    homeowner_name=None,
+    phone=None,
+    email=None,
+    best_follow_up_time=None,
+    interest_level=None,
+    notes=None,
+    auth_context=None,
+):
     if not supabase_enabled():
         return False
 
@@ -784,6 +797,18 @@ def update_route_run_stop(route_run_stop_id, *, stop_status=None, outcome=None, 
         payload["outcome"] = outcome
     if skipped_reason is not None:
         payload["skipped_reason"] = skipped_reason
+    if homeowner_name is not None:
+        payload["homeowner_name"] = homeowner_name
+    if phone is not None:
+        payload["phone"] = phone
+    if email is not None:
+        payload["email"] = email
+    if best_follow_up_time is not None:
+        payload["best_follow_up_time"] = best_follow_up_time
+    if interest_level is not None:
+        payload["interest_level"] = interest_level
+    if notes is not None:
+        payload["notes"] = notes
     if stop_status == "completed":
         payload["completed_at"] = datetime.now(timezone.utc).isoformat()
 

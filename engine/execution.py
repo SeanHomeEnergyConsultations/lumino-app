@@ -35,6 +35,14 @@ def default_execution_entry():
         "best_follow_up_time": "",
         "interest_level": "",
         "notes": "",
+        "lead_stage": "New Lead",
+        "next_action": "",
+        "task_due_date": "",
+        "task_priority": "Medium",
+        "appointment_status": "Not Set",
+        "last_contacted_at": "",
+        "last_outcome": "",
+        "activity_log": [],
     }
 
 
@@ -160,6 +168,13 @@ def build_follow_up_prompt(property_record, execution_entry):
         ("Email", execution_entry.get("email")),
         ("Best follow-up time", execution_entry.get("best_follow_up_time")),
         ("Interest level", execution_entry.get("interest_level")),
+        ("Lead stage", execution_entry.get("lead_stage")),
+        ("Next action", execution_entry.get("next_action")),
+        ("Task due date", execution_entry.get("task_due_date")),
+        ("Task priority", execution_entry.get("task_priority")),
+        ("Appointment status", execution_entry.get("appointment_status")),
+        ("Last contacted at", execution_entry.get("last_contacted_at")),
+        ("Last outcome", execution_entry.get("last_outcome")),
         ("Visit notes", execution_entry.get("notes")),
     ]
 

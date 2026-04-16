@@ -65,7 +65,7 @@ def generate_html_report(all_results):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>SolarIQ Report</title>
+<title>Lumino Report</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box;}}
 body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#060A14;color:#C0CAD8;padding:28px;}}
@@ -148,8 +148,8 @@ body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
 <body>
 <div class="container">
 <div class="header">
-    <div class="header-logo">SolarIQ</div>
-    <div class="header-tagline">Intelligent Solar Prospecting</div>
+    <div class="header-logo">Lumino</div>
+    <div class="header-tagline">Field Performance Platform</div>
     <div class="gold-line"></div>
     <div class="header-meta">Report generated {datetime.now().strftime("%B %d, %Y at %I:%M %p")}</div>
 </div>
@@ -231,7 +231,7 @@ body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
         )
 
     html += (
-        f'<div class="footer">SolarIQ &nbsp;·&nbsp; Intelligent Solar Prospecting &nbsp;·&nbsp; '
+        f'<div class="footer">Lumino &nbsp;·&nbsp; Field Performance Platform &nbsp;·&nbsp; '
         f'{datetime.now().strftime("%Y")}</div></div></body></html>'
     )
     return html

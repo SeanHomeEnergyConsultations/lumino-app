@@ -6,4 +6,4 @@ env/
 venv/
 .env
 .streamlit/secrets.toml
-
+.lumino_state/

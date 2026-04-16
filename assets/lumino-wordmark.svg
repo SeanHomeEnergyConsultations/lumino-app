@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 240" role="img" aria-labelledby="title desc">
+  <title id="title">Lumino Wordmark</title>
+  <desc id="desc">Lumino wordmark with brand mark and tagline.</desc>
+  <defs>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f9df8f" />
+      <stop offset="50%" stop-color="#ddb055" />
+      <stop offset="100%" stop-color="#b97b1e" />
+    </linearGradient>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#08101d" />
+      <stop offset="100%" stop-color="#173556" />
+    </linearGradient>
+  </defs>
+  <rect x="12" y="18" width="164" height="164" rx="38" fill="url(#bg)" />
+  <circle cx="142" cy="52" r="14" fill="#3cc2d4" opacity="0.9" />
+  <path
+    d="M62 54 L62 138 Q62 156 78 156 L128 156"
+    fill="none"
+    stroke="url(#gold)"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="24"
+  />
+  <text x="214" y="104" fill="#f2f5fb" font-size="74" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-weight="700" letter-spacing="1">Lumino</text>
+  <text x="216" y="148" fill="#7d8ea6" font-size="22" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-weight="600" letter-spacing="5">FIELD PERFORMANCE PLATFORM</text>
+</svg>
