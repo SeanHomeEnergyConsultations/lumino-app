@@ -417,6 +417,8 @@ def get_cached_analysis(row_data, auth_context=None):
 def get_open_lead_pool(limit=500, auth_context=None):
     if not supabase_enabled():
         return []
+    if auth_context and not can_access_manager_workspace(auth_context=auth_context):
+        return []
 
     params = {
         "select": (
@@ -539,6 +541,20 @@ def get_user_memberships(auth_context=None):
         return memberships
     except Exception:
         return []
+
+
+def get_active_org_role(auth_context=None):
+    org_id = (auth_context or {}).get("organization_id")
+    if not org_id:
+        return None
+    for membership in get_user_memberships(auth_context=auth_context):
+        if membership.get("organization_id") == org_id:
+            return str(membership.get("role") or "").strip().lower()
+    return None
+
+
+def can_access_manager_workspace(auth_context=None):
+    return get_active_org_role(auth_context=auth_context) in {"owner", "admin", "manager"}
 
 
 def create_onboarding_user(
@@ -831,14 +847,20 @@ def get_route_drafts(limit=100, auth_context=None):
         return []
 
     try:
+        params = {
+            "select": "id,name,status,assigned_rep_id,created_at,app_users!route_drafts_assigned_rep_id_fkey(full_name,email)",
+            "order": "created_at.desc",
+            "limit": str(limit),
+        }
+        if auth_context and not can_access_manager_workspace(auth_context=auth_context):
+            app_user = get_current_app_user(auth_context=auth_context)
+            if not app_user:
+                return []
+            params["assigned_rep_id"] = f"eq.{app_user['id']}"
         rows = _request(
             "GET",
             "route_drafts",
-            params={
-                "select": "id,name,status,assigned_rep_id,created_at,app_users!route_drafts_assigned_rep_id_fkey(full_name,email)",
-                "order": "created_at.desc",
-                "limit": str(limit),
-            },
+            params=params,
             auth_context=auth_context,
         )
         return rows or []
@@ -851,6 +873,24 @@ def load_route_draft_results(route_draft_id, auth_context=None):
         return []
 
     try:
+        draft_rows = _request(
+            "GET",
+            "route_drafts",
+            params={
+                "id": f"eq.{route_draft_id}",
+                "select": "id,assigned_rep_id",
+                "limit": "1",
+            },
+            auth_context=auth_context,
+        )
+        draft_row = (draft_rows or [None])[0]
+        if not draft_row:
+            return []
+        if auth_context and not can_access_manager_workspace(auth_context=auth_context):
+            app_user = get_current_app_user(auth_context=auth_context)
+            if not app_user or draft_row.get("assigned_rep_id") != app_user.get("id"):
+                return []
+
         stop_rows = _request(
             "GET",
             "route_draft_stops",

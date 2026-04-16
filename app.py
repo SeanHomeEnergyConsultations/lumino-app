@@ -2047,6 +2047,17 @@ def profile_badges_for_user(user_row):
     return badges
 
 
+def get_active_org_role(current_memberships, selected_org_id, fallback_role=None):
+    for membership in current_memberships or []:
+        if membership.get("organization_id") == selected_org_id:
+            return str(membership.get("role") or fallback_role or "").strip().lower()
+    return str(fallback_role or "").strip().lower()
+
+
+def can_access_manager_workspace(role):
+    return str(role or "").strip().lower() in {"owner", "admin", "manager"}
+
+
 def render_people_hub(current_app_user, auth_context):
     st.markdown('<div class="siq-section">People</div>', unsafe_allow_html=True)
     st.markdown("Profiles bring recognition, contact actions, and role context into one place.")
@@ -3577,6 +3588,13 @@ if auth_enabled and st.session_state.get("auth_session"):
                 "organization_id": default_org_id,
             }
 
+active_org_role = get_active_org_role(
+    current_memberships,
+    st.session_state.get("selected_org_id"),
+    current_app_user.get("role") if current_app_user else None,
+)
+manager_workspace_enabled = can_access_manager_workspace(active_org_role)
+
 with st.sidebar:
     if BRAND_WORDMARK_PATH.exists():
         st.image(str(BRAND_WORDMARK_PATH), width=220)
@@ -3630,11 +3648,18 @@ with st.sidebar:
                 st.session_state["auth_session"] = None
                 st.session_state["selected_org_id"] = None
                 st.rerun()
+    workspace_options = ["Manager View", "Rep View"] if manager_workspace_enabled else ["Rep View"]
+    if not manager_workspace_enabled and st.session_state.get("workspace_mode") != "Rep View":
+        st.session_state["workspace_mode"] = "Rep View"
     workspace_mode = st.radio(
         "Workspace",
-        options=["Manager View", "Rep View"],
+        options=workspace_options,
         key="workspace_mode",
     )
+    if current_app_user and not manager_workspace_enabled:
+        st.caption(
+            f"Your role in this organization is `{active_org_role or 'rep'}`. Manager view is disabled for this account."
+        )
     st.markdown("---")
     st.markdown("**Workflow**")
     if workspace_mode == "Manager View":
@@ -3689,6 +3714,10 @@ if auth_enabled and st.session_state.get("auth_session") and not current_members
     st.warning("Your account is authenticated but not assigned to any organization yet.")
     st.stop()
 
+if not manager_workspace_enabled and workspace_mode != "Rep View":
+    workspace_mode = "Rep View"
+    st.session_state["workspace_mode"] = "Rep View"
+
 if st.session_state.get("last_workspace_mode") != workspace_mode:
     if workspace_mode == "Rep View":
         st.session_state.pop("all_results", None)
@@ -3710,7 +3739,14 @@ if workspace_mode == "Manager View" and st.session_state.get("last_snapshot_resu
     )
 
 workspace_tab_label = "Workspace" if workspace_mode == "Manager View" else "Turf"
-workspace_tab, team_tab, performance_tab, onboarding_tab = st.tabs([workspace_tab_label, "People", "Performance", "Onboarding"])
+if manager_workspace_enabled:
+    workspace_tab, team_tab, performance_tab, onboarding_tab = st.tabs(
+        [workspace_tab_label, "People", "Performance", "Onboarding"]
+    )
+else:
+    workspace_tab, team_tab = st.tabs([workspace_tab_label, "People"])
+    performance_tab = None
+    onboarding_tab = None
 
 with workspace_tab:
     if workspace_mode == "Manager View" and supabase_enabled():
@@ -3794,26 +3830,28 @@ with team_tab:
     )
     render_people_hub(current_app_user, auth_context)
 
-with performance_tab:
-    render_context_shell(
-        "Performance Context",
-        "Leaderboards, report builder previews, and competitions stay available alongside the live workspace.",
-        ["Leaderboard", "Reports", "Competitions", "KPIs"],
-    )
-    render_performance_hub(
-        st.session_state.get("all_results", []),
-        st.session_state.get("route_execution", {}),
-        current_app_user,
-        auth_context,
-    )
+if performance_tab is not None:
+    with performance_tab:
+        render_context_shell(
+            "Performance Context",
+            "Leaderboards, report builder previews, and competitions stay available alongside the live workspace.",
+            ["Leaderboard", "Reports", "Competitions", "KPIs"],
+        )
+        render_performance_hub(
+            st.session_state.get("all_results", []),
+            st.session_state.get("route_execution", {}),
+            current_app_user,
+            auth_context,
+        )
 
-with onboarding_tab:
-    render_context_shell(
-        "Onboarding Context",
-        "Bring new reps into the platform with structured setup, readiness tracking, and manager-owned onboarding notes.",
-        ["New Hires", "Checklist", "Readiness", "Setup"],
-    )
-    render_onboarding_hub(current_app_user, auth_context)
+if onboarding_tab is not None:
+    with onboarding_tab:
+        render_context_shell(
+            "Onboarding Context",
+            "Bring new reps into the platform with structured setup, readiness tracking, and manager-owned onboarding notes.",
+            ["New Hires", "Checklist", "Readiness", "Setup"],
+        )
+        render_onboarding_hub(current_app_user, auth_context)
 
 with workspace_tab:
     if workspace_mode == "Manager View":
