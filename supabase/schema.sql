@@ -228,6 +228,7 @@ create table if not exists public.lead_analysis (
   beds text,
   baths text,
   sold_date text,
+  permit_pulled text,
   sun_hours double precision,
   sun_hours_display text,
   category text,
@@ -468,6 +469,14 @@ for each row execute function public.set_updated_at();
 create or replace view public.open_lead_pool as
 select
   l.*,
+  a.sale_price,
+  a.price_display,
+  a.sqft,
+  a.sqft_display,
+  a.beds,
+  a.baths,
+  a.sold_date,
+  a.permit_pulled,
   a.priority_score,
   a.priority_label,
   a.category,

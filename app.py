@@ -1429,6 +1429,7 @@ COLUMN_ALIASES = {
     "baths": ["baths", "bathrooms", "bath"],
     "sqft": ["sqft", "squarefeet", "livingarea", "livingsqft", "area"],
     "sold_date": ["solddate", "date", "closedate", "datesold"],
+    "permit_pulled": ["permitpulled", "permitdate", "datepermitpulled", "permitissued", "permitissue"],
     "property_type": ["propertytype", "type", "hometype", "residentialtype"],
     "lot_size": ["lotsize", "lotsqft", "lotsquarefeet", "lotarea"],
     "year_built": ["yearbuilt", "built", "year"],
@@ -1565,6 +1566,7 @@ def enrich_result_with_source_fields(result, row_data):
         "unqualified_reason",
         "unqualified_reason_notes",
         "listing_agent",
+        "permit_pulled",
         "property_type",
         "lot_size",
         "year_built",
@@ -3429,6 +3431,28 @@ def render_context_shell(title, copy, chips):
     )
 
 
+def filter_open_lead_pool_results(results, sold_date_query="", min_price=None, max_price=None, min_sun_hours=None, max_sun_hours=None):
+    filtered = []
+    sold_date_query = str(sold_date_query or "").strip().lower()
+    for result in results or []:
+        sale_price = result.get("sale_price")
+        sun_hours = result.get("sun_hours")
+        sold_date = str(result.get("sold_date") or "").lower()
+
+        if sold_date_query and sold_date_query not in sold_date:
+            continue
+        if min_price is not None and sale_price is not None and sale_price < min_price:
+            continue
+        if max_price is not None and sale_price is not None and sale_price > max_price:
+            continue
+        if min_sun_hours is not None and sun_hours is not None and sun_hours < min_sun_hours:
+            continue
+        if max_sun_hours is not None and sun_hours is not None and sun_hours > max_sun_hours:
+            continue
+        filtered.append(result)
+    return filtered
+
+
 def auto_load_rep_draft_if_available(current_app_user, auth_context):
     if not current_app_user or not auth_context:
         return
@@ -4533,10 +4557,62 @@ with planning_tab:
         st.markdown(f'<div class="siq-section">{section_title}</div>', unsafe_allow_html=True)
         st.markdown(section_copy)
 
+        st.caption("Open lead pool fetches are now configurable. `Permit pulled` filtering is not available yet because that field is not currently stored in the lead analysis data.")
+
+        pool_filter_col1, pool_filter_col2, pool_filter_col3 = st.columns(3)
+        open_pool_limit = pool_filter_col1.selectbox(
+            "Lead Fetch Limit",
+            options=[500, 1000, 2500, 5000],
+            index=3,
+            key="open_pool_limit",
+        )
+        open_pool_min_price = pool_filter_col2.number_input(
+            "Min Price",
+            min_value=0,
+            value=0,
+            step=50000,
+            key="open_pool_min_price",
+        )
+        open_pool_max_price = pool_filter_col3.number_input(
+            "Max Price",
+            min_value=0,
+            value=0,
+            step=50000,
+            key="open_pool_max_price",
+        )
+        pool_filter_col4, pool_filter_col5, pool_filter_col6 = st.columns(3)
+        open_pool_min_sun = pool_filter_col4.number_input(
+            "Min Sun Hours",
+            min_value=0.0,
+            value=0.0,
+            step=50.0,
+            key="open_pool_min_sun",
+        )
+        open_pool_max_sun = pool_filter_col5.number_input(
+            "Max Sun Hours",
+            min_value=0.0,
+            value=0.0,
+            step=50.0,
+            key="open_pool_max_sun",
+        )
+        open_pool_sold_date = pool_filter_col6.text_input(
+            "Sold Date Contains",
+            placeholder="e.g. 2024 or Apr 2024",
+            key="open_pool_sold_date",
+        )
+
         pool_col, drafts_col = st.columns(2)
 
         if workspace_mode == "Manager View" and pool_col.button("Load Open Lead Pool", use_container_width=True):
-            pool_results = get_open_lead_pool(auth_context=auth_context)
+            pool_results = get_open_lead_pool(limit=int(open_pool_limit), auth_context=auth_context)
+            pool_results = filter_open_lead_pool_results(
+                pool_results,
+                sold_date_query=open_pool_sold_date,
+                min_price=(float(open_pool_min_price) if open_pool_min_price > 0 else None),
+                max_price=(float(open_pool_max_price) if open_pool_max_price > 0 else None),
+                min_sun_hours=(float(open_pool_min_sun) if open_pool_min_sun > 0 else None),
+                max_sun_hours=(float(open_pool_max_sun) if open_pool_max_sun > 0 else None),
+            )
             if pool_results:
                 st.session_state["all_results"] = pool_results
                 save_app_snapshot(
@@ -4674,6 +4750,7 @@ with planning_tab:
         col_baths = column_mapping.get("baths")
         col_sqft = column_mapping.get("sqft")
         col_sold = column_mapping.get("sold_date")
+        col_permit_pulled = column_mapping.get("permit_pulled")
 
         if not col_address:
             st.error("Could not find an address column. Include a header like Address or Property Address.")
@@ -4750,6 +4827,7 @@ with planning_tab:
                         "baths": get_row_value(row, col_baths),
                         "sqft": get_row_value(row, col_sqft),
                         "sold_date": get_row_value(row, col_sold),
+                        "permit_pulled": get_row_value(row, col_permit_pulled),
                         "property_type": get_row_value(row, column_mapping.get("property_type")),
                         "lot_size": get_row_value(row, column_mapping.get("lot_size")),
                         "year_built": get_row_value(row, column_mapping.get("year_built")),

@@ -75,6 +75,7 @@ def process_address(row_data, gmaps_client, key, auth_context=None, analysis_mod
     sale_price = parse_sale_price(row_data.get("price"), row_data.get("price_remainder"))
     sqft = row_data.get("sqft")
     sold_date = format_date(row_data.get("sold_date"))
+    permit_pulled = format_date(row_data.get("permit_pulled"))
     beds = row_data.get("beds")
     baths = row_data.get("baths")
     property_type = row_data.get("property_type")
@@ -135,6 +136,7 @@ def process_address(row_data, gmaps_client, key, auth_context=None, analysis_mod
             "sqft": sqft_val,
             "sqft_display": sqft_display,
             "sold_date": sold_date,
+            "permit_pulled": permit_pulled,
             "beds": beds,
             "baths": baths,
             "property_type": property_type,
@@ -237,6 +239,7 @@ def process_address(row_data, gmaps_client, key, auth_context=None, analysis_mod
         "sqft": sqft_val,
         "sqft_display": sqft_display,
         "sold_date": sold_date,
+        "permit_pulled": permit_pulled,
         "beds": beds,
         "baths": baths,
         "property_type": property_type,
@@ -256,6 +259,7 @@ def build_processing_error_result(row_data, error_message):
     sale_price = parse_sale_price(row_data.get("price"), row_data.get("price_remainder"))
     sqft = row_data.get("sqft")
     sold_date = format_date(row_data.get("sold_date"))
+    permit_pulled = format_date(row_data.get("permit_pulled"))
     beds = row_data.get("beds")
     baths = row_data.get("baths")
     property_type = row_data.get("property_type")
@@ -310,6 +314,7 @@ def build_processing_error_result(row_data, error_message):
         "sqft": sqft_val,
         "sqft_display": sqft_display,
         "sold_date": sold_date,
+        "permit_pulled": permit_pulled,
         "beds": beds,
         "baths": baths,
         "property_type": property_type,

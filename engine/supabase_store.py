@@ -155,6 +155,7 @@ def _analysis_payload(cache_key, lead_id, result):
         "beds": _string_or_none(result.get("beds")),
         "baths": _string_or_none(result.get("baths")),
         "sold_date": result.get("sold_date"),
+        "permit_pulled": result.get("permit_pulled"),
         "sun_hours": result.get("sun_hours"),
         "sun_hours_display": result.get("sun_hours_display"),
         "category": result.get("category"),
@@ -245,6 +246,7 @@ def _result_from_supabase_row(row):
         "sqft": row.get("sqft"),
         "sqft_display": row.get("sqft_display", "N/A"),
         "sold_date": row.get("sold_date", "Unknown"),
+        "permit_pulled": row.get("permit_pulled", "Unknown"),
         "beds": row.get("beds", ""),
         "baths": row.get("baths", ""),
         "value_score": row.get("value_score", 0),
@@ -303,14 +305,15 @@ def _open_lead_pool_row_to_result(row):
         "doors_to_knock": row.get("doors_to_knock", 0),
         "knock_addresses": _knock_addresses(row.get("address", ""), [], row.get("category")),
         "neighbor_records": [],
-        "sale_price": None,
-        "price_display": "N/A",
+        "sale_price": row.get("sale_price"),
+        "price_display": row.get("price_display", "N/A"),
         "value_badge": "Unknown",
-        "sqft": None,
-        "sqft_display": "N/A",
-        "sold_date": "Unknown",
-        "beds": "",
-        "baths": "",
+        "sqft": row.get("sqft"),
+        "sqft_display": row.get("sqft_display", "N/A"),
+        "sold_date": row.get("sold_date", "Unknown"),
+        "permit_pulled": row.get("permit_pulled", "Unknown"),
+        "beds": row.get("beds", ""),
+        "baths": row.get("baths", ""),
         "value_score": 0,
         "sqft_score": 0,
         "analysis_error": None,
@@ -414,7 +417,7 @@ def get_cached_analysis(row_data, auth_context=None):
     return None
 
 
-def get_open_lead_pool(limit=500, auth_context=None):
+def get_open_lead_pool(limit=5000, auth_context=None):
     if not supabase_enabled():
         return []
     if auth_context and not can_access_manager_workspace(auth_context=auth_context):
@@ -423,8 +426,9 @@ def get_open_lead_pool(limit=500, auth_context=None):
     params = {
         "select": (
             "id,address,zipcode,lat,lng,first_name,last_name,phone,email,notes,"
-            "unqualified,unqualified_reason,listing_agent,priority_score,priority_label,"
-            "category,sun_hours,sun_hours_display,solar_details,doors_to_knock"
+            "unqualified,unqualified_reason,listing_agent,sale_price,price_display,sqft,sqft_display,"
+            "beds,baths,sold_date,permit_pulled,priority_score,priority_label,category,sun_hours,sun_hours_display,"
+            "solar_details,doors_to_knock"
         ),
         "order": "priority_score.desc,doors_to_knock.desc,address.asc",
         "limit": str(limit),
@@ -441,8 +445,8 @@ def get_open_lead_pool(limit=500, auth_context=None):
                 params={
                     "select": (
                         "id,address,zipcode,lat,lng,first_name,last_name,phone,email,notes,"
-                        "unqualified,unqualified_reason,listing_agent,priority_score,priority_label,"
-                        "category,sun_hours,doors_to_knock"
+                        "unqualified,unqualified_reason,listing_agent,sale_price,price_display,sqft,sqft_display,"
+                        "beds,baths,sold_date,permit_pulled,priority_score,priority_label,category,sun_hours,doors_to_knock"
                     ),
                     "order": "priority_score.desc,doors_to_knock.desc,address.asc",
                     "limit": str(limit),
@@ -1364,6 +1368,7 @@ def _draft_result_from_parts(lead_row, analysis_row):
         "sqft": analysis_row.get("sqft"),
         "sqft_display": analysis_row.get("sqft_display", "N/A"),
         "sold_date": analysis_row.get("sold_date", "Unknown"),
+        "permit_pulled": analysis_row.get("permit_pulled", "Unknown"),
         "beds": analysis_row.get("beds", ""),
         "baths": analysis_row.get("baths", ""),
         "value_score": analysis_row.get("value_score", 0),
