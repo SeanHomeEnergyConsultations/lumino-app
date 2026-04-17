@@ -2389,25 +2389,7 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
     end_index = start_index + page_size
     paged_rows = filtered_rows[start_index:end_index]
 
-    table_rows = [
-        {
-            "Address": row["Address"],
-            "Homeowner": row["Homeowner"],
-            "Phone": row["Phone"],
-            "Email": row["Email"],
-            "Status": row["Status"],
-            "Assignment": row["Assignment"],
-            "Assigned To": row["Assigned To"],
-            "Created By": row["Created By"],
-            "ZIP": row["ZIP"],
-            "Qualified": row["Qualified"],
-            "Updated": row["Updated"],
-        }
-        for row in paged_rows
-    ]
-    st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True, height=420)
-
-    st.markdown("#### Open Lead")
+    st.markdown("#### Leads")
     list_header_cols = st.columns([1.8, 1.1, 1.0, 0.9, 0.8])
     list_header_cols[0].caption("Lead")
     list_header_cols[1].caption("Assigned To")
