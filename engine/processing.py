@@ -52,7 +52,7 @@ def coerce_coordinate(value):
         return None
 
 
-def process_address(row_data, gmaps_client, key, auth_context=None):
+def process_address(row_data, gmaps_client, key, auth_context=None, analysis_mode="full"):
     cached_result = get_cached_analysis(row_data, auth_context=auth_context)
     if cached_result:
         has_modern_solar_fields = (
@@ -157,12 +157,16 @@ def process_address(row_data, gmaps_client, key, auth_context=None):
     )
     solar_fit_score = score_solar_fit(sun_score, roof_capacity_score, roof_complexity_score)
 
-    walkable_addresses = get_walking_neighbors(lat, lng, key, walk_seconds=150)
-    neighbor_data, neighbor_records = build_neighbor_analysis(
-        walkable_addresses,
-        key,
-        zipcode,
-    )
+    if str(analysis_mode or "full").strip().lower() == "fast":
+        neighbor_data = []
+        neighbor_records = []
+    else:
+        walkable_addresses = get_walking_neighbors(lat, lng, key, walk_seconds=150)
+        neighbor_data, neighbor_records = build_neighbor_analysis(
+            walkable_addresses,
+            key,
+            zipcode,
+        )
 
     cluster = [
         {

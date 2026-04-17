@@ -4715,6 +4715,17 @@ with planning_tab:
                 with st.expander("Rows With Invalid Address Values", expanded=False):
                     st.dataframe(invalid_address_df, use_container_width=True, hide_index=True)
 
+            analysis_mode = st.selectbox(
+                "Analysis Mode",
+                options=["Fast", "Full"],
+                index=0,
+                help=(
+                    "Fast analyzes the primary home only. Full also checks nearby walkable homes and cluster potential, "
+                    "which is much slower."
+                ),
+                key="analysis_mode",
+            )
+
             if st.button("Run Analysis", type="primary", use_container_width=True):
                 gmaps_client = googlemaps.Client(key=api_key)
                 all_results = []
@@ -4762,7 +4773,13 @@ with planning_tab:
                     }
                     try:
                         result = enrich_result_with_source_fields(
-                            process_address(row_data, gmaps_client, api_key, auth_context=auth_context),
+                            process_address(
+                                row_data,
+                                gmaps_client,
+                                api_key,
+                                auth_context=auth_context,
+                                analysis_mode=analysis_mode.lower(),
+                            ),
                             row_data,
                         )
                     except Exception as err:
@@ -4787,13 +4804,13 @@ with planning_tab:
                     st.session_state["current_route_draft_id"] = None
                     st.session_state["current_route_draft_name"] = None
                     st.session_state["active_route_run"] = None
-                    save_app_snapshot(
-                        all_results=all_results,
-                        route_execution=st.session_state.get("route_execution", {}),
-                    )
+                    if (i + 1) % 10 == 0 or (i + 1) == total:
+                        save_app_snapshot(
+                            all_results=all_results,
+                            route_execution=st.session_state.get("route_execution", {}),
+                        )
 
                     progress_bar.progress((i + 1) / total)
-                    time.sleep(0.2)
 
                 status_text.markdown("Analysis complete.")
                 if use_supabase:
