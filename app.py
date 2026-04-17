@@ -2567,6 +2567,7 @@ def parse_datetime_value(value):
 def initialize_lead_activity_form_state(lead_id, selected_lead):
     keys = lead_activity_form_keys(lead_id)
     now = datetime.now()
+    reset_requested = st.session_state.pop(f"lead_activity_reset_{lead_id}", False)
     next_follow_up_dt = parse_datetime_value(selected_lead.get("Next Follow-Up")) or now
     appointment_dt = parse_datetime_value(selected_lead.get("Appointment At")) or now
     defaults = {
@@ -2587,7 +2588,7 @@ def initialize_lead_activity_form_state(lead_id, selected_lead):
         keys["confirm"]: False,
     }
     for key, value in defaults.items():
-        if key not in st.session_state:
+        if reset_requested or key not in st.session_state:
             st.session_state[key] = value
     return keys
 
@@ -3278,15 +3279,7 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
                 auth_context=auth_context,
             )
             if activity_save_result.get("ok"):
-                for key, value in {
-                    lead_form_keys["selected_action"]: "",
-                    lead_form_keys["activity_type"]: "Note",
-                    lead_form_keys["outcome"]: "",
-                    lead_form_keys["note"]: "",
-                    lead_form_keys["manual_status"]: "",
-                    lead_form_keys["confirm"]: False,
-                }.items():
-                    st.session_state[key] = value
+                st.session_state[f"lead_activity_reset_{selected_lead['Lead ID']}"] = True
                 st.success("Activity saved.")
                 st.rerun()
             st.warning(activity_save_result.get("error") or "Could not save activity.")
