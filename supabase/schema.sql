@@ -198,6 +198,8 @@ create table if not exists public.leads (
   lng double precision,
   status text not null default 'open'
     check (status in ('open', 'assigned', 'in_progress', 'completed', 'skipped', 'disqualified')),
+  lead_status text not null default 'New'
+    check (lead_status in ('New', 'Attempting Contact', 'Connected', 'Nurture', 'Appointment Set', 'Qualified', 'Closed Won', 'Closed Lost', 'Do Not Contact')),
   assignment_status text not null default 'unassigned'
     check (assignment_status in ('unassigned', 'assigned', 'accepted', 'released')),
   assigned_to uuid references public.app_users(id) on delete set null,
@@ -210,6 +212,19 @@ create table if not exists public.leads (
   unqualified boolean,
   unqualified_reason text,
   listing_agent text,
+  follow_up_flags jsonb not null default '[]'::jsonb,
+  first_outreach_at timestamptz,
+  first_meaningful_contact_at timestamptz,
+  last_outreach_at timestamptz,
+  last_inbound_at timestamptz,
+  last_meaningful_contact_at timestamptz,
+  next_follow_up_at timestamptz,
+  last_activity_at timestamptz,
+  last_activity_type text,
+  last_activity_outcome text,
+  next_recommended_step text,
+  nurture_reason text,
+  appointment_at timestamptz,
   source text not null default 'imported',
   created_by uuid references public.app_users(id) on delete set null,
   created_at timestamptz not null default now(),
@@ -262,6 +277,36 @@ create table if not exists public.lead_neighbors (
   category text,
   priority_score integer not null default 0,
   created_at timestamptz not null default now()
+);
+
+create table if not exists public.lead_activities (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  lead_id uuid not null references public.leads(id) on delete cascade,
+  activity_type text not null
+    check (activity_type in (
+      'Call Outbound', 'Text Outbound', 'Email Outbound', 'Door Knock',
+      'Call Inbound', 'Text Inbound', 'Email Inbound',
+      'Conversation', 'Note',
+      'Appointment Set', 'Appointment Rescheduled', 'Appointment Completed', 'Appointment Canceled',
+      'Lead Qualified', 'Lead Disqualified', 'Status Changed'
+    )),
+  outcome text
+    check (outcome in (
+      'Connected', 'No Answer', 'Left Voicemail', 'Wrong Number', 'Bad Contact Info',
+      'Requested Callback', 'Interested', 'Not Interested', 'Needs Nurture',
+      'Booked Appointment', 'Rescheduled', 'Canceled', 'Qualified',
+      'Disqualified', 'Do Not Contact'
+    ) or outcome is null),
+  note_body text,
+  activity_at timestamptz not null default now(),
+  requested_callback_at timestamptz,
+  appointment_at timestamptz,
+  nurture_reason text,
+  event_metadata jsonb not null default '{}'::jsonb,
+  created_by uuid references public.app_users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create table if not exists public.route_drafts (
@@ -321,7 +366,12 @@ create table if not exists public.route_run_stops (
   stop_status text not null default 'pending'
     check (stop_status in ('pending', 'completed', 'skipped', 'failed')),
   outcome text
-    check (outcome in ('interested', 'callback', 'not_interested', 'not_home', 'bad_address', 'duplicate') or outcome is null),
+    check (outcome in (
+      'Connected', 'No Answer', 'Left Voicemail', 'Wrong Number', 'Bad Contact Info',
+      'Requested Callback', 'Interested', 'Not Interested', 'Needs Nurture',
+      'Booked Appointment', 'Rescheduled', 'Canceled', 'Qualified',
+      'Disqualified', 'Do Not Contact'
+    ) or outcome is null),
   sequence_number integer,
   skipped_reason text,
   disposition text,
@@ -399,6 +449,9 @@ create index if not exists idx_lead_analysis_lead_id on public.lead_analysis(lea
 create index if not exists idx_lead_analysis_cache_key on public.lead_analysis(cache_key);
 create unique index if not exists idx_lead_analysis_unique_lead_id on public.lead_analysis(lead_id);
 create index if not exists idx_lead_neighbors_analysis_id on public.lead_neighbors(lead_analysis_id);
+create index if not exists idx_lead_activities_org_id on public.lead_activities(organization_id);
+create index if not exists idx_lead_activities_lead_id on public.lead_activities(lead_id);
+create index if not exists idx_lead_activities_activity_at on public.lead_activities(activity_at desc);
 create index if not exists idx_import_batches_org_id on public.import_batches(organization_id);
 create index if not exists idx_route_drafts_org_id on public.route_drafts(organization_id);
 create index if not exists idx_route_drafts_assigned_rep_id on public.route_drafts(assigned_rep_id);
@@ -415,6 +468,8 @@ create index if not exists idx_usage_events_org_id on public.usage_events(organi
 create index if not exists idx_usage_events_user_id on public.usage_events(user_id);
 create index if not exists idx_usage_events_event_group on public.usage_events(event_group);
 create index if not exists idx_usage_events_occurred_at on public.usage_events(occurred_at);
+create index if not exists idx_leads_lead_status on public.leads(lead_status);
+create index if not exists idx_leads_next_follow_up_at on public.leads(next_follow_up_at);
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
@@ -444,6 +499,11 @@ for each row execute function public.set_updated_at();
 drop trigger if exists set_lead_analysis_updated_at on public.lead_analysis;
 create trigger set_lead_analysis_updated_at
 before update on public.lead_analysis
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_lead_activities_updated_at on public.lead_activities;
+create trigger set_lead_activities_updated_at
+before update on public.lead_activities
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_route_drafts_updated_at on public.route_drafts;
@@ -522,6 +582,7 @@ alter table public.import_batches enable row level security;
 alter table public.leads enable row level security;
 alter table public.lead_analysis enable row level security;
 alter table public.lead_neighbors enable row level security;
+alter table public.lead_activities enable row level security;
 alter table public.route_drafts enable row level security;
 alter table public.route_draft_stops enable row level security;
 alter table public.route_runs enable row level security;
@@ -622,6 +683,31 @@ for all
 using (public.has_org_role(organization_id, array['owner', 'admin', 'manager']))
 with check (public.has_org_role(organization_id, array['owner', 'admin', 'manager']));
 
+drop policy if exists "org members update own visible leads" on public.leads;
+create policy "org members update own visible leads"
+on public.leads
+for update
+using (
+  public.has_org_role(organization_id, array['owner', 'admin', 'manager'])
+  or (
+    public.has_org_role(organization_id, array['rep'])
+    and (
+      assigned_to = public.current_app_user_id()
+      or created_by = public.current_app_user_id()
+    )
+  )
+)
+with check (
+  public.has_org_role(organization_id, array['owner', 'admin', 'manager'])
+  or (
+    public.has_org_role(organization_id, array['rep'])
+    and (
+      assigned_to = public.current_app_user_id()
+      or created_by = public.current_app_user_id()
+    )
+  )
+);
+
 drop policy if exists "org members view lead analysis" on public.lead_analysis;
 create policy "org members view lead analysis"
 on public.lead_analysis
@@ -709,6 +795,65 @@ with check (
     where la.id = public.lead_neighbors.lead_analysis_id
       and public.has_org_role(l.organization_id, array['owner', 'admin', 'manager'])
   )
+);
+
+drop policy if exists "org members view lead activities" on public.lead_activities;
+create policy "org members view lead activities"
+on public.lead_activities
+for select
+using (
+  exists (
+    select 1
+    from public.leads l
+    where l.id = public.lead_activities.lead_id
+      and (
+        public.has_org_role(l.organization_id, array['owner', 'admin', 'manager'])
+        or (
+          public.has_org_role(l.organization_id, array['rep'])
+          and (
+            l.assigned_to = public.current_app_user_id()
+            or l.created_by = public.current_app_user_id()
+          )
+        )
+      )
+  )
+);
+
+drop policy if exists "org members insert lead activities" on public.lead_activities;
+create policy "org members insert lead activities"
+on public.lead_activities
+for insert
+with check (
+  exists (
+    select 1
+    from public.leads l
+    where l.id = public.lead_activities.lead_id
+      and l.organization_id = public.lead_activities.organization_id
+      and (
+        public.has_org_role(l.organization_id, array['owner', 'admin', 'manager'])
+        or (
+          public.has_org_role(l.organization_id, array['rep'])
+          and (
+            l.assigned_to = public.current_app_user_id()
+            or l.created_by = public.current_app_user_id()
+          )
+        )
+      )
+  )
+);
+
+drop policy if exists "org managers delete lead activities" on public.lead_activities;
+create policy "org managers delete lead activities"
+on public.lead_activities
+for delete
+using (
+  exists (
+    select 1
+    from public.leads l
+    where l.id = public.lead_activities.lead_id
+      and public.has_org_role(l.organization_id, array['owner', 'admin', 'manager'])
+  )
+  and public.lead_activities.activity_type = 'Note'
 );
 
 drop policy if exists "org members view route drafts" on public.route_drafts;

@@ -24,6 +24,16 @@ from engine.execution import (
     make_property_id,
 )
 from engine.geolocation_component import geolocation_picker
+from engine.lead_workflow import (
+    ACTIVITY_TYPE_OPTIONS,
+    FLAG_OPTIONS,
+    LEAD_STATUS_OPTIONS,
+    NURTURE_REASON_OPTIONS,
+    OPEN_LEAD_STATUSES,
+    OUTCOME_OPTIONS,
+    QUICK_ACTIONS,
+    allowed_outcomes_for_activity,
+)
 from engine.persistence import load_app_snapshot, save_app_snapshot
 from engine.processing import build_processing_error_result, process_address
 from engine.reporting import build_route_csv, build_zip_summary, generate_html_report
@@ -37,9 +47,12 @@ from engine.supabase_auth import (
     verify_otp_token,
 )
 from engine.supabase_store import (
+    add_lead_activity,
     create_onboarding_user,
     create_route_run,
+    delete_lead_activity,
     get_current_app_user,
+    get_lead_activity_rows,
     get_open_lead_pool,
     get_team_route_activity,
     get_visible_leads,
@@ -50,6 +63,7 @@ from engine.supabase_store import (
     save_analysis_result,
     save_route_draft,
     supabase_enabled,
+    update_lead_core_details,
     update_lead_assignment,
     update_route_run_stop,
 )
@@ -362,6 +376,9 @@ def render_planning_map(results, selected_addresses):
 
 
 def route_status_meta(result, execution_entry=None):
+    # TODO(lead-workflow-v1): This route-execution state still uses the legacy in-memory
+    # status model ("Interested", "Callback", "Appt Set", etc.). Keep isolated from the
+    # structured lead activity engine until route execution is migrated onto lead_activities.
     route_status = str((result or {}).get("route_run_status") or "pending").strip().lower()
     execution_status = str((execution_entry or {}).get("status") or "").strip().lower()
 
@@ -823,6 +840,8 @@ def parse_activity_timestamp(timestamp_value):
 
 
 def performance_activity_df(all_results, execution_state):
+    # TODO(lead-workflow-v1): This powers legacy performance views from route_execution
+    # activity_log events only. It does not read structured lead_activities yet.
     rows = []
     for result in all_results or []:
         property_id = make_property_id("primary_stop", result.get("address"))
@@ -1166,6 +1185,17 @@ def next_not_home_status(current_status):
     return "Not Home 1"
 
 
+def route_attempt_number_from_status(status_value):
+    normalized = str(status_value or "").strip().lower()
+    if normalized == "not home 1":
+        return 1
+    if normalized == "not home 2":
+        return 2
+    if normalized == "not home 3":
+        return 3
+    return None
+
+
 def sync_route_stop_details(result, execution_entry, auth_context=None):
     route_stop_id = (result or {}).get("route_run_stop_id")
     if not route_stop_id:
@@ -1184,6 +1214,9 @@ def sync_route_stop_details(result, execution_entry, auth_context=None):
 
 
 def persist_rep_stop_update(result, execution_entry, auth_context=None):
+    # TODO(lead-workflow-v1): Route stop persistence still translates the legacy field-status
+    # model into route_run_stops outcomes. This path is intentionally left isolated until
+    # route execution logging is migrated to the structured lead activity model.
     status_value = str(execution_entry.get("status") or "").strip()
     normalized_status = status_value.lower()
     stop_status = "pending"
@@ -1193,32 +1226,32 @@ def persist_rep_stop_update(result, execution_entry, auth_context=None):
     if normalized_status:
         stop_status = "completed"
         if normalized_status == "interested":
-            outcome = "interested"
+            outcome = "Interested"
             if execution_entry.get("lead_stage") in {"", "New Lead", "Attempting Contact"}:
                 execution_entry["lead_stage"] = "Contacted"
             execution_entry["interest_level"] = execution_entry.get("interest_level") or "Hot"
         elif normalized_status == "callback":
-            outcome = "callback"
+            outcome = "Requested Callback"
             if execution_entry.get("lead_stage") in {"", "New Lead", "Attempting Contact"}:
                 execution_entry["lead_stage"] = "Contacted"
             execution_entry["next_action"] = execution_entry.get("next_action") or "Call Back"
             execution_entry["interest_level"] = execution_entry.get("interest_level") or "Warm"
         elif normalized_status == "appt set":
-            outcome = None
+            outcome = "Booked Appointment"
             execution_entry["lead_stage"] = "Appointment Set"
             execution_entry["next_action"] = execution_entry.get("next_action") or "Confirm Appointment"
             if execution_entry.get("appointment_status") in {"", "Not Set"}:
                 execution_entry["appointment_status"] = "Scheduled"
             execution_entry["interest_level"] = execution_entry.get("interest_level") or "Warm"
         elif normalized_status == "closed":
-            outcome = None
+            outcome = "Qualified"
             execution_entry["lead_stage"] = "Closed Won"
         elif normalized_status == "not interested":
-            outcome = "not_interested"
+            outcome = "Not Interested"
             execution_entry["lead_stage"] = "Closed Lost"
             execution_entry["interest_level"] = execution_entry.get("interest_level") or "Cold"
         elif normalized_status.startswith("not home"):
-            outcome = "not_home"
+            outcome = "No Answer"
 
     route_stop_id = (result or {}).get("route_run_stop_id")
     if route_stop_id:
@@ -1241,6 +1274,23 @@ def persist_rep_stop_update(result, execution_entry, auth_context=None):
 
     if result is not None:
         result["route_run_status"] = stop_status
+        lead_id = result.get("lead_id")
+        attempt_number = route_attempt_number_from_status(status_value)
+        # Route status != CRM status. Preserve Not Home 1/2/3 for field attempt tracking,
+        # but mirror the attempt into structured CRM history as Door Knock + No Answer.
+        if lead_id and attempt_number is not None:
+            add_lead_activity(
+                lead_id,
+                activity_type="Door Knock",
+                outcome="No Answer",
+                note_body=f"Door attempt marked as {status_value}.",
+                event_metadata={
+                    "source": "route_execution",
+                    "route_attempt_status": status_value,
+                    "attempt_number": attempt_number,
+                },
+                auth_context=auth_context,
+            )
     return True
 
 
@@ -2207,6 +2257,44 @@ def render_people_hub(current_app_user, auth_context):
     )
     st.dataframe(profile_preview, use_container_width=True, hide_index=True)
 
+def format_follow_up_datetime(value):
+    if not value:
+        return "Not set"
+    try:
+        return pd.to_datetime(value).strftime("%b %d, %Y %I:%M %p")
+    except Exception:
+        return str(value)
+
+
+def lead_flag_badges(flags):
+    badges = [flag for flag in (flags or []) if flag in FLAG_OPTIONS]
+    return " · ".join(badges) if badges else "None"
+
+
+def quick_action_prefill(action_label):
+    mapping = {
+        "Log Call": ("Call Outbound", "No Answer"),
+        "Log Text": ("Text Outbound", "Connected"),
+        "Log Conversation": ("Conversation", "Interested"),
+        "Book Appointment": ("Appointment Set", "Booked Appointment"),
+        "Snooze / Reschedule Follow-Up": ("Status Changed", None),
+        "Mark Nurture": ("Conversation", "Needs Nurture"),
+        "Mark Closed Lost": ("Status Changed", "Not Interested"),
+        "Mark Do Not Contact": ("Status Changed", "Do Not Contact"),
+    }
+    return mapping.get(action_label, ("Note", None))
+
+
+def is_open_crm_lead_row(row):
+    # Route / execution status is a separate field-operations concept.
+    # Leads tab visibility is driven by CRM lead_status, with a legacy-open fallback
+    # during transition for rows that do not yet have the new follow-up fields.
+    crm_status = str(row.get("Lead Status") or "").strip()
+    legacy_status = str(row.get("Legacy Lead Record Status") or "").strip().lower()
+    if crm_status:
+        return crm_status in OPEN_LEAD_STATUSES
+    return legacy_status in {"open", "assigned", "in_progress"}
+
 
 def render_leads_hub(current_app_user, auth_context, active_org_role):
     st.markdown('<div class="siq-section">Leads</div>', unsafe_allow_html=True)
@@ -2260,15 +2348,27 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
                 "Homeowner": homeowner_name,
                 "Phone": row.get("phone") or "",
                 "Email": row.get("email") or "",
-                "Status": str(row.get("status") or "open").replace("_", " ").title(),
+                "Status": row.get("lead_status") or "New",
+                "Legacy Lead Record Status": str(row.get("status") or "open").replace("_", " ").title(),
                 "Assignment": str(row.get("assignment_status") or "unassigned").replace("_", " ").title(),
                 "Assigned To": assigned_to_label,
                 "Created By": created_by_label,
                 "ZIP": row.get("zipcode") or "",
+                "Lead Status": row.get("lead_status") or "New",
+                "Flags": row.get("follow_up_flags") or [],
+                "Next Follow-Up": row.get("next_follow_up_at"),
+                "Next Recommended Step": row.get("next_recommended_step") or "",
+                "Appointment At": row.get("appointment_at"),
+                "Last Activity": row.get("last_activity_at"),
+                "Last Activity Type": row.get("last_activity_type") or "",
+                "Last Activity Outcome": row.get("last_activity_outcome") or "",
+                "First Outreach": row.get("first_outreach_at"),
+                "First Meaningful Contact": row.get("first_meaningful_contact_at"),
+                "Last Meaningful Contact": row.get("last_meaningful_contact_at"),
+                "Nurture Reason": row.get("nurture_reason") or "",
                 "Qualified": "No" if row.get("unqualified") else "Yes",
                 "Updated": (row.get("updated_at") or row.get("created_at") or "")[:10],
                 "Notes": row.get("notes") or "",
-                "Listing Agent": row.get("listing_agent") or "",
                 "Unqualified Reason": row.get("unqualified_reason") or "",
                 "Assigned To ID": row.get("assigned_to"),
                 "Created By ID": row.get("created_by"),
@@ -2285,6 +2385,11 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
                 ).lower(),
             }
         )
+
+    prepared_rows = [row for row in prepared_rows if is_open_crm_lead_row(row)]
+    if not prepared_rows:
+        st.info("No CRM-open leads are available in this view yet.")
+        return
 
     search_col, status_col, assignment_col, owner_col = st.columns([1.5, 0.8, 0.8, 1.0])
     search_term = search_col.text_input(
@@ -2337,28 +2442,84 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
             st.rerun()
         title_col.markdown(f"### {selected_lead['Address']}")
 
-        info_col1, info_col2 = st.columns(2)
-        info_col1.markdown(f"**Homeowner:** {selected_lead['Homeowner'] or 'Unknown'}")
-        info_col1.markdown(f"**Phone:** {selected_lead['Phone'] or 'Not set'}")
-        info_col1.markdown(f"**Email:** {selected_lead['Email'] or 'Not set'}")
-        info_col1.markdown(f"**ZIP:** {selected_lead['ZIP'] or 'Unknown'}")
-        info_col2.markdown(f"**Status:** {selected_lead['Status']}")
-        info_col2.markdown(f"**Assignment:** {selected_lead['Assignment']}")
-        info_col2.markdown(f"**Assigned To:** {selected_lead['Assigned To']}")
-        info_col2.markdown(f"**Created By:** {selected_lead['Created By']}")
-        if selected_lead["Listing Agent"]:
-            st.markdown(f"**Listing Agent:** {selected_lead['Listing Agent']}")
+        activity_rows = get_lead_activity_rows(selected_lead["Lead ID"], auth_context=auth_context)
+        top_cols = st.columns(5)
+        top_cols[0].metric("Follow-Up Status", selected_lead["Lead Status"])
+        top_cols[1].metric("Next Follow-Up Due", format_follow_up_datetime(selected_lead["Next Follow-Up"]))
+        top_cols[2].metric("Last Activity", selected_lead["Last Activity Type"] or "None")
+        top_cols[3].metric("Last Outcome", selected_lead["Last Activity Outcome"] or "None")
+        top_cols[4].metric("Appointment", format_follow_up_datetime(selected_lead["Appointment At"]))
+        st.caption(
+            f"Flags: {lead_flag_badges(selected_lead['Flags'])} · "
+            f"Next recommended step: {selected_lead['Next Recommended Step'] or 'Call first, then text if no answer'}"
+        )
+
+        secondary_col1, secondary_col2 = st.columns(2)
+        secondary_col1.markdown(f"**First Outreach:** {format_follow_up_datetime(selected_lead['First Outreach'])}")
+        secondary_col1.markdown(f"**First Meaningful Contact:** {format_follow_up_datetime(selected_lead['First Meaningful Contact'])}")
+        secondary_col1.markdown(f"**Last Meaningful Contact:** {format_follow_up_datetime(selected_lead['Last Meaningful Contact'])}")
+        secondary_col2.markdown(f"**Qualification State:** {selected_lead['Qualified']}")
+        secondary_col2.markdown(f"**Assignment:** {selected_lead['Assignment']}")
+        secondary_col2.markdown(f"**Assigned To:** {selected_lead['Assigned To']}")
+        secondary_col2.markdown(f"**Created By:** {selected_lead['Created By']}")
         if selected_lead["Unqualified Reason"]:
             st.markdown(f"**Unqualified Reason:** {selected_lead['Unqualified Reason']}")
-        st.markdown(f"**Qualified:** {selected_lead['Qualified']}")
-        st.markdown(f"**Updated:** {selected_lead['Updated']}")
-        st.text_area(
-            "Lead Notes",
-            value=selected_lead["Notes"],
-            height=160,
-            key=f"lead_notes_card_{selected_lead['Lead ID']}",
-            disabled=True,
+
+        st.markdown("#### Lead Details")
+        detail_col1, detail_col2 = st.columns(2)
+        edit_first_name = detail_col1.text_input(
+            "First Name",
+            value=(selected_lead["Homeowner"].split(" ", 1)[0] if selected_lead["Homeowner"] else ""),
+            key=f"lead_detail_first_{selected_lead['Lead ID']}",
         )
+        edit_last_name = detail_col2.text_input(
+            "Last Name",
+            value=(selected_lead["Homeowner"].split(" ", 1)[1] if selected_lead["Homeowner"] and " " in selected_lead["Homeowner"] else ""),
+            key=f"lead_detail_last_{selected_lead['Lead ID']}",
+        )
+        detail_col3, detail_col4 = st.columns(2)
+        edit_phone = detail_col3.text_input("Phone", value=selected_lead["Phone"], key=f"lead_detail_phone_{selected_lead['Lead ID']}")
+        edit_email = detail_col4.text_input("Email", value=selected_lead["Email"], key=f"lead_detail_email_{selected_lead['Lead ID']}")
+        detail_col5, detail_col6 = st.columns(2)
+        edit_lead_status = detail_col5.selectbox(
+            "Follow-Up Status",
+            options=LEAD_STATUS_OPTIONS,
+            index=LEAD_STATUS_OPTIONS.index(selected_lead["Lead Status"]) if selected_lead["Lead Status"] in LEAD_STATUS_OPTIONS else 0,
+            key=f"lead_detail_status_{selected_lead['Lead ID']}",
+        )
+        edit_nurture_reason = detail_col6.selectbox(
+            "Nurture Reason",
+            options=[""] + NURTURE_REASON_OPTIONS,
+            index=([""] + NURTURE_REASON_OPTIONS).index(selected_lead["Nurture Reason"]) if selected_lead["Nurture Reason"] in ([""] + NURTURE_REASON_OPTIONS) else 0,
+            key=f"lead_detail_nurture_{selected_lead['Lead ID']}",
+        )
+        if st.button("Save Lead Details", key=f"lead_detail_save_{selected_lead['Lead ID']}", use_container_width=True):
+            if update_lead_core_details(
+                selected_lead["Lead ID"],
+                {
+                    "first_name": edit_first_name.strip(),
+                    "last_name": edit_last_name.strip(),
+                    "phone": edit_phone.strip(),
+                    "email": edit_email.strip(),
+                    "lead_status": edit_lead_status,
+                    "nurture_reason": edit_nurture_reason,
+                    "unqualified": selected_lead["Qualified"] == "No",
+                    "unqualified_reason": selected_lead["Unqualified Reason"],
+                },
+                auth_context=auth_context,
+            ):
+                if edit_lead_status != selected_lead["Lead Status"]:
+                    add_lead_activity(
+                        selected_lead["Lead ID"],
+                        activity_type="Status Changed",
+                        outcome="Do Not Contact" if edit_lead_status == "Do Not Contact" else None,
+                        note_body=f"Lead status changed from {selected_lead['Lead Status']} to {edit_lead_status}.",
+                        event_metadata={"source": "lead_detail_edit", "manual_status": edit_lead_status},
+                        auth_context=auth_context,
+                    )
+                st.success("Lead details updated.")
+                st.rerun()
+            st.warning("Could not update lead details.")
 
         if can_access_manager_workspace(active_org_role):
             assignment_labels = ["Unassigned"] + sorted(rep_lookup.keys())
@@ -2376,6 +2537,119 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
                     st.success("Lead assignment updated.")
                     st.rerun()
                 st.warning("Could not update lead assignment.")
+
+        st.markdown("#### Quick Actions")
+        quick_action_cols = st.columns(len(QUICK_ACTIONS))
+        for index, action_label in enumerate(QUICK_ACTIONS):
+            if quick_action_cols[index].button(action_label, key=f"lead_quick_{selected_lead['Lead ID']}_{action_label}", use_container_width=True):
+                prefill_type, prefill_outcome = quick_action_prefill(action_label)
+                st.session_state[f"lead_activity_type_{selected_lead['Lead ID']}"] = prefill_type
+                st.session_state[f"lead_activity_outcome_{selected_lead['Lead ID']}"] = prefill_outcome or ""
+
+        st.markdown("#### Log Activity")
+        activity_type = st.selectbox(
+            "Activity Type",
+            options=ACTIVITY_TYPE_OPTIONS,
+            key=f"lead_activity_type_{selected_lead['Lead ID']}",
+        )
+        allowed_outcomes = [""] + allowed_outcomes_for_activity(activity_type)
+        current_outcome_value = st.session_state.get(f"lead_activity_outcome_{selected_lead['Lead ID']}", "")
+        if current_outcome_value not in allowed_outcomes:
+            current_outcome_value = ""
+        activity_outcome = st.selectbox(
+            "Outcome",
+            options=allowed_outcomes,
+            index=allowed_outcomes.index(current_outcome_value),
+            key=f"lead_activity_outcome_{selected_lead['Lead ID']}",
+        )
+        activity_col1, activity_col2 = st.columns(2)
+        activity_date = activity_col1.date_input(
+            "Activity Date",
+            value=datetime.now().date(),
+            key=f"lead_activity_date_{selected_lead['Lead ID']}",
+        )
+        activity_time = activity_col2.time_input(
+            "Activity Time",
+            value=datetime.now().replace(second=0, microsecond=0).time(),
+            step=1800,
+            key=f"lead_activity_time_{selected_lead['Lead ID']}",
+        )
+        note_body = st.text_area(
+            "History Note",
+            value="",
+            placeholder="What happened, what you learned, and what should happen next.",
+            key=f"lead_activity_note_{selected_lead['Lead ID']}",
+            height=120,
+        )
+        callback_col1, callback_col2 = st.columns(2)
+        requested_callback_date = callback_col1.date_input(
+            "Requested Callback Date",
+            value=datetime.now().date(),
+            key=f"lead_callback_date_{selected_lead['Lead ID']}",
+        )
+        requested_callback_time = callback_col2.time_input(
+            "Requested Callback Time",
+            value=datetime.now().replace(second=0, microsecond=0).time(),
+            step=1800,
+            key=f"lead_callback_time_{selected_lead['Lead ID']}",
+        )
+        appointment_col1, appointment_col2 = st.columns(2)
+        appointment_date = appointment_col1.date_input(
+            "Appointment Date",
+            value=datetime.now().date(),
+            key=f"lead_card_appt_date_{selected_lead['Lead ID']}",
+        )
+        appointment_time = appointment_col2.time_input(
+            "Appointment Time",
+            value=datetime.now().replace(second=0, microsecond=0).time(),
+            step=1800,
+            key=f"lead_card_appt_time_{selected_lead['Lead ID']}",
+        )
+        nurture_reason = st.selectbox(
+            "Nurture Reason",
+            options=[""] + NURTURE_REASON_OPTIONS,
+            key=f"lead_activity_nurture_{selected_lead['Lead ID']}",
+        )
+
+        activity_timestamp = datetime.combine(activity_date, activity_time).isoformat()
+        callback_timestamp = datetime.combine(requested_callback_date, requested_callback_time).isoformat()
+        appointment_timestamp = datetime.combine(appointment_date, appointment_time).isoformat()
+        if st.button("Save Activity", key=f"lead_activity_save_{selected_lead['Lead ID']}", use_container_width=True):
+            if add_lead_activity(
+                selected_lead["Lead ID"],
+                activity_type=activity_type,
+                outcome=activity_outcome or None,
+                note_body=note_body.strip(),
+                activity_at=activity_timestamp,
+                requested_callback_at=callback_timestamp if activity_outcome == "Requested Callback" else None,
+                appointment_at=appointment_timestamp if activity_type in {"Appointment Set", "Appointment Rescheduled"} else None,
+                nurture_reason=nurture_reason or None,
+                event_metadata={"source": "lead_card"},
+                auth_context=auth_context,
+            ):
+                st.success("Activity saved.")
+                st.rerun()
+            st.warning("Could not save activity.")
+
+        st.markdown("#### Activity History")
+        if selected_lead["Notes"]:
+            st.caption(f"Imported note: {selected_lead['Notes']}")
+        if activity_rows:
+            for item in activity_rows:
+                activity_header_cols = st.columns([1.6, 1.1, 0.9, 0.8])
+                activity_header_cols[0].markdown(f"**{item.get('activity_type')}**  \n{item.get('note_body') or 'No note'}")
+                activity_header_cols[1].write(item.get("outcome") or "No outcome")
+                activity_header_cols[2].write(format_follow_up_datetime(item.get("activity_at")))
+                if can_access_manager_workspace(active_org_role) and item.get("activity_type") == "Note":
+                    if activity_header_cols[3].button("Delete", key=f"delete_activity_{item['id']}", use_container_width=True):
+                        if delete_lead_activity(item["id"], selected_lead["Lead ID"], auth_context=auth_context):
+                            st.success("Activity deleted.")
+                            st.rerun()
+                        st.warning("Could not delete activity.")
+                else:
+                    activity_header_cols[3].write("")
+        else:
+            st.info("No lead activity has been logged yet.")
         return
 
     page_control_col1, page_control_col2, page_control_col3 = st.columns([0.8, 0.8, 1.4])
@@ -2438,7 +2712,10 @@ def build_team_activity_frames(auth_context):
                 "Closed Customers": 0,
             },
         )
-        disposition = str(row.get("disposition") or row.get("outcome") or "").strip().lower()
+        outcome_value = str(row.get("outcome") or "").strip()
+        outcome = outcome_value.lower()
+        disposition_value = str(row.get("disposition") or outcome_value or "").strip()
+        disposition = disposition_value.lower()
         interest_level = str(row.get("interest_level") or "").strip().lower()
         if str(row.get("stop_status") or "").lower() == "completed":
             record["Doors Knocked"] += 1
@@ -2452,19 +2729,20 @@ def build_team_activity_frames(auth_context):
                     "Appointment": row.get("best_follow_up_time") or "",
                     "Phone": row.get("phone") or "",
                     "Email": row.get("email") or "",
-                    "Status": disposition.title() if disposition else "Scheduled",
+                    "Status": disposition_value or "Scheduled",
                 }
             )
-        if interest_level in {"hot", "warm"} or disposition in {"interested", "callback", "appt set", "closed"}:
+        if interest_level in {"hot", "warm"} or outcome in {"interested", "requested callback", "booked appointment", "qualified"}:
             record["Marketing Qualified Leads"] += 1
-        if disposition == "closed":
+        if disposition in {"closed", "closed won"} or outcome == "qualified":
             record["Closed Customers"] += 1
         activity_frame_rows.append(
             {
                 "rep_id": rep_id,
                 "Rep": rep_name,
                 "Address": row.get("address") or "",
-                "Disposition": disposition.title() if disposition else "",
+                "Disposition": disposition_value,
+                "Outcome": outcome_value,
                 "Interest Level": interest_level.title() if interest_level else "",
                 "Stop Status": str(row.get("stop_status") or "").title(),
                 "Completed At": row.get("completed_at") or row.get("started_at") or "",
@@ -2517,6 +2795,7 @@ def build_leaderboard_frame_from_activity(activity_df):
     leaderboard_rows = []
     for (rep_id, rep_name), rep_df in activity_df.groupby(["rep_id", "Rep"], dropna=False):
         dispositions = rep_df["Disposition"].fillna("").str.lower()
+        outcomes = rep_df["Outcome"].fillna("").str.lower() if "Outcome" in rep_df.columns else dispositions
         interest_levels = rep_df["Interest Level"].fillna("").str.lower()
         stop_statuses = rep_df["Stop Status"].fillna("").str.lower()
         leaderboard_rows.append(
@@ -2524,11 +2803,11 @@ def build_leaderboard_frame_from_activity(activity_df):
                 "Rep": rep_name,
                 "rep_id": rep_id,
                 "Doors Knocked": int((stop_statuses == "completed").sum()),
-                "Appointments Set": int((dispositions == "appt set").sum()),
+                "Appointments Set": int(((dispositions == "appt set") | (outcomes == "booked appointment")).sum()),
                 "Marketing Qualified Leads": int(
-                    ((interest_levels.isin(["hot", "warm"])) | (dispositions.isin(["interested", "callback", "appt set", "closed"]))).sum()
+                    ((interest_levels.isin(["hot", "warm"])) | (outcomes.isin(["interested", "requested callback", "booked appointment", "qualified"]))).sum()
                 ),
-                "Closed Customers": int((dispositions == "closed").sum()),
+                "Closed Customers": int(((dispositions == "closed") | (outcomes == "qualified")).sum()),
             }
         )
 

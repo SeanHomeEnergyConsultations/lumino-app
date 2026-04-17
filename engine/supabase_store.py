@@ -8,6 +8,14 @@ from datetime import datetime, timezone
 import requests
 
 from engine.cache_keys import make_analysis_cache_key
+from engine.lead_workflow import (
+    ACTIVITY_TYPE_OPTIONS,
+    FLAG_OPTIONS,
+    LEAD_STATUS_OPTIONS,
+    OUTCOME_OPTIONS,
+    allowed_outcomes_for_activity,
+    derive_lead_follow_up,
+)
 
 
 TIMEOUT_SECONDS = 15
@@ -121,6 +129,23 @@ def _json_safe(value):
 
 def _normalize_address(address):
     return " ".join(str(address or "").strip().lower().split())
+
+
+def _iso_or_none(value):
+    text = str(value or "").strip()
+    return text or None
+
+
+def _valid_json_flag_list(value):
+    flags = []
+    raw_flags = value or []
+    if isinstance(raw_flags, str):
+        raw_flags = [raw_flags]
+    for flag in raw_flags:
+        cleaned = str(flag or "").strip()
+        if cleaned in FLAG_OPTIONS and cleaned not in flags:
+            flags.append(cleaned)
+    return flags
 
 
 def _lead_payload(result):
@@ -372,6 +397,11 @@ def _missing_solar_details_column(error):
 def _missing_open_lead_pool_column(error):
     message = str(error).lower()
     return "open_lead_pool" in message and ("column" in message or "schema cache" in message)
+
+
+def _missing_lead_followup_column(error):
+    message = str(error).lower()
+    return "leads" in message and ("lead_status" in message or "follow_up_flags" in message or "column" in message or "schema cache" in message)
 
 
 def _merge_solar_details(result, solar_details):
@@ -715,7 +745,10 @@ def get_visible_leads(limit=1000, auth_context=None):
         "select": (
             "id,address,zipcode,status,assignment_status,assigned_to,created_by,"
             "first_name,last_name,phone,email,notes,unqualified,unqualified_reason,"
-            "listing_agent,created_at,updated_at"
+            "listing_agent,lead_status,follow_up_flags,first_outreach_at,first_meaningful_contact_at,"
+            "last_outreach_at,last_inbound_at,last_meaningful_contact_at,next_follow_up_at,"
+            "last_activity_at,last_activity_type,last_activity_outcome,next_recommended_step,"
+            "nurture_reason,appointment_at,created_at,updated_at"
         ),
         "order": "updated_at.desc,address.asc",
         "limit": str(limit),
@@ -729,8 +762,224 @@ def get_visible_leads(limit=1000, auth_context=None):
     try:
         rows = _request("GET", "leads", params=params, auth_context=auth_context)
         return rows or []
+    except Exception as err:
+        if not _missing_lead_followup_column(err):
+            return []
+        try:
+            legacy_rows = _request(
+                "GET",
+                "leads",
+                params={
+                    **{k: v for k, v in params.items() if k != "select"},
+                    "select": (
+                        "id,address,zipcode,status,assignment_status,assigned_to,created_by,"
+                        "first_name,last_name,phone,email,notes,unqualified,unqualified_reason,"
+                        "listing_agent,created_at,updated_at"
+                    ),
+                },
+                auth_context=auth_context,
+            ) or []
+            for row in legacy_rows:
+                row.setdefault("lead_status", None)
+                row.setdefault("follow_up_flags", [])
+                row.setdefault("first_outreach_at", None)
+                row.setdefault("first_meaningful_contact_at", None)
+                row.setdefault("last_outreach_at", None)
+                row.setdefault("last_inbound_at", None)
+                row.setdefault("last_meaningful_contact_at", None)
+                row.setdefault("next_follow_up_at", None)
+                row.setdefault("last_activity_at", None)
+                row.setdefault("last_activity_type", None)
+                row.setdefault("last_activity_outcome", None)
+                row.setdefault("next_recommended_step", None)
+                row.setdefault("nurture_reason", None)
+                row.setdefault("appointment_at", None)
+            return legacy_rows
+        except Exception:
+            return []
+
+
+def get_lead_activity_rows(lead_id, auth_context=None):
+    if not supabase_enabled() or not lead_id:
+        return []
+    try:
+        rows = _request(
+            "GET",
+            "lead_activities",
+            params={
+                "lead_id": f"eq.{lead_id}",
+                "select": "id,activity_type,outcome,note_body,activity_at,requested_callback_at,appointment_at,nurture_reason,event_metadata,created_by,created_at",
+                "order": "activity_at.desc,created_at.desc",
+                "limit": "200",
+            },
+            auth_context=auth_context,
+        )
+        return rows or []
     except Exception:
         return []
+
+
+def _sync_lead_follow_up(lead_row, auth_context=None):
+    lead_id = lead_row.get("id")
+    if not lead_id:
+        return False
+    activity_rows = get_lead_activity_rows(lead_id, auth_context=auth_context)
+    derived = derive_lead_follow_up(lead_row, activity_rows)
+    payload = {
+        "lead_status": derived["lead_status"] if derived["lead_status"] in LEAD_STATUS_OPTIONS else "New",
+        "follow_up_flags": _valid_json_flag_list(derived["follow_up_flags"]),
+        "first_outreach_at": _iso_or_none(derived["first_outreach_at"]),
+        "first_meaningful_contact_at": _iso_or_none(derived["first_meaningful_contact_at"]),
+        "last_outreach_at": _iso_or_none(derived["last_outreach_at"]),
+        "last_inbound_at": _iso_or_none(derived["last_inbound_at"]),
+        "last_meaningful_contact_at": _iso_or_none(derived["last_meaningful_contact_at"]),
+        "next_follow_up_at": _iso_or_none(derived["next_follow_up_at"]),
+        "last_activity_at": _iso_or_none(derived["last_activity_at"]),
+        "last_activity_type": derived["last_activity_type"] if derived["last_activity_type"] in ACTIVITY_TYPE_OPTIONS else None,
+        "last_activity_outcome": derived["last_activity_outcome"] if derived["last_activity_outcome"] in OUTCOME_OPTIONS else None,
+        "next_recommended_step": derived["next_recommended_step"],
+        "appointment_at": _iso_or_none(derived["appointment_at"]),
+        "nurture_reason": derived["nurture_reason"],
+    }
+    try:
+        _request(
+            "PATCH",
+            "leads",
+            params={"id": f"eq.{lead_id}"},
+            json_body=payload,
+            prefer="return=minimal",
+            auth_context=auth_context,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def update_lead_core_details(lead_id, details, auth_context=None):
+    if not supabase_enabled() or not lead_id:
+        return False
+    payload = {
+        "first_name": details.get("first_name") or None,
+        "last_name": details.get("last_name") or None,
+        "phone": details.get("phone") or None,
+        "email": details.get("email") or None,
+        "unqualified": details.get("unqualified"),
+        "unqualified_reason": details.get("unqualified_reason") or None,
+    }
+    if "lead_status" in details and details.get("lead_status") in LEAD_STATUS_OPTIONS:
+        payload["lead_status"] = details.get("lead_status")
+    if "nurture_reason" in details:
+        payload["nurture_reason"] = details.get("nurture_reason") or None
+    try:
+        _request(
+            "PATCH",
+            "leads",
+            params={"id": f"eq.{lead_id}"},
+            json_body=payload,
+            prefer="return=minimal",
+            auth_context=auth_context,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def add_lead_activity(
+    lead_id,
+    *,
+    activity_type,
+    outcome=None,
+    note_body=None,
+    activity_at=None,
+    requested_callback_at=None,
+    appointment_at=None,
+    nurture_reason=None,
+    event_metadata=None,
+    auth_context=None,
+):
+    if not supabase_enabled() or not lead_id or activity_type not in ACTIVITY_TYPE_OPTIONS:
+        return False
+    if outcome and outcome not in allowed_outcomes_for_activity(activity_type):
+        return False
+    organization_id = (auth_context or {}).get("organization_id")
+    current_user_id = (auth_context or {}).get("app_user_id")
+    if not organization_id:
+        return False
+
+    lead_rows = _request(
+        "GET",
+        "leads",
+        params={
+            "id": f"eq.{lead_id}",
+            "select": (
+                "id,lead_status,follow_up_flags,first_outreach_at,first_meaningful_contact_at,last_outreach_at,"
+                "last_inbound_at,last_meaningful_contact_at,next_follow_up_at,last_activity_at,last_activity_type,"
+                "last_activity_outcome,next_recommended_step,nurture_reason,appointment_at"
+            ),
+            "limit": "1",
+        },
+        auth_context=auth_context,
+    ) or []
+    lead_row = (lead_rows or [None])[0]
+    if not lead_row:
+        return False
+
+    payload = {
+        "organization_id": organization_id,
+        "lead_id": lead_id,
+        "activity_type": activity_type,
+        "outcome": outcome if outcome in OUTCOME_OPTIONS else None,
+        "note_body": note_body or None,
+        "activity_at": _iso_or_none(activity_at) or datetime.now(timezone.utc).isoformat(),
+        "requested_callback_at": _iso_or_none(requested_callback_at),
+        "appointment_at": _iso_or_none(appointment_at),
+        "nurture_reason": nurture_reason or None,
+        "event_metadata": event_metadata or {},
+        "created_by": current_user_id,
+    }
+    try:
+        _request(
+            "POST",
+            "lead_activities",
+            json_body=payload,
+            prefer="return=minimal",
+            auth_context=auth_context,
+        )
+        return _sync_lead_follow_up({**lead_row, "id": lead_id}, auth_context=auth_context)
+    except Exception:
+        return False
+
+
+def delete_lead_activity(activity_id, lead_id, auth_context=None):
+    if not supabase_enabled() or not activity_id or not lead_id:
+        return False
+    try:
+        _request(
+            "DELETE",
+            "lead_activities",
+            params={"id": f"eq.{activity_id}"},
+            auth_context=auth_context,
+        )
+    except Exception:
+        return False
+    lead_rows = _request(
+        "GET",
+        "leads",
+        params={
+            "id": f"eq.{lead_id}",
+            "select": (
+                "id,lead_status,follow_up_flags,first_outreach_at,first_meaningful_contact_at,last_outreach_at,"
+                "last_inbound_at,last_meaningful_contact_at,next_follow_up_at,last_activity_at,last_activity_type,"
+                "last_activity_outcome,next_recommended_step,nurture_reason,appointment_at"
+            ),
+            "limit": "1",
+        },
+        auth_context=auth_context,
+    ) or []
+    lead_row = (lead_rows or [None])[0]
+    if not lead_row:
+        return True
+    return _sync_lead_follow_up(lead_row, auth_context=auth_context)
 
 
 def get_team_route_activity(limit=5000, auth_context=None):
