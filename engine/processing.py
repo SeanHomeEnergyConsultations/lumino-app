@@ -56,6 +56,13 @@ def coerce_coordinate(value):
         return None
 
 
+def coerce_zipcode(value):
+    text = str(value or "").strip()
+    if not text or text.lower() in {"nan", "none", "null"}:
+        return None
+    return text
+
+
 def process_address(row_data, gmaps_client, key, auth_context=None, analysis_mode="full"):
     cached_result = get_cached_analysis(row_data, auth_context=auth_context)
     if cached_result:
@@ -87,7 +94,7 @@ def process_address(row_data, gmaps_client, key, auth_context=None, analysis_mod
     except Exception:
         sqft_val = None
 
-    zipcode = extract_zip(address)
+    zipcode = coerce_zipcode(row_data.get("zipcode")) or extract_zip(address)
     source_lat = coerce_coordinate(row_data.get("source_latitude"))
     source_lng = coerce_coordinate(row_data.get("source_longitude"))
     if source_lat is not None and source_lng is not None:
@@ -276,11 +283,13 @@ def build_processing_error_result(row_data, error_message):
     value_score, price_display, value_badge = score_home_value(sale_price)
     sqft_score, sqft_display = score_sqft(sqft_val)
 
+    zipcode = coerce_zipcode(row_data.get("zipcode")) or extract_zip(address)
+
     return {
         "address": address,
         "lat": None,
         "lng": None,
-        "zipcode": extract_zip(address),
+        "zipcode": zipcode,
         "sun_hours": None,
         "sun_hours_display": "N/A",
         "category": "Unknown",

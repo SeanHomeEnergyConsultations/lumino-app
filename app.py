@@ -1425,6 +1425,17 @@ COLUMN_ALIASES = {
         "price2",
         "priceextra",
     ],
+    "zipcode": [
+        "zipcode",
+        "zip",
+        "postalcode",
+        "postal",
+        "ziporpostalcode",
+        "zipcodeorpostalcode",
+        "zippostalcode",
+    ],
+    "city": ["city", "town", "municipality"],
+    "state": ["state", "stateorprovince", "province", "region"],
     "beds": ["beds", "bedrooms", "bed"],
     "baths": ["baths", "bathrooms", "bath"],
     "sqft": ["sqft", "squarefeet", "livingarea", "livingsqft", "area"],
@@ -1474,6 +1485,22 @@ def get_row_value(row, column_name):
     if not column_name:
         return None
     return row[column_name]
+
+
+def compose_import_address(row, column_mapping):
+    street = str(get_row_value(row, column_mapping.get("address")) or "").strip()
+    city = str(get_row_value(row, column_mapping.get("city")) or "").strip()
+    state = str(get_row_value(row, column_mapping.get("state")) or "").strip()
+    zipcode = str(get_row_value(row, column_mapping.get("zipcode")) or "").strip()
+
+    locality_parts = [part for part in [city, state] if part]
+    locality = ", ".join(locality_parts) if locality_parts else ""
+    if zipcode:
+        locality = f"{locality} {zipcode}".strip() if locality else zipcode
+
+    if street and locality:
+        return f"{street}, {locality}"
+    return street or locality
 
 
 def is_blank_value(value):
@@ -1557,6 +1584,9 @@ def is_probable_address(value):
 def enrich_result_with_source_fields(result, row_data):
     enriched = dict(result)
     for key in [
+        "zipcode",
+        "city",
+        "state",
         "first_name",
         "last_name",
         "phone",
@@ -4662,7 +4692,7 @@ with planning_tab:
         if not col_address:
             st.error("Could not find an address column. Include a header like Address or Property Address.")
         else:
-            address_series = df[col_address].astype(str).where(df[col_address].notna(), "")
+            address_series = df.apply(lambda row: compose_import_address(row, column_mapping), axis=1)
             stripped_addresses = address_series.str.strip()
             missing_address_mask = stripped_addresses == ""
             invalid_address_mask = ~missing_address_mask & ~stripped_addresses.apply(is_probable_address)
@@ -4724,10 +4754,13 @@ with planning_tab:
                 supabase_errors = []
 
                 for i, (idx, row) in enumerate(df.loc[valid_idx].iterrows()):
-                    addr = str(row[col_address]).strip()
+                    addr = compose_import_address(row, column_mapping).strip()
                     status_text.markdown(f"Analyzing **{i + 1} of {total}** — {str(addr)[:60]}")
                     row_data = {
                         "address": addr,
+                        "zipcode": get_row_value(row, column_mapping.get("zipcode")),
+                        "city": get_row_value(row, column_mapping.get("city")),
+                        "state": get_row_value(row, column_mapping.get("state")),
                         "price": get_row_value(row, col_price),
                         "price_remainder": get_row_value(row, col_remainder),
                         "beds": get_row_value(row, col_beds),
