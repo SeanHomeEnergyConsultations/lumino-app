@@ -323,6 +323,7 @@ create table if not exists public.route_run_stops (
     check (outcome in ('interested', 'callback', 'not_interested', 'not_home', 'bad_address', 'duplicate') or outcome is null),
   sequence_number integer,
   skipped_reason text,
+  disposition text,
   homeowner_name text,
   phone text,
   email text,

@@ -40,6 +40,7 @@ from engine.supabase_store import (
     create_route_run,
     get_current_app_user,
     get_open_lead_pool,
+    get_team_route_activity,
     get_visible_leads,
     get_rep_options,
     get_route_drafts,
@@ -1169,6 +1170,7 @@ def sync_route_stop_details(result, execution_entry, auth_context=None):
         return True
     return update_route_run_stop(
         route_stop_id,
+        disposition=execution_entry.get("status"),
         homeowner_name=execution_entry.get("homeowner_name"),
         phone=execution_entry.get("phone"),
         email=execution_entry.get("email"),
@@ -1200,14 +1202,14 @@ def persist_rep_stop_update(result, execution_entry, auth_context=None):
             execution_entry["next_action"] = execution_entry.get("next_action") or "Call Back"
             execution_entry["interest_level"] = execution_entry.get("interest_level") or "Warm"
         elif normalized_status == "appt set":
-            outcome = "appointment_set"
+            outcome = None
             execution_entry["lead_stage"] = "Appointment Set"
             execution_entry["next_action"] = execution_entry.get("next_action") or "Confirm Appointment"
             if execution_entry.get("appointment_status") in {"", "Not Set"}:
                 execution_entry["appointment_status"] = "Scheduled"
             execution_entry["interest_level"] = execution_entry.get("interest_level") or "Warm"
         elif normalized_status == "closed":
-            outcome = "closed"
+            outcome = None
             execution_entry["lead_stage"] = "Closed Won"
         elif normalized_status == "not interested":
             outcome = "not_interested"
@@ -1222,6 +1224,7 @@ def persist_rep_stop_update(result, execution_entry, auth_context=None):
             route_stop_id,
             stop_status=stop_status,
             outcome=outcome,
+            disposition=status_value or None,
             skipped_reason=skipped_reason,
             homeowner_name=execution_entry.get("homeowner_name"),
             phone=execution_entry.get("phone"),
@@ -1264,6 +1267,7 @@ def apply_quick_disposition(
             route_stop_id,
             stop_status=route_status,
             outcome=outcome,
+            disposition=status_label or None,
             skipped_reason=skipped_reason,
             homeowner_name=entry.get("homeowner_name"),
             phone=entry.get("phone"),
@@ -2264,6 +2268,239 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
     st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True, height=520)
 
 
+def build_team_activity_frames(auth_context):
+    activity_rows = get_team_route_activity(auth_context=auth_context) if auth_context else []
+    if not activity_rows:
+        empty_scoreboard = pd.DataFrame(
+            columns=["Rep", "rep_id", "Doors Knocked", "Appointments Set", "Marketing Qualified Leads", "Closed Customers"]
+        )
+        empty_calendar = pd.DataFrame(columns=["rep_id", "Rep", "Address", "Appointment", "Phone", "Email", "Status"])
+        empty_activity = pd.DataFrame(columns=["rep_id", "Rep", "Address", "Disposition", "Interest Level", "Completed At"])
+        return empty_scoreboard, empty_calendar, empty_activity
+
+    scoreboard = {}
+    calendar_rows = []
+    activity_frame_rows = []
+    for row in activity_rows:
+        rep_id = row.get("rep_id") or row.get("rep_name")
+        rep_name = row.get("rep_name") or "Unknown Rep"
+        record = scoreboard.setdefault(
+            rep_id,
+            {
+                "Rep": rep_name,
+                "rep_id": rep_id,
+                "Doors Knocked": 0,
+                "Appointments Set": 0,
+                "Marketing Qualified Leads": 0,
+                "Closed Customers": 0,
+            },
+        )
+        disposition = str(row.get("disposition") or row.get("outcome") or "").strip().lower()
+        interest_level = str(row.get("interest_level") or "").strip().lower()
+        if str(row.get("stop_status") or "").lower() == "completed":
+            record["Doors Knocked"] += 1
+        if row.get("best_follow_up_time"):
+            record["Appointments Set"] += 1
+            calendar_rows.append(
+                {
+                    "rep_id": rep_id,
+                    "Rep": rep_name,
+                    "Address": row.get("address") or "",
+                    "Appointment": row.get("best_follow_up_time") or "",
+                    "Phone": row.get("phone") or "",
+                    "Email": row.get("email") or "",
+                    "Status": disposition.title() if disposition else "Scheduled",
+                }
+            )
+        if interest_level in {"hot", "warm"} or disposition in {"interested", "callback", "appt set", "closed"}:
+            record["Marketing Qualified Leads"] += 1
+        if disposition == "closed":
+            record["Closed Customers"] += 1
+        activity_frame_rows.append(
+            {
+                "rep_id": rep_id,
+                "Rep": rep_name,
+                "Address": row.get("address") or "",
+                "Disposition": disposition.title() if disposition else "",
+                "Interest Level": interest_level.title() if interest_level else "",
+                "Completed At": row.get("completed_at") or row.get("started_at") or "",
+            }
+        )
+
+    scoreboard_df = pd.DataFrame(scoreboard.values()).sort_values(
+        ["Doors Knocked", "Appointments Set", "Marketing Qualified Leads", "Closed Customers", "Rep"],
+        ascending=[False, False, False, False, True],
+    ).reset_index(drop=True)
+    calendar_df = pd.DataFrame(calendar_rows)
+    activity_df = pd.DataFrame(activity_frame_rows)
+    if not activity_df.empty:
+        activity_df["Completed At"] = pd.to_datetime(activity_df["Completed At"], errors="coerce")
+        activity_df["Day"] = activity_df["Completed At"].dt.strftime("%Y-%m-%d")
+    return scoreboard_df, calendar_df, activity_df
+
+
+def render_calendar_hub(current_app_user, auth_context, active_org_role):
+    st.markdown('<div class="siq-section">Calendar</div>', unsafe_allow_html=True)
+    st.markdown("Visualize scheduled appointments and add new ones from the currently loaded route.")
+
+    scoreboard_df, calendar_df, _activity_df = build_team_activity_frames(auth_context)
+    if not can_access_manager_workspace(active_org_role) and current_app_user:
+        current_rep_id = current_app_user.get("id")
+        if not calendar_df.empty and current_rep_id:
+            calendar_df = calendar_df[calendar_df["rep_id"] == current_rep_id]
+        if not scoreboard_df.empty and current_rep_id:
+            scoreboard_df = scoreboard_df[scoreboard_df["rep_id"] == current_rep_id]
+
+    metric_cols = st.columns(3)
+    metric_cols[0].metric("Upcoming Appointments", len(calendar_df))
+    metric_cols[1].metric("Reps With Appointments", calendar_df["Rep"].nunique() if not calendar_df.empty else 0)
+    metric_cols[2].metric("Loaded Route Stops", len(st.session_state.get("all_results", [])))
+
+    if not calendar_df.empty:
+        st.dataframe(calendar_df.drop(columns=["rep_id"]), use_container_width=True, hide_index=True, height=280)
+    else:
+        st.info("No appointments have been scheduled yet.")
+
+    route_results = st.session_state.get("all_results", [])
+    route_execution = st.session_state.get("route_execution", {})
+    if not route_results:
+        st.caption("Load a route in Maps to schedule new appointments from this tab.")
+        return
+
+    lead_options = {result.get("address"): result for result in route_results if result.get("address")}
+    if not lead_options:
+        return
+    st.markdown("#### Set Appointment")
+    appointment_address = st.selectbox("Lead", options=list(lead_options.keys()), key="calendar_lead_select")
+    selected_result = lead_options[appointment_address]
+    selected_property_id = make_property_id("primary_stop", appointment_address)
+    active_entry = route_execution.setdefault(selected_property_id, default_execution_entry())
+    date_col, time_col = st.columns(2)
+    appointment_date = date_col.date_input("Appointment Date", value=datetime.now().date(), key="calendar_date")
+    appointment_time = time_col.time_input(
+        "Appointment Time",
+        value=datetime.now().replace(minute=0, second=0, microsecond=0).time(),
+        step=1800,
+        key="calendar_time",
+    )
+    appointment_label = format_follow_up_slot(appointment_date, appointment_time)
+    if st.button("Save Appointment", use_container_width=True):
+        active_entry["best_follow_up_time"] = appointment_label
+        active_entry["appointment_status"] = "Scheduled"
+        active_entry["status"] = "Appt Set"
+        active_entry["lead_stage"] = "Appointment Set"
+        active_entry["next_action"] = "Confirm Appointment"
+        append_activity_event(active_entry, "Appointment", f"Appointment scheduled for {appointment_label}")
+        if persist_rep_stop_update(selected_result, active_entry, auth_context=auth_context):
+            save_app_snapshot(all_results=route_results, route_execution=route_execution)
+            st.success("Appointment saved.")
+            st.rerun()
+        st.warning("Could not save the appointment.")
+
+
+def render_leaderboard_hub(current_app_user, auth_context):
+    st.markdown('<div class="siq-section">Leaderboard</div>', unsafe_allow_html=True)
+    st.markdown("Compare rep output across the team using logged field activity.")
+
+    scoreboard_df, _calendar_df, _activity_df = build_team_activity_frames(auth_context)
+    metric_options = ["Doors Knocked", "Appointments Set", "Marketing Qualified Leads", "Closed Customers"]
+    selected_metric = st.selectbox("Leaderboard Metric", options=metric_options, key="leaderboard_metric")
+    if scoreboard_df.empty:
+        st.info("Leaderboard data will appear once reps start logging route activity.")
+        return
+
+    leaderboard_df = scoreboard_df.copy()
+    leaderboard_df["Rank"] = leaderboard_df[selected_metric].rank(method="dense", ascending=False).astype(int)
+    leaderboard_df = leaderboard_df.sort_values(["Rank", "Rep"]).reset_index(drop=True)
+    current_name = current_app_user.get("full_name") or current_app_user.get("email") if current_app_user else None
+    leaderboard_df["You"] = leaderboard_df["Rep"].apply(lambda rep: "You" if current_name and rep == current_name else "")
+
+    lead_cols = st.columns([1.1, 0.9])
+    with lead_cols[0]:
+        st.bar_chart(leaderboard_df.set_index("Rep")[selected_metric], use_container_width=True)
+    with lead_cols[1]:
+        top_row = leaderboard_df.iloc[0]
+        st.metric("Top Rep", top_row["Rep"])
+        st.metric(selected_metric, int(top_row[selected_metric]))
+
+    st.dataframe(
+        leaderboard_df[["Rank", "Rep", "You", "Doors Knocked", "Appointments Set", "Marketing Qualified Leads", "Closed Customers"]],
+        use_container_width=True,
+        hide_index=True,
+        height=320,
+    )
+
+
+def render_reports_hub(current_app_user, auth_context, active_org_role):
+    st.markdown('<div class="siq-section">Reports</div>', unsafe_allow_html=True)
+    st.markdown("Review KPI summaries and recent trend lines for one rep or the whole team.")
+
+    scoreboard_df, calendar_df, activity_df = build_team_activity_frames(auth_context)
+    if scoreboard_df.empty:
+        st.info("Reports will populate once route activity is logged.")
+        return
+
+    selected_rep_id = None
+    if can_access_manager_workspace(active_org_role):
+        rep_options = {row["Rep"]: row["rep_id"] for _, row in scoreboard_df.iterrows()}
+        selected_rep_name = st.selectbox("Report Scope", options=["Team Total"] + list(rep_options.keys()), key="reports_scope")
+        if selected_rep_name != "Team Total":
+            selected_rep_id = rep_options[selected_rep_name]
+    elif current_app_user:
+        selected_rep_id = current_app_user.get("id")
+
+    if selected_rep_id:
+        filtered_scores = scoreboard_df[scoreboard_df["rep_id"] == selected_rep_id]
+        filtered_activity = activity_df[activity_df["rep_id"] == selected_rep_id] if not activity_df.empty else activity_df
+        filtered_calendar = calendar_df[calendar_df["rep_id"] == selected_rep_id] if not calendar_df.empty and not filtered_scores.empty else calendar_df.iloc[0:0]
+        report_title = filtered_scores.iloc[0]["Rep"] if not filtered_scores.empty else "Selected Rep"
+    else:
+        filtered_scores = pd.DataFrame(
+            [
+                {
+                    "Rep": "Team Total",
+                    "rep_id": "team",
+                    "Doors Knocked": int(scoreboard_df["Doors Knocked"].sum()),
+                    "Appointments Set": int(scoreboard_df["Appointments Set"].sum()),
+                    "Marketing Qualified Leads": int(scoreboard_df["Marketing Qualified Leads"].sum()),
+                    "Closed Customers": int(scoreboard_df["Closed Customers"].sum()),
+                }
+            ]
+        )
+        filtered_activity = activity_df
+        filtered_calendar = calendar_df
+        report_title = "Team Total"
+
+    summary = filtered_scores.iloc[0]
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Doors Knocked", int(summary["Doors Knocked"]))
+    metric_cols[1].metric("Appointments Set", int(summary["Appointments Set"]))
+    metric_cols[2].metric("Marketing Qualified Leads", int(summary["Marketing Qualified Leads"]))
+    metric_cols[3].metric("Closed Customers", int(summary["Closed Customers"]))
+
+    st.caption(f"Report scope: {report_title}")
+    if not filtered_activity.empty and "Day" in filtered_activity.columns:
+        trend_df = (
+            filtered_activity.dropna(subset=["Day"])
+            .groupby("Day", dropna=False)
+            .size()
+            .reset_index(name="Activity")
+        )
+        if not trend_df.empty:
+            st.line_chart(trend_df.set_index("Day")["Activity"], use_container_width=True)
+
+    detail_col1, detail_col2 = st.columns(2)
+    with detail_col1:
+        st.markdown("#### KPI Table")
+        st.dataframe(filtered_scores.drop(columns=["rep_id"]), use_container_width=True, hide_index=True)
+    with detail_col2:
+        st.markdown("#### Upcoming Appointments")
+        if filtered_calendar.empty:
+            st.info("No appointments scheduled in this scope.")
+        else:
+            st.dataframe(filtered_calendar.drop(columns=["rep_id"]), use_container_width=True, hide_index=True, height=240)
+
+
 def render_onboarding_hub(current_app_user, auth_context):
     st.markdown('<div class="siq-section">Onboarding</div>', unsafe_allow_html=True)
     st.markdown("Bring new reps into the system with a simple intake flow, readiness checklist, and onboarding pipeline.")
@@ -2868,8 +3105,8 @@ def render_blank_rep_map(auth_context):
 
     geolocation_result = geolocation_picker(
         key="blank_turf_live_geolocation",
-        label="Center Map On My Location",
         auto_request=True,
+        show_button=False,
     )
     if geolocation_result and not geolocation_result.get("error"):
         st.session_state["turf_live_lat"] = geolocation_result["latitude"]
@@ -3036,8 +3273,8 @@ def render_rep_turf_mode(
 
     geolocation_result = geolocation_picker(
         key="turf_live_geolocation",
-        label="Center Map On My Location",
         auto_request=True,
+        show_button=False,
     )
     if geolocation_result and not geolocation_result.get("error"):
         st.session_state["turf_live_lat"] = geolocation_result["latitude"]
@@ -3843,14 +4080,16 @@ if workspace_mode == "Manager View" and st.session_state.get("last_snapshot_resu
         "Use Upload or Load Open Lead Pool to start a fresh planning workspace."
     )
 
-workspace_tab_label = "Workspace" if workspace_mode == "Manager View" else "Turf"
+workspace_tab_label = "Maps"
 if manager_workspace_enabled:
-    workspace_tab, leads_tab, team_tab, performance_tab, onboarding_tab = st.tabs(
-        [workspace_tab_label, "Leads", "People", "Performance", "Onboarding"]
+    workspace_tab, leads_tab, calendar_tab, leaderboard_tab, reports_tab, team_tab, onboarding_tab = st.tabs(
+        [workspace_tab_label, "Leads", "Calendar", "Leaderboard", "Reports", "People", "Onboarding"]
     )
 else:
-    workspace_tab, leads_tab, team_tab = st.tabs([workspace_tab_label, "Leads", "People"])
-    performance_tab = None
+    workspace_tab, leads_tab, calendar_tab, leaderboard_tab, reports_tab = st.tabs(
+        [workspace_tab_label, "Leads", "Calendar", "Leaderboard", "Reports"]
+    )
+    team_tab = None
     onboarding_tab = None
 
 with workspace_tab:
@@ -3927,14 +4166,6 @@ with workspace_tab:
     if workspace_mode == "Rep View" and "all_results" not in st.session_state:
         render_blank_rep_map(auth_context)
 
-with team_tab:
-    render_context_shell(
-        "People Context",
-        "Profiles, badges, and contact actions support the active field workflow but don’t interrupt it.",
-        ["Profiles", "Badges", "Contact", "Recognition"],
-    )
-    render_people_hub(current_app_user, auth_context)
-
 with leads_tab:
     render_context_shell(
         "Leads Context",
@@ -3943,19 +4174,38 @@ with leads_tab:
     )
     render_leads_hub(current_app_user, auth_context, active_org_role)
 
-if performance_tab is not None:
-    with performance_tab:
+with calendar_tab:
+    render_context_shell(
+        "Calendar Context",
+        "Schedule, review, and track appointments for the current rep scope.",
+        ["Appointments", "Schedule", "Follow-up", "Pipeline"],
+    )
+    render_calendar_hub(current_app_user, auth_context, active_org_role)
+
+with leaderboard_tab:
+    render_context_shell(
+        "Leaderboard Context",
+        "Rep ranking updates from saved field activity so everyone can see how they stack up.",
+        ["Doors", "Appointments", "MQLs", "Closed"],
+    )
+    render_leaderboard_hub(current_app_user, auth_context)
+
+with reports_tab:
+    render_context_shell(
+        "Reports Context",
+        "Personal KPI reporting for reps and team-wide drilldowns for managers.",
+        ["KPIs", "Trends", "Appointments", "Summary"],
+    )
+    render_reports_hub(current_app_user, auth_context, active_org_role)
+
+if team_tab is not None:
+    with team_tab:
         render_context_shell(
-            "Performance Context",
-            "Leaderboards, report builder previews, and competitions stay available alongside the live workspace.",
-            ["Leaderboard", "Reports", "Competitions", "KPIs"],
+            "People Context",
+            "Profiles, badges, and contact actions support the active field workflow but don’t interrupt it.",
+            ["Profiles", "Badges", "Contact", "Recognition"],
         )
-        render_performance_hub(
-            st.session_state.get("all_results", []),
-            st.session_state.get("route_execution", {}),
-            current_app_user,
-            auth_context,
-        )
+        render_people_hub(current_app_user, auth_context)
 
 if onboarding_tab is not None:
     with onboarding_tab:

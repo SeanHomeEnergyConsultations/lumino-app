@@ -486,6 +486,66 @@ def get_visible_leads(limit=1000, auth_context=None):
         return []
 
 
+def get_team_route_activity(limit=5000, auth_context=None):
+    if not supabase_enabled():
+        return []
+
+    organization_id = (auth_context or {}).get("organization_id")
+    if not organization_id:
+        return []
+
+    try:
+        route_runs = _request(
+            "GET",
+            "route_runs",
+            params={
+                "organization_id": f"eq.{organization_id}",
+                "select": "id,rep_id,started_at,app_users!route_runs_rep_id_fkey(id,full_name,email)",
+                "order": "started_at.desc",
+                "limit": str(limit),
+            },
+            auth_context=auth_context,
+        ) or []
+        if not route_runs:
+            return []
+
+        route_run_ids = [row["id"] for row in route_runs if row.get("id")]
+        if not route_run_ids:
+            return []
+
+        stop_rows = _request(
+            "GET",
+            "route_run_stops",
+            params={
+                "route_run_id": f"in.({','.join(_quoted(route_run_id) for route_run_id in route_run_ids)})",
+                "select": (
+                    "route_run_id,address,stop_status,outcome,disposition,best_follow_up_time,"
+                    "interest_level,phone,email,completed_at,notes"
+                ),
+                "limit": str(limit),
+            },
+            auth_context=auth_context,
+        ) or []
+        run_lookup = {row["id"]: row for row in route_runs}
+
+        activity_rows = []
+        for stop in stop_rows:
+            route_run = run_lookup.get(stop.get("route_run_id")) or {}
+            rep_row = route_run.get("app_users") or {}
+            activity_rows.append(
+                {
+                    **stop,
+                    "rep_id": route_run.get("rep_id"),
+                    "rep_name": rep_row.get("full_name") or rep_row.get("email") or route_run.get("rep_id") or "Unknown Rep",
+                    "rep_email": rep_row.get("email") or "",
+                    "started_at": route_run.get("started_at"),
+                }
+            )
+        return activity_rows
+    except Exception:
+        return []
+
+
 def get_rep_options(auth_context=None):
     if not supabase_enabled():
         return []
@@ -1073,6 +1133,7 @@ def update_route_run_stop(
     *,
     stop_status=None,
     outcome=None,
+    disposition=None,
     skipped_reason=None,
     homeowner_name=None,
     phone=None,
@@ -1090,6 +1151,8 @@ def update_route_run_stop(
         payload["stop_status"] = stop_status
     if outcome is not None:
         payload["outcome"] = outcome
+    if disposition is not None:
+        payload["disposition"] = disposition
     if skipped_reason is not None:
         payload["skipped_reason"] = skipped_reason
     if homeowner_name is not None:

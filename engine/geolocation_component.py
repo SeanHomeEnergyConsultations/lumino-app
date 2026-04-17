@@ -54,17 +54,20 @@ def _consume_query_payload(prefix):
     return payload
 
 
-def geolocation_picker(key, label="Use My Current Location", auto_request=False):
+def geolocation_picker(key, label="Use My Current Location", auto_request=False, show_button=True):
     prefix = f"lumino_geo_{key}"
     payload = _consume_query_payload(prefix)
     escaped_label = html.escape(label, quote=True)
     encoded_prefix = json.dumps(prefix)
     encoded_auto_request = json.dumps(bool(auto_request))
+    button_display = "flex" if show_button else "none"
+    status_min_height = "32px" if show_button else "20px"
 
     components.html(
         f"""
-        <div style="display:flex;align-items:center;gap:0.75rem;">
+        <div style="display:flex;align-items:center;gap:0.75rem;min-height:{status_min_height};">
           <button id="{prefix}_button" style="
+            display:{button_display};
             width:100%;
             padding:0.75rem 1rem;
             border:none;
@@ -162,6 +165,6 @@ def geolocation_picker(key, label="Use My Current Location", auto_request=False)
           }}
         </script>
         """,
-        height=74,
+        height=74 if show_button else 28,
     )
     return payload
