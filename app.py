@@ -4557,8 +4557,6 @@ with planning_tab:
         st.markdown(f'<div class="siq-section">{section_title}</div>', unsafe_allow_html=True)
         st.markdown(section_copy)
 
-        st.caption("Open lead pool fetches are now configurable. `Permit pulled` filtering is not available yet because that field is not currently stored in the lead analysis data.")
-
         pool_filter_col1, pool_filter_col2, pool_filter_col3 = st.columns(3)
         open_pool_limit = pool_filter_col1.selectbox(
             "Lead Fetch Limit",

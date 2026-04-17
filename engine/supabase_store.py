@@ -369,6 +369,11 @@ def _missing_solar_details_column(error):
     return "solar_details" in message and ("column" in message or "schema cache" in message)
 
 
+def _missing_open_lead_pool_column(error):
+    message = str(error).lower()
+    return "open_lead_pool" in message and ("column" in message or "schema cache" in message)
+
+
 def _merge_solar_details(result, solar_details):
     merged = dict(result)
     for key, default in {
@@ -436,7 +441,7 @@ def get_open_lead_pool(limit=5000, auth_context=None):
     try:
         rows = _request("GET", "open_lead_pool", params=params, auth_context=auth_context)
     except Exception as err:
-        if not _missing_solar_details_column(err):
+        if not (_missing_solar_details_column(err) or _missing_open_lead_pool_column(err)):
             return []
         try:
             rows = _request(
@@ -453,8 +458,26 @@ def get_open_lead_pool(limit=5000, auth_context=None):
                 },
                 auth_context=auth_context,
             )
-        except Exception:
-            return []
+        except Exception as fallback_err:
+            if not (_missing_solar_details_column(fallback_err) or _missing_open_lead_pool_column(fallback_err)):
+                return []
+            try:
+                rows = _request(
+                    "GET",
+                    "open_lead_pool",
+                    params={
+                        "select": (
+                            "id,address,zipcode,lat,lng,first_name,last_name,phone,email,notes,"
+                            "unqualified,unqualified_reason,listing_agent,priority_score,priority_label,"
+                            "category,sun_hours,doors_to_knock"
+                        ),
+                        "order": "priority_score.desc,doors_to_knock.desc,address.asc",
+                        "limit": str(limit),
+                    },
+                    auth_context=auth_context,
+                )
+            except Exception:
+                return []
     return [_open_lead_pool_row_to_result(row) for row in (rows or [])]
 
 
