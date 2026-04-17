@@ -16,18 +16,22 @@ from engine.solar import classify_sun_hours, get_solar_insights
 
 def parse_sale_price(price_thousands, price_remainder):
     try:
-        thousands = (
-            float(str(price_thousands).replace(",", "").strip())
-            if pd.notna(price_thousands)
-            else 0
-        )
-        remainder = (
-            str(price_remainder).replace(",", "").strip()
-            if pd.notna(price_remainder)
-            else "0"
-        )
-        remainder_val = float(remainder) if remainder not in ["", "nan", "0"] else 0
-        full_price = (thousands * 1000) + remainder_val
+        primary_raw = str(price_thousands).replace(",", "").strip() if pd.notna(price_thousands) else ""
+        remainder_raw = str(price_remainder).replace(",", "").strip() if pd.notna(price_remainder) else ""
+
+        primary_val = float(primary_raw) if primary_raw not in ["", "nan"] else 0
+        remainder_val = float(remainder_raw) if remainder_raw not in ["", "nan", "0"] else 0
+
+        # Support both legacy "price in thousands" sheets and normal full-dollar price columns.
+        # If a remainder column is present, treat the primary value as thousands.
+        # Otherwise, large values are assumed to already be full-dollar prices.
+        if remainder_val > 0:
+            full_price = (primary_val * 1000) + remainder_val
+        elif primary_val >= 10000:
+            full_price = primary_val
+        else:
+            full_price = primary_val * 1000
+
         return full_price if full_price > 0 else None
     except Exception:
         return None
