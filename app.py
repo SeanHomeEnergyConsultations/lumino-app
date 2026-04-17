@@ -4477,7 +4477,50 @@ with workspace_tab:
         ["Map", "Route", "Location", "Navigation"],
     )
     if workspace_mode == "Manager View":
-        st.info("Open the `Manager Workspace` tab for planning, upload, open lead pool, and intelligence reporting.")
+        st.caption("Planning, upload, open lead pool, and intelligence reporting live in `Manager Workspace`.")
+        manager_map_results = st.session_state.get("all_results", [])
+        if not manager_map_results:
+            render_blank_rep_map(auth_context)
+        else:
+            zip_summary = build_zip_summary(manager_map_results)
+            zip_rank = {item["zipcode"]: i for i, item in enumerate(zip_summary)}
+            sorted_manager_results = sorted(
+                manager_map_results,
+                key=lambda x: (zip_rank.get(x["zipcode"], 99), -x["priority_score"], -x["doors_to_knock"]),
+            )
+            selected_addresses = set(st.session_state.get("selected_route_addresses", set()))
+            manager_selected_results = [
+                result
+                for result in sorted_manager_results
+                if result.get("priority_score", 0) > 0 and (
+                    not selected_addresses or result.get("address") in selected_addresses
+                )
+            ]
+            if not manager_selected_results:
+                manager_selected_results = [
+                    result for result in sorted_manager_results if result.get("priority_score", 0) > 0
+                ]
+
+            active_route = st.session_state.get("active_route_run")
+            execution_results = active_route.get("results", []) if active_route else manager_selected_results
+            if execution_results:
+                execution_properties = build_execution_properties(execution_results)
+                st.session_state["route_execution"] = ensure_execution_state(
+                    st.session_state.get("route_execution", {}),
+                    execution_properties,
+                )
+                save_app_snapshot(
+                    all_results=st.session_state.get("all_results", []),
+                    route_execution=st.session_state["route_execution"],
+                )
+                render_rep_turf_mode(
+                    execution_results,
+                    execution_properties,
+                    auth_context,
+                    route_preview_df=None,
+                )
+            else:
+                render_blank_rep_map(auth_context)
 
 with planning_tab:
     if workspace_mode == "Manager View" and supabase_enabled():
