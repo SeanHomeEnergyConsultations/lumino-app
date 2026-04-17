@@ -1,9 +1,10 @@
+import calendar
 import json
 import math
 import os
 import time
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import googlemaps
@@ -2275,7 +2276,9 @@ def build_team_activity_frames(auth_context):
             columns=["Rep", "rep_id", "Doors Knocked", "Appointments Set", "Marketing Qualified Leads", "Closed Customers"]
         )
         empty_calendar = pd.DataFrame(columns=["rep_id", "Rep", "Address", "Appointment", "Phone", "Email", "Status"])
-        empty_activity = pd.DataFrame(columns=["rep_id", "Rep", "Address", "Disposition", "Interest Level", "Completed At"])
+        empty_activity = pd.DataFrame(
+            columns=["rep_id", "Rep", "Address", "Disposition", "Interest Level", "Stop Status", "Completed At"]
+        )
         return empty_scoreboard, empty_calendar, empty_activity
 
     scoreboard = {}
@@ -2323,6 +2326,7 @@ def build_team_activity_frames(auth_context):
                 "Address": row.get("address") or "",
                 "Disposition": disposition.title() if disposition else "",
                 "Interest Level": interest_level.title() if interest_level else "",
+                "Stop Status": str(row.get("stop_status") or "").title(),
                 "Completed At": row.get("completed_at") or row.get("started_at") or "",
             }
         )
@@ -2339,9 +2343,158 @@ def build_team_activity_frames(auth_context):
     return scoreboard_df, calendar_df, activity_df
 
 
+def filter_leaderboard_activity(activity_df, date_filter):
+    if activity_df.empty or "Completed At" not in activity_df.columns:
+        return activity_df
+
+    filtered_df = activity_df.dropna(subset=["Completed At"]).copy()
+    if filtered_df.empty:
+        return filtered_df
+
+    now = datetime.now()
+    today_start = datetime(now.year, now.month, now.day)
+
+    if date_filter == "Today":
+        return filtered_df[filtered_df["Completed At"] >= today_start]
+    if date_filter == "This Week":
+        week_start = today_start - timedelta(days=today_start.weekday())
+        return filtered_df[filtered_df["Completed At"] >= week_start]
+    if date_filter == "This Month":
+        month_start = datetime(now.year, now.month, 1)
+        return filtered_df[filtered_df["Completed At"] >= month_start]
+    if date_filter == "YTD":
+        year_start = datetime(now.year, 1, 1)
+        return filtered_df[filtered_df["Completed At"] >= year_start]
+    return filtered_df
+
+
+def build_leaderboard_frame_from_activity(activity_df):
+    if activity_df.empty:
+        return pd.DataFrame(
+            columns=["Rep", "rep_id", "Doors Knocked", "Appointments Set", "Marketing Qualified Leads", "Closed Customers"]
+        )
+
+    leaderboard_rows = []
+    for (rep_id, rep_name), rep_df in activity_df.groupby(["rep_id", "Rep"], dropna=False):
+        dispositions = rep_df["Disposition"].fillna("").str.lower()
+        interest_levels = rep_df["Interest Level"].fillna("").str.lower()
+        stop_statuses = rep_df["Stop Status"].fillna("").str.lower()
+        leaderboard_rows.append(
+            {
+                "Rep": rep_name,
+                "rep_id": rep_id,
+                "Doors Knocked": int((stop_statuses == "completed").sum()),
+                "Appointments Set": int((dispositions == "appt set").sum()),
+                "Marketing Qualified Leads": int(
+                    ((interest_levels.isin(["hot", "warm"])) | (dispositions.isin(["interested", "callback", "appt set", "closed"]))).sum()
+                ),
+                "Closed Customers": int((dispositions == "closed").sum()),
+            }
+        )
+
+    return pd.DataFrame(leaderboard_rows).sort_values(
+        ["Doors Knocked", "Appointments Set", "Marketing Qualified Leads", "Closed Customers", "Rep"],
+        ascending=[False, False, False, False, True],
+    ).reset_index(drop=True)
+
+
+def parse_appointment_label(appointment_label):
+    appointment_text = str(appointment_label or "").strip()
+    if not appointment_text:
+        return None
+    for pattern in ["%b %d, %Y at %I:%M %p", "%b %d, %Y"]:
+        try:
+            return datetime.strptime(appointment_text, pattern)
+        except Exception:
+            continue
+    return None
+
+
+def build_calendar_schedule_frame(calendar_df):
+    if calendar_df.empty:
+        return pd.DataFrame(columns=["rep_id", "Rep", "Address", "Appointment", "Phone", "Email", "Status", "appointment_dt", "day_key"])
+
+    schedule_df = calendar_df.copy()
+    schedule_df["appointment_dt"] = schedule_df["Appointment"].apply(parse_appointment_label)
+    schedule_df = schedule_df.dropna(subset=["appointment_dt"]).sort_values("appointment_dt").reset_index(drop=True)
+    if schedule_df.empty:
+        return schedule_df
+    schedule_df["day_key"] = schedule_df["appointment_dt"].dt.strftime("%Y-%m-%d")
+    return schedule_df
+
+
+def appointment_slot_options():
+    slots = []
+    start_of_day = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
+    for step in range(18):
+        slot_time = (start_of_day + timedelta(minutes=30 * step)).time()
+        slots.append(slot_time.strftime("%I:%M %p"))
+    return slots
+
+
+def render_calendar_month_selector(calendar_df, selected_date, key_prefix):
+    today = datetime.now().date()
+    visible_month = st.session_state.get(f"{key_prefix}_visible_month", today.replace(day=1))
+    if isinstance(visible_month, datetime):
+        visible_month = visible_month.date().replace(day=1)
+
+    nav_col1, nav_col2, nav_col3 = st.columns([0.9, 1.6, 0.9])
+    if nav_col1.button("Previous", key=f"{key_prefix}_prev_month", use_container_width=True):
+        previous_month = (visible_month.replace(day=1) - timedelta(days=1)).replace(day=1)
+        st.session_state[f"{key_prefix}_visible_month"] = previous_month
+        st.rerun()
+    nav_col2.markdown(
+        f"<div style='text-align:center;font-weight:700;padding-top:0.4rem;'>{visible_month.strftime('%B %Y')}</div>",
+        unsafe_allow_html=True,
+    )
+    if nav_col3.button("Next", key=f"{key_prefix}_next_month", use_container_width=True):
+        next_month = (visible_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+        st.session_state[f"{key_prefix}_visible_month"] = next_month
+        st.rerun()
+
+    weekday_cols = st.columns(7)
+    for col, weekday in zip(weekday_cols, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]):
+        col.caption(weekday)
+
+    appointment_counts = {}
+    if not calendar_df.empty and "day_key" in calendar_df.columns:
+        appointment_counts = calendar_df.groupby("day_key").size().to_dict()
+
+    month_matrix = calendar.Calendar(firstweekday=0).monthdatescalendar(visible_month.year, visible_month.month)
+    for week_index, week in enumerate(month_matrix):
+        week_cols = st.columns(7)
+        for day_col, day_value in zip(week_cols, week):
+            in_visible_month = day_value.month == visible_month.month
+            is_past = day_value < today
+            day_key = day_value.strftime("%Y-%m-%d")
+            appt_count = int(appointment_counts.get(day_key, 0))
+            is_selected = selected_date == day_value
+            label = f"{day_value.day}"
+            if appt_count:
+                label = f"{label}\n{appt_count} appt"
+            if not in_visible_month:
+                day_col.markdown(
+                    f"<div style='padding:0.9rem 0.2rem;border:1px solid #1b2335;border-radius:0.7rem;"
+                    f"opacity:0.35;text-align:center;'>{day_value.day}</div>",
+                    unsafe_allow_html=True,
+                )
+                continue
+            button_help = "Past days cannot be selected." if is_past else "Click to view times."
+            if day_col.button(
+                label,
+                key=f"{key_prefix}_day_{week_index}_{day_value.isoformat()}",
+                use_container_width=True,
+                disabled=is_past,
+                help=button_help,
+                type="primary" if is_selected else "secondary",
+            ):
+                st.session_state[f"{key_prefix}_selected_date"] = day_value
+                st.rerun()
+
+
 def render_calendar_hub(current_app_user, auth_context, active_org_role):
     st.markdown('<div class="siq-section">Calendar</div>', unsafe_allow_html=True)
-    st.markdown("Visualize scheduled appointments and add new ones from the currently loaded route.")
+    st.markdown("Use the live calendar to review booked appointments, click a future day, and schedule an open time.")
 
     scoreboard_df, calendar_df, _activity_df = build_team_activity_frames(auth_context)
     if not can_access_manager_workspace(active_org_role) and current_app_user:
@@ -2351,15 +2504,54 @@ def render_calendar_hub(current_app_user, auth_context, active_org_role):
         if not scoreboard_df.empty and current_rep_id:
             scoreboard_df = scoreboard_df[scoreboard_df["rep_id"] == current_rep_id]
 
+    schedule_df = build_calendar_schedule_frame(calendar_df)
+
     metric_cols = st.columns(3)
-    metric_cols[0].metric("Upcoming Appointments", len(calendar_df))
-    metric_cols[1].metric("Reps With Appointments", calendar_df["Rep"].nunique() if not calendar_df.empty else 0)
+    metric_cols[0].metric("Upcoming Appointments", len(schedule_df))
+    metric_cols[1].metric("Reps With Appointments", schedule_df["Rep"].nunique() if not schedule_df.empty else 0)
     metric_cols[2].metric("Loaded Route Stops", len(st.session_state.get("all_results", [])))
 
-    if not calendar_df.empty:
-        st.dataframe(calendar_df.drop(columns=["rep_id"]), use_container_width=True, hide_index=True, height=280)
-    else:
-        st.info("No appointments have been scheduled yet.")
+    availability_mode = st.radio(
+        "Conflict Source",
+        options=["Lumino appointments", "Google Calendar (coming soon)"],
+        horizontal=True,
+        key="calendar_conflict_source",
+    )
+    if availability_mode == "Google Calendar (coming soon)":
+        st.caption("Google Calendar conflict checking is not connected yet, so available times below are currently based on appointments already scheduled in Lumino.")
+
+    today = datetime.now().date()
+    if f"calendar_view_selected_date" not in st.session_state:
+        st.session_state["calendar_view_selected_date"] = today
+    if "calendar_view_visible_month" not in st.session_state:
+        st.session_state["calendar_view_visible_month"] = today.replace(day=1)
+
+    calendar_col, detail_col = st.columns([1.25, 0.95], gap="large")
+    with calendar_col:
+        st.markdown("#### Appointment Calendar")
+        render_calendar_month_selector(
+            schedule_df,
+            st.session_state.get("calendar_view_selected_date"),
+            "calendar_view",
+        )
+
+    with detail_col:
+        selected_date = st.session_state.get("calendar_view_selected_date", today)
+        if isinstance(selected_date, datetime):
+            selected_date = selected_date.date()
+        selected_day_key = selected_date.strftime("%Y-%m-%d")
+        day_schedule_df = schedule_df[schedule_df["day_key"] == selected_day_key].copy() if not schedule_df.empty else schedule_df
+        st.markdown(f"#### {selected_date.strftime('%A, %b %d')}")
+        if day_schedule_df.empty:
+            st.info("No appointments scheduled for this day yet.")
+        else:
+            day_schedule_df["Time"] = day_schedule_df["appointment_dt"].dt.strftime("%I:%M %p")
+            st.dataframe(
+                day_schedule_df[["Time", "Rep", "Address", "Phone", "Status"]],
+                use_container_width=True,
+                hide_index=True,
+                height=220,
+            )
 
     route_results = st.session_state.get("all_results", [])
     route_execution = st.session_state.get("route_execution", {})
@@ -2371,42 +2563,65 @@ def render_calendar_hub(current_app_user, auth_context, active_org_role):
     if not lead_options:
         return
     st.markdown("#### Set Appointment")
+    if selected_date < today:
+        st.caption("Choose today or a future day on the calendar to schedule a new appointment.")
+        return
+
     appointment_address = st.selectbox("Lead", options=list(lead_options.keys()), key="calendar_lead_select")
     selected_result = lead_options[appointment_address]
     selected_property_id = make_property_id("primary_stop", appointment_address)
     active_entry = route_execution.setdefault(selected_property_id, default_execution_entry())
-    date_col, time_col = st.columns(2)
-    appointment_date = date_col.date_input("Appointment Date", value=datetime.now().date(), key="calendar_date")
-    appointment_time = time_col.time_input(
-        "Appointment Time",
-        value=datetime.now().replace(minute=0, second=0, microsecond=0).time(),
-        step=1800,
-        key="calendar_time",
+
+    booked_slots = set()
+    if not day_schedule_df.empty:
+        booked_slots = set(day_schedule_df["appointment_dt"].dt.strftime("%I:%M %p").tolist())
+    available_slots = [slot for slot in appointment_slot_options() if slot not in booked_slots]
+    slot_col1, slot_col2 = st.columns([1.1, 0.9])
+    selected_slot = slot_col1.selectbox(
+        "Available Time",
+        options=available_slots if available_slots else ["No open times"],
+        key="calendar_time_slot",
+        disabled=not bool(available_slots),
     )
-    appointment_label = format_follow_up_slot(appointment_date, appointment_time)
+    slot_col2.metric("Booked Times", len(booked_slots))
+    if booked_slots:
+        st.caption("Reserved: " + ", ".join(sorted(booked_slots)))
+
+    appointment_time = None
+    if available_slots:
+        appointment_time = datetime.strptime(selected_slot, "%I:%M %p").time()
+    appointment_label = format_follow_up_slot(selected_date, appointment_time) if appointment_time else ""
     if st.button("Save Appointment", use_container_width=True):
-        active_entry["best_follow_up_time"] = appointment_label
-        active_entry["appointment_status"] = "Scheduled"
-        active_entry["status"] = "Appt Set"
-        active_entry["lead_stage"] = "Appointment Set"
-        active_entry["next_action"] = "Confirm Appointment"
-        append_activity_event(active_entry, "Appointment", f"Appointment scheduled for {appointment_label}")
-        if persist_rep_stop_update(selected_result, active_entry, auth_context=auth_context):
-            save_app_snapshot(all_results=route_results, route_execution=route_execution)
-            st.success("Appointment saved.")
-            st.rerun()
-        st.warning("Could not save the appointment.")
+        if not appointment_time:
+            st.warning("No available time is open on the selected day.")
+        else:
+            active_entry["best_follow_up_time"] = appointment_label
+            active_entry["appointment_status"] = "Scheduled"
+            active_entry["status"] = "Appt Set"
+            active_entry["lead_stage"] = "Appointment Set"
+            active_entry["next_action"] = "Confirm Appointment"
+            append_activity_event(active_entry, "Appointment", f"Appointment scheduled for {appointment_label}")
+            if persist_rep_stop_update(selected_result, active_entry, auth_context=auth_context):
+                save_app_snapshot(all_results=route_results, route_execution=route_execution)
+                st.success("Appointment saved.")
+                st.rerun()
+            st.warning("Could not save the appointment.")
 
 
 def render_leaderboard_hub(current_app_user, auth_context):
     st.markdown('<div class="siq-section">Leaderboard</div>', unsafe_allow_html=True)
     st.markdown("Compare rep output across the team using logged field activity.")
 
-    scoreboard_df, _calendar_df, _activity_df = build_team_activity_frames(auth_context)
+    _scoreboard_df, _calendar_df, activity_df = build_team_activity_frames(auth_context)
     metric_options = ["Doors Knocked", "Appointments Set", "Marketing Qualified Leads", "Closed Customers"]
-    selected_metric = st.selectbox("Leaderboard Metric", options=metric_options, key="leaderboard_metric")
+    filter_options = ["Today", "This Week", "This Month", "YTD", "All Time"]
+    filter_col1, filter_col2 = st.columns([1.1, 1.4])
+    date_filter = filter_col1.selectbox("Date Filter", options=filter_options, key="leaderboard_date_filter")
+    selected_metric = filter_col2.selectbox("Leaderboard Metric", options=metric_options, key="leaderboard_metric")
+    filtered_activity_df = filter_leaderboard_activity(activity_df, date_filter)
+    scoreboard_df = build_leaderboard_frame_from_activity(filtered_activity_df)
     if scoreboard_df.empty:
-        st.info("Leaderboard data will appear once reps start logging route activity.")
+        st.info(f"No leaderboard activity found for `{date_filter}` yet.")
         return
 
     leaderboard_df = scoreboard_df.copy()
@@ -2422,6 +2637,7 @@ def render_leaderboard_hub(current_app_user, auth_context):
         top_row = leaderboard_df.iloc[0]
         st.metric("Top Rep", top_row["Rep"])
         st.metric(selected_metric, int(top_row[selected_metric]))
+        st.caption(f"Window: {date_filter}")
 
     st.dataframe(
         leaderboard_df[["Rank", "Rep", "You", "Doors Knocked", "Appointments Set", "Marketing Qualified Leads", "Closed Customers"]],
