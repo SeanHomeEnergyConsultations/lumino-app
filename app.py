@@ -3431,15 +3431,44 @@ def render_context_shell(title, copy, chips):
     )
 
 
-def filter_open_lead_pool_results(results, sold_date_query="", min_price=None, max_price=None, min_sun_hours=None, max_sun_hours=None):
+def infer_city_from_address(address):
+    parts = [part.strip() for part in str(address or "").split(",") if part and str(part).strip()]
+    if len(parts) >= 3:
+        return parts[-2]
+    if len(parts) >= 2:
+        trailing = parts[-1].split()
+        if trailing:
+            return " ".join(trailing[:-1]) or parts[-1]
+        return parts[-1]
+    return "Unknown"
+
+
+def filter_open_lead_pool_results(
+    results,
+    sold_date_query="",
+    min_price=None,
+    max_price=None,
+    min_sun_hours=None,
+    max_sun_hours=None,
+    selected_zipcodes=None,
+    selected_cities=None,
+):
     filtered = []
     sold_date_query = str(sold_date_query or "").strip().lower()
+    zipcode_filter = {str(value).strip() for value in (selected_zipcodes or []) if str(value).strip()}
+    city_filter = {str(value).strip().lower() for value in (selected_cities or []) if str(value).strip()}
     for result in results or []:
         sale_price = result.get("sale_price")
         sun_hours = result.get("sun_hours")
         sold_date = str(result.get("sold_date") or "").lower()
+        zipcode = str(result.get("zipcode") or "").strip()
+        city = infer_city_from_address(result.get("address"))
 
         if sold_date_query and sold_date_query not in sold_date:
+            continue
+        if zipcode_filter and zipcode not in zipcode_filter:
+            continue
+        if city_filter and str(city).strip().lower() not in city_filter:
             continue
         if min_price is not None and sale_price is not None and sale_price < min_price:
             continue
@@ -4547,126 +4576,6 @@ with workspace_tab:
                 render_blank_rep_map(auth_context)
 
 with planning_tab:
-    if workspace_mode == "Manager View" and supabase_enabled():
-        section_title = "Open Lead Pool" if workspace_mode == "Manager View" else "My Turf Drafts"
-        section_copy = (
-            "Load open, unassigned leads from Supabase into the planning workspace."
-            if workspace_mode == "Manager View"
-            else "Open a saved draft if your turf did not auto-load."
-        )
-        st.markdown(f'<div class="siq-section">{section_title}</div>', unsafe_allow_html=True)
-        st.markdown(section_copy)
-
-        pool_filter_col1, pool_filter_col2, pool_filter_col3 = st.columns(3)
-        open_pool_limit = pool_filter_col1.selectbox(
-            "Lead Fetch Limit",
-            options=[500, 1000, 2500, 5000],
-            index=3,
-            key="open_pool_limit",
-        )
-        open_pool_min_price = pool_filter_col2.number_input(
-            "Min Price",
-            min_value=0,
-            value=0,
-            step=50000,
-            key="open_pool_min_price",
-        )
-        open_pool_max_price = pool_filter_col3.number_input(
-            "Max Price",
-            min_value=0,
-            value=0,
-            step=50000,
-            key="open_pool_max_price",
-        )
-        pool_filter_col4, pool_filter_col5, pool_filter_col6 = st.columns(3)
-        open_pool_min_sun = pool_filter_col4.number_input(
-            "Min Sun Hours",
-            min_value=0.0,
-            value=0.0,
-            step=50.0,
-            key="open_pool_min_sun",
-        )
-        open_pool_max_sun = pool_filter_col5.number_input(
-            "Max Sun Hours",
-            min_value=0.0,
-            value=0.0,
-            step=50.0,
-            key="open_pool_max_sun",
-        )
-        open_pool_sold_date = pool_filter_col6.text_input(
-            "Sold Date Contains",
-            placeholder="e.g. 2024 or Apr 2024",
-            key="open_pool_sold_date",
-        )
-
-        pool_col, drafts_col = st.columns(2)
-
-        if workspace_mode == "Manager View" and pool_col.button("Load Open Lead Pool", use_container_width=True):
-            pool_results = get_open_lead_pool(limit=int(open_pool_limit), auth_context=auth_context)
-            pool_results = filter_open_lead_pool_results(
-                pool_results,
-                sold_date_query=open_pool_sold_date,
-                min_price=(float(open_pool_min_price) if open_pool_min_price > 0 else None),
-                max_price=(float(open_pool_max_price) if open_pool_max_price > 0 else None),
-                min_sun_hours=(float(open_pool_min_sun) if open_pool_min_sun > 0 else None),
-                max_sun_hours=(float(open_pool_max_sun) if open_pool_max_sun > 0 else None),
-            )
-            if pool_results:
-                st.session_state["all_results"] = pool_results
-                save_app_snapshot(
-                    all_results=pool_results,
-                    route_execution=st.session_state.get("route_execution", {}),
-                )
-                st.session_state["selected_route_addresses"] = set()
-                st.session_state["current_route_draft_id"] = None
-                st.session_state["current_route_draft_name"] = None
-                st.session_state["active_route_run"] = None
-                st.success(f"Loaded **{len(pool_results)}** open leads from Supabase.")
-            else:
-                st.info("No open leads were returned from Supabase.")
-
-        if drafts_col.button("Load Saved Draft", use_container_width=True):
-            st.session_state["show_route_drafts"] = True
-
-        if st.session_state.get("show_route_drafts"):
-            draft_rows = get_route_drafts(auth_context=auth_context)
-            if draft_rows:
-                draft_options = {
-                    f"{draft['name']} · {draft['status']} · "
-                    f"{(draft.get('app_users') or {}).get('full_name') or 'Unassigned'} · "
-                    f"{draft['created_at'][:10]}": draft["id"]
-                    for draft in draft_rows
-                }
-                selected_draft_label = st.selectbox(
-                    "Saved Drafts",
-                    options=list(draft_options.keys()),
-                    key="saved_draft_select",
-                )
-                if st.button("Open Draft", use_container_width=True):
-                    draft_results = load_route_draft_results(
-                        draft_options[selected_draft_label],
-                        auth_context=auth_context,
-                    )
-                    if draft_results:
-                        st.session_state["all_results"] = draft_results
-                        st.session_state["selected_route_addresses"] = {
-                            result["address"] for result in draft_results
-                        }
-                        for result in draft_results:
-                            st.session_state[f'chk_{result["address"]}'] = True
-                        save_app_snapshot(
-                            all_results=draft_results,
-                            route_execution=st.session_state.get("route_execution", {}),
-                        )
-                        st.session_state["current_route_draft_id"] = draft_options[selected_draft_label]
-                        st.session_state["current_route_draft_name"] = selected_draft_label.split(" · ")[0]
-                        st.session_state["active_route_run"] = None
-                        st.success(f"Loaded **{len(draft_results)}** stops from the saved draft.")
-                    else:
-                        st.info("That draft did not return any loadable stops.")
-            else:
-                st.info("No saved drafts found yet.")
-
     if workspace_mode == "Rep View" and "all_results" not in st.session_state:
         render_blank_rep_map(auth_context)
 
@@ -4923,6 +4832,152 @@ with planning_tab:
                         f"Completed with **{len(failed_addresses)}** analysis errors. "
                         "Those addresses were kept in the results with a low-priority fallback instead of crashing the batch."
                     )
+
+    if workspace_mode == "Manager View" and supabase_enabled():
+        st.markdown("---")
+        st.markdown('<div class="siq-section">Open Lead Pool</div>', unsafe_allow_html=True)
+        st.markdown("Load open, unassigned leads from Supabase into the planning workspace.")
+
+        open_pool_seed_results = get_open_lead_pool(limit=int(st.session_state.get("open_pool_limit", 5000)), auth_context=auth_context)
+        open_pool_zip_options = sorted(
+            {
+                str(result.get("zipcode") or "").strip()
+                for result in open_pool_seed_results
+                if str(result.get("zipcode") or "").strip()
+            }
+        )
+        open_pool_city_options = sorted(
+            {
+                infer_city_from_address(result.get("address"))
+                for result in open_pool_seed_results
+                if infer_city_from_address(result.get("address")) and infer_city_from_address(result.get("address")) != "Unknown"
+            }
+        )
+
+        pool_filter_col1, pool_filter_col2, pool_filter_col3 = st.columns(3)
+        open_pool_limit = pool_filter_col1.selectbox(
+            "Lead Fetch Limit",
+            options=[500, 1000, 2500, 5000],
+            index=3,
+            key="open_pool_limit",
+        )
+        open_pool_min_price = pool_filter_col2.number_input(
+            "Min Price",
+            min_value=0,
+            value=0,
+            step=50000,
+            key="open_pool_min_price",
+        )
+        open_pool_max_price = pool_filter_col3.number_input(
+            "Max Price",
+            min_value=0,
+            value=0,
+            step=50000,
+            key="open_pool_max_price",
+        )
+        pool_filter_col4, pool_filter_col5, pool_filter_col6 = st.columns(3)
+        open_pool_min_sun = pool_filter_col4.number_input(
+            "Min Sun Hours",
+            min_value=0.0,
+            value=0.0,
+            step=50.0,
+            key="open_pool_min_sun",
+        )
+        open_pool_max_sun = pool_filter_col5.number_input(
+            "Max Sun Hours",
+            min_value=0.0,
+            value=0.0,
+            step=50.0,
+            key="open_pool_max_sun",
+        )
+        open_pool_sold_date = pool_filter_col6.text_input(
+            "Sold Date Contains",
+            placeholder="e.g. 2024 or Apr 2024",
+            key="open_pool_sold_date",
+        )
+        pool_filter_col7, pool_filter_col8 = st.columns(2)
+        open_pool_zipcodes = pool_filter_col7.multiselect(
+            "ZIP Codes",
+            options=open_pool_zip_options,
+            key="open_pool_zipcodes",
+            placeholder="Select one or more ZIPs",
+        )
+        open_pool_cities = pool_filter_col8.multiselect(
+            "Cities",
+            options=open_pool_city_options,
+            key="open_pool_cities",
+            placeholder="Select one or more cities",
+        )
+
+        pool_col, drafts_col = st.columns(2)
+
+        if pool_col.button("Load Open Lead Pool", use_container_width=True):
+            pool_results = open_pool_seed_results
+            pool_results = filter_open_lead_pool_results(
+                pool_results,
+                sold_date_query=open_pool_sold_date,
+                min_price=(float(open_pool_min_price) if open_pool_min_price > 0 else None),
+                max_price=(float(open_pool_max_price) if open_pool_max_price > 0 else None),
+                min_sun_hours=(float(open_pool_min_sun) if open_pool_min_sun > 0 else None),
+                max_sun_hours=(float(open_pool_max_sun) if open_pool_max_sun > 0 else None),
+                selected_zipcodes=open_pool_zipcodes,
+                selected_cities=open_pool_cities,
+            )
+            if pool_results:
+                st.session_state["all_results"] = pool_results
+                save_app_snapshot(
+                    all_results=pool_results,
+                    route_execution=st.session_state.get("route_execution", {}),
+                )
+                st.session_state["selected_route_addresses"] = set()
+                st.session_state["current_route_draft_id"] = None
+                st.session_state["current_route_draft_name"] = None
+                st.session_state["active_route_run"] = None
+                st.success(f"Loaded **{len(pool_results)}** open leads from Supabase.")
+            else:
+                st.info("No open leads were returned from Supabase.")
+
+        if drafts_col.button("Load Saved Draft", use_container_width=True):
+            st.session_state["show_route_drafts"] = True
+
+        if st.session_state.get("show_route_drafts"):
+            draft_rows = get_route_drafts(auth_context=auth_context)
+            if draft_rows:
+                draft_options = {
+                    f"{draft['name']} · {draft['status']} · "
+                    f"{(draft.get('app_users') or {}).get('full_name') or 'Unassigned'} · "
+                    f"{draft['created_at'][:10]}": draft["id"]
+                    for draft in draft_rows
+                }
+                selected_draft_label = st.selectbox(
+                    "Saved Drafts",
+                    options=list(draft_options.keys()),
+                    key="saved_draft_select",
+                )
+                if st.button("Open Draft", use_container_width=True):
+                    draft_results = load_route_draft_results(
+                        draft_options[selected_draft_label],
+                        auth_context=auth_context,
+                    )
+                    if draft_results:
+                        st.session_state["all_results"] = draft_results
+                        st.session_state["selected_route_addresses"] = {
+                            result["address"] for result in draft_results
+                        }
+                        for result in draft_results:
+                            st.session_state[f'chk_{result["address"]}'] = True
+                        save_app_snapshot(
+                            all_results=draft_results,
+                            route_execution=st.session_state.get("route_execution", {}),
+                        )
+                        st.session_state["current_route_draft_id"] = draft_options[selected_draft_label]
+                        st.session_state["current_route_draft_name"] = selected_draft_label.split(" · ")[0]
+                        st.session_state["active_route_run"] = None
+                        st.success(f"Loaded **{len(draft_results)}** stops from the saved draft.")
+                    else:
+                        st.info("That draft did not return any loadable stops.")
+            else:
+                st.info("No saved drafts found yet.")
 
     if "all_results" in st.session_state:
         all_results = st.session_state["all_results"]

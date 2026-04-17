@@ -633,8 +633,12 @@ def get_open_lead_pool(limit=5000, auth_context=None):
         return []
     if auth_context and not can_access_manager_workspace(auth_context=auth_context):
         return []
+    organization_id = (auth_context or {}).get("organization_id")
+    if not organization_id:
+        return []
 
     params = {
+        "organization_id": f"eq.{organization_id}",
         "select": (
             "id,address,zipcode,lat,lng,first_name,last_name,phone,email,notes,"
             "unqualified,unqualified_reason,listing_agent,sale_price,price_display,sqft,sqft_display,"
@@ -654,6 +658,7 @@ def get_open_lead_pool(limit=5000, auth_context=None):
                 "GET",
                 "open_lead_pool",
                 params={
+                    "organization_id": f"eq.{organization_id}",
                     "select": (
                         "id,address,zipcode,lat,lng,first_name,last_name,phone,email,notes,"
                         "unqualified,unqualified_reason,listing_agent,sale_price,price_display,sqft,sqft_display,"
@@ -672,6 +677,7 @@ def get_open_lead_pool(limit=5000, auth_context=None):
                     "GET",
                     "open_lead_pool",
                     params={
+                        "organization_id": f"eq.{organization_id}",
                         "select": (
                             "id,address,zipcode,lat,lng,first_name,last_name,phone,email,notes,"
                             "unqualified,unqualified_reason,listing_agent,priority_score,priority_label,"
