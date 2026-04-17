@@ -91,7 +91,7 @@ def _request(method, path, *, params=None, json_body=None, prefer=None, auth_con
     return response.json()
 
 
-def _request_paged_get(path, *, params=None, auth_context=None, desired_limit=None, page_size=100):
+def _request_paged_get(path, *, params=None, auth_context=None, desired_limit=None, page_size=500):
     collected = []
     offset = 0
     base_params = dict(params or {})
@@ -337,7 +337,7 @@ def _result_from_supabase_row(row):
         "sqft": row.get("sqft"),
         "sqft_display": row.get("sqft_display", "N/A"),
         "sold_date": row.get("sold_date", "Unknown"),
-        "permit_pulled": row.get("permit_pulled", "Unknown"),
+        "permit_pulled": row.get("permit_pulled"),
         "beds": row.get("beds", ""),
         "baths": row.get("baths", ""),
         "value_score": row.get("value_score", 0),
@@ -402,7 +402,7 @@ def _open_lead_pool_row_to_result(row):
         "sqft": row.get("sqft"),
         "sqft_display": row.get("sqft_display", "N/A"),
         "sold_date": row.get("sold_date", "Unknown"),
-        "permit_pulled": row.get("permit_pulled", "Unknown"),
+        "permit_pulled": row.get("permit_pulled"),
         "beds": row.get("beds", ""),
         "baths": row.get("baths", ""),
         "value_score": 0,
@@ -563,6 +563,52 @@ def _request_leads_with_fallback(method, params, payload, *, prefer, auth_contex
     )
 
 
+def _request_lead_analysis_get_with_fallback(*, params, auth_context=None, paged=True, desired_limit=None):
+    select_fields = [
+        field.strip()
+        for field in str((params or {}).get("select") or "").split(",")
+        if field.strip()
+    ]
+    working_params = dict(params or {})
+    for _ in range(12):
+        try:
+            working_params["select"] = ",".join(select_fields)
+            if paged:
+                return _request_paged_get(
+                    "lead_analysis",
+                    params=working_params,
+                    auth_context=auth_context,
+                    desired_limit=desired_limit,
+                )
+            return _request(
+                "GET",
+                "lead_analysis",
+                params=working_params,
+                auth_context=auth_context,
+            )
+        except Exception as err:
+            missing_column = _missing_table_column(err, "lead_analysis")
+            if not missing_column or missing_column not in select_fields:
+                raise
+            select_fields = [field for field in select_fields if field != missing_column]
+            if not select_fields:
+                return []
+    working_params["select"] = ",".join(select_fields)
+    if paged:
+        return _request_paged_get(
+            "lead_analysis",
+            params=working_params,
+            auth_context=auth_context,
+            desired_limit=desired_limit,
+        )
+    return _request(
+        "GET",
+        "lead_analysis",
+        params=working_params,
+        auth_context=auth_context,
+    )
+
+
 def _apply_display_priority(result):
     adjusted = dict(result or {})
     current_priority = int(adjusted.get("priority_score") or 0)
@@ -607,8 +653,7 @@ def _enrich_rows_with_analysis(rows, auth_context=None, chunk_size=50):
     analysis_lookup = {}
     for lead_id_chunk in _chunked(lead_ids, chunk_size):
         try:
-            analysis_rows = _request_paged_get(
-                "lead_analysis",
+            analysis_rows = _request_lead_analysis_get_with_fallback(
                 params={
                     "lead_id": f"in.({','.join(_quoted(lead_id) for lead_id in lead_id_chunk)})",
                     "select": (
@@ -618,6 +663,7 @@ def _enrich_rows_with_analysis(rows, auth_context=None, chunk_size=50):
                     "order": "updated_at.desc,created_at.desc,id.desc",
                 },
                 auth_context=auth_context,
+                paged=True,
             ) or []
         except Exception:
             continue
@@ -711,7 +757,7 @@ def _minimal_result_from_lead(lead_row):
         "sqft": None,
         "sqft_display": "N/A",
         "sold_date": "Unknown",
-        "permit_pulled": "Unknown",
+        "permit_pulled": None,
         "beds": "",
         "baths": "",
         "value_score": 0,
@@ -1056,9 +1102,7 @@ def get_lead_analysis_snapshot(lead_id, auth_context=None):
     if not supabase_enabled() or not lead_id:
         return None
     try:
-        rows = _request(
-            "GET",
-            "lead_analysis",
+        rows = _request_lead_analysis_get_with_fallback(
             params={
                 "lead_id": f"eq.{lead_id}",
                 "select": (
@@ -1071,12 +1115,75 @@ def get_lead_analysis_snapshot(lead_id, auth_context=None):
                 "limit": "1",
             },
             auth_context=auth_context,
+            paged=False,
         ) or []
         if not rows:
             return None
         return _merge_solar_details(dict(rows[0]), rows[0].get("solar_details"))
     except Exception:
         return None
+
+
+def get_visible_lead_by_id(lead_id, auth_context=None):
+    if not supabase_enabled() or not lead_id:
+        return None
+
+    organization_id = (auth_context or {}).get("organization_id")
+    current_user_id = (auth_context or {}).get("app_user_id")
+    if not organization_id:
+        return None
+
+    params = {
+        "id": f"eq.{lead_id}",
+        "organization_id": f"eq.{organization_id}",
+        "select": (
+            "id,address,zipcode,status,assignment_status,assigned_to,created_by,"
+            "first_name,last_name,phone,email,notes,unqualified,unqualified_reason,"
+            "listing_agent,lead_status,follow_up_flags,first_outreach_at,first_meaningful_contact_at,"
+            "last_outreach_at,last_inbound_at,last_meaningful_contact_at,next_follow_up_at,"
+            "last_activity_at,last_activity_type,last_activity_outcome,next_recommended_step,"
+            "nurture_reason,appointment_at,created_at,updated_at"
+        ),
+        "limit": "1",
+    }
+
+    if auth_context and not can_access_manager_workspace(auth_context=auth_context):
+        if not current_user_id:
+            return None
+        params["or"] = f"(created_by.eq.{current_user_id},assigned_to.eq.{current_user_id})"
+
+    try:
+        rows = _request("GET", "leads", params=params, auth_context=auth_context) or []
+    except Exception as err:
+        if not _missing_lead_followup_column(err):
+            return None
+        legacy_params = dict(params)
+        legacy_params["select"] = (
+            "id,address,zipcode,status,assignment_status,assigned_to,created_by,"
+            "first_name,last_name,phone,email,notes,unqualified,unqualified_reason,"
+            "listing_agent,created_at,updated_at"
+        )
+        rows = _request("GET", "leads", params=legacy_params, auth_context=auth_context) or []
+        for row in rows:
+            row.setdefault("lead_status", None)
+            row.setdefault("follow_up_flags", [])
+            row.setdefault("first_outreach_at", None)
+            row.setdefault("first_meaningful_contact_at", None)
+            row.setdefault("last_outreach_at", None)
+            row.setdefault("last_inbound_at", None)
+            row.setdefault("last_meaningful_contact_at", None)
+            row.setdefault("next_follow_up_at", None)
+            row.setdefault("last_activity_at", None)
+            row.setdefault("last_activity_type", None)
+            row.setdefault("last_activity_outcome", None)
+            row.setdefault("next_recommended_step", None)
+            row.setdefault("nurture_reason", None)
+            row.setdefault("appointment_at", None)
+
+    if not rows:
+        return None
+    enriched_rows = _enrich_rows_with_analysis(rows, auth_context=auth_context)
+    return (enriched_rows or [None])[0]
 
 
 def get_lead_activity_rows(lead_id, auth_context=None):
@@ -1122,12 +1229,11 @@ def _sync_lead_follow_up(lead_row, auth_context=None):
         "nurture_reason": derived["nurture_reason"],
     }
     try:
-        _request(
+        _request_leads_with_fallback(
             "PATCH",
-            "leads",
             params={"id": f"eq.{lead_id}"},
-            json_body=payload,
             prefer="return=minimal",
+            payload=payload,
             auth_context=auth_context,
         )
         return True
@@ -1151,12 +1257,11 @@ def update_lead_core_details(lead_id, details, auth_context=None):
     if "nurture_reason" in details:
         payload["nurture_reason"] = details.get("nurture_reason") or None
     try:
-        _request(
+        _request_leads_with_fallback(
             "PATCH",
-            "leads",
             params={"id": f"eq.{lead_id}"},
-            json_body=payload,
             prefer="return=minimal",
+            payload=payload,
             auth_context=auth_context,
         )
         return True
@@ -2242,7 +2347,7 @@ def _draft_result_from_parts(lead_row, analysis_row):
         "sqft": analysis_row.get("sqft"),
         "sqft_display": analysis_row.get("sqft_display", "N/A"),
         "sold_date": analysis_row.get("sold_date", "Unknown"),
-        "permit_pulled": analysis_row.get("permit_pulled", "Unknown"),
+        "permit_pulled": analysis_row.get("permit_pulled"),
         "beds": analysis_row.get("beds", ""),
         "baths": analysis_row.get("baths", ""),
         "value_score": analysis_row.get("value_score", 0),

@@ -73,6 +73,7 @@ from engine.supabase_store import (
     get_org_lead_count,
     get_open_lead_pool,
     get_team_route_activity,
+    get_visible_lead_by_id,
     get_visible_leads,
     get_rep_options,
     get_route_drafts,
@@ -1757,6 +1758,24 @@ def fetch_address_suggestions(query, api_key, limit=5):
     return suggestions
 
 
+def format_phone_value(raw_value):
+    digits = "".join(char for char in str(raw_value or "") if char.isdigit())
+    if not digits:
+        return ""
+    if len(digits) <= 3:
+        return digits
+    if len(digits) <= 6:
+        return f"{digits[:3]}-{digits[3:]}"
+    formatted = f"{digits[:3]}-{digits[3:6]}-{digits[6:10]}"
+    if len(digits) > 10:
+        formatted = f"{formatted} x{digits[10:]}"
+    return formatted
+
+
+def format_phone_state_value(session_key):
+    st.session_state[session_key] = format_phone_value(st.session_state.get(session_key, ""))
+
+
 def enrich_result_with_source_fields(result, row_data):
     enriched = dict(result)
     for key in [
@@ -2662,6 +2681,66 @@ def is_open_crm_lead_row(row):
     return legacy_status in {"open", "assigned", "in_progress"}
 
 
+def build_prepared_lead_row(row, people_lookup):
+    homeowner_name = " ".join(
+        part.strip()
+        for part in [row.get("first_name") or "", row.get("last_name") or ""]
+        if part and str(part).strip()
+    ).strip()
+    assigned_to_label = people_lookup.get(row.get("assigned_to")) or (
+        "Unassigned" if not row.get("assigned_to") else row.get("assigned_to")
+    )
+    created_by_label = people_lookup.get(row.get("created_by")) or (
+        "Unknown" if not row.get("created_by") else row.get("created_by")
+    )
+    return {
+        "Lead ID": row.get("id"),
+        "Address": row.get("address") or "",
+        "Homeowner": homeowner_name,
+        "Phone": row.get("phone") or "",
+        "Email": row.get("email") or "",
+        "Status": row.get("lead_status") or "New",
+        "Legacy Lead Record Status": str(row.get("status") or "open").replace("_", " ").title(),
+        "Assignment": str(row.get("assignment_status") or "unassigned").replace("_", " ").title(),
+        "Assigned To": assigned_to_label,
+        "Created By": created_by_label,
+        "ZIP": row.get("zipcode") or "",
+        "Lead Status": row.get("lead_status") or "New",
+        "Flags": row.get("follow_up_flags") or [],
+        "Next Follow-Up": row.get("next_follow_up_at"),
+        "Next Recommended Step": row.get("next_recommended_step") or "",
+        "Appointment At": row.get("appointment_at"),
+        "Last Activity": row.get("last_activity_at"),
+        "Last Activity Type": row.get("last_activity_type") or "",
+        "Last Activity Outcome": row.get("last_activity_outcome") or "",
+        "First Outreach": row.get("first_outreach_at"),
+        "First Meaningful Contact": row.get("first_meaningful_contact_at"),
+        "Last Meaningful Contact": row.get("last_meaningful_contact_at"),
+        "Nurture Reason": row.get("nurture_reason") or "",
+        "Qualified": "No" if row.get("unqualified") else "Yes",
+        "Updated": (row.get("updated_at") or row.get("created_at") or "")[:10],
+        "Notes": row.get("notes") or "",
+        "Unqualified Reason": row.get("unqualified_reason") or "",
+        "Sold Date": row.get("sold_date") or "",
+        "Sale Price": row.get("sale_price"),
+        "Sun Hours": row.get("sun_hours"),
+        "City": infer_city_from_address(row.get("address")),
+        "Assigned To ID": row.get("assigned_to"),
+        "Created By ID": row.get("created_by"),
+        "_search_blob": " ".join(
+            str(value or "")
+            for value in [
+                row.get("address"),
+                homeowner_name,
+                row.get("phone"),
+                row.get("email"),
+                assigned_to_label,
+                created_by_label,
+            ]
+        ).lower(),
+    }
+
+
 def render_leads_hub(current_app_user, auth_context, active_org_role):
     st.markdown('<div class="siq-section">Leads</div>', unsafe_allow_html=True)
     st.markdown("Review every saved lead in one place, with visibility scoped to the signed-in role.")
@@ -2672,31 +2751,36 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
 
     with st.expander("Add Lead", expanded=False):
         st.caption("Create a single lead manually. New leads are assigned to you automatically when they are unassigned.")
-        manual_address_search = st.text_input(
-            "Address Search",
-            key="manual_lead_address_search",
+        add_col1, add_col2 = st.columns(2)
+        manual_address = add_col1.text_input(
+            "Address",
+            key="manual_lead_address",
             placeholder="Start typing an address",
         )
-        address_suggestions = fetch_address_suggestions(manual_address_search, api_key)
+        address_suggestions = fetch_address_suggestions(manual_address, api_key)
         if address_suggestions:
             selected_suggestion = st.selectbox(
                 "Suggestions",
-                options=[""] + address_suggestions,
+                options=[""] + [item for item in address_suggestions if item != manual_address],
                 key="manual_lead_address_suggestion",
             )
-            if selected_suggestion:
+            if selected_suggestion and selected_suggestion != manual_address:
                 st.session_state["manual_lead_address"] = selected_suggestion
                 extracted_zip = extract_zip(selected_suggestion)
                 if extracted_zip:
                     st.session_state["manual_lead_zip"] = extracted_zip
-        add_col1, add_col2 = st.columns(2)
-        manual_address = add_col1.text_input("Address", key="manual_lead_address")
+                st.rerun()
         manual_zip = add_col2.text_input("ZIP", key="manual_lead_zip")
         add_col3, add_col4 = st.columns(2)
         manual_first_name = add_col3.text_input("First Name", key="manual_lead_first_name")
         manual_last_name = add_col4.text_input("Last Name", key="manual_lead_last_name")
         add_col5, add_col6 = st.columns(2)
-        manual_phone = add_col5.text_input("Phone", key="manual_lead_phone")
+        manual_phone = add_col5.text_input(
+            "Phone",
+            key="manual_lead_phone",
+            on_change=format_phone_state_value,
+            args=("manual_lead_phone",),
+        )
         manual_email = add_col6.text_input("Email", key="manual_lead_email")
         manual_notes = st.text_area(
             "Notes",
@@ -2728,15 +2812,6 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
             else:
                 st.warning(create_result.get("error") or "Could not save lead.")
 
-    lead_rows = get_visible_leads(auth_context=auth_context)
-    total_leads_in_scope = get_org_lead_count(auth_context=auth_context)
-    if not lead_rows:
-        if can_access_manager_workspace(active_org_role):
-            st.info("No leads are stored for this organization yet.")
-        else:
-            st.info("No leads assigned to you or created by you are stored yet.")
-        return
-
     people_lookup = {}
     if current_app_user and current_app_user.get("id"):
         people_lookup[current_app_user["id"]] = (
@@ -2752,160 +2827,118 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         for person in rep_options
         if person.get("id")
     }
+    selected_lead_id = st.session_state.get("selected_lead_id")
+    selected_lead = None
+    if selected_lead_id:
+        selected_lead_row = get_visible_lead_by_id(selected_lead_id, auth_context=auth_context)
+        if not selected_lead_row:
+            st.session_state.pop("selected_lead_id", None)
+            st.rerun()
+        selected_lead = build_prepared_lead_row(selected_lead_row, people_lookup)
 
     prepared_rows = []
-    for row in lead_rows:
-        homeowner_name = " ".join(
-            part.strip()
-            for part in [row.get("first_name") or "", row.get("last_name") or ""]
-            if part and str(part).strip()
-        ).strip()
-        assigned_to_label = people_lookup.get(row.get("assigned_to")) or (
-            "Unassigned" if not row.get("assigned_to") else row.get("assigned_to")
+    total_leads_in_scope = 0
+    filtered_rows = []
+    if not selected_lead:
+        lead_rows = get_visible_leads(auth_context=auth_context)
+        total_leads_in_scope = get_org_lead_count(auth_context=auth_context)
+        if not lead_rows:
+            if can_access_manager_workspace(active_org_role):
+                st.info("No leads are stored for this organization yet.")
+            else:
+                st.info("No leads assigned to you or created by you are stored yet.")
+            return
+
+        prepared_rows = [build_prepared_lead_row(row, people_lookup) for row in lead_rows]
+        prepared_rows = [row for row in prepared_rows if is_open_crm_lead_row(row)]
+        if not prepared_rows:
+            st.info("No CRM-open leads are available in this view yet.")
+            return
+
+    if not selected_lead:
+        search_col, status_col, assignment_col, owner_col = st.columns([1.35, 0.8, 0.8, 1.0])
+        search_term = search_col.text_input(
+            "Search Leads",
+            placeholder="Address, homeowner, phone, email, or owner",
+            key="leads_search",
+        ).strip().lower()
+        status_filter = status_col.selectbox(
+            "Status",
+            options=["All"] + sorted({row["Status"] for row in prepared_rows}),
+            key="leads_status_filter",
         )
-        created_by_label = people_lookup.get(row.get("created_by")) or (
-            "Unknown" if not row.get("created_by") else row.get("created_by")
+        assignment_filter = assignment_col.selectbox(
+            "Assignment",
+            options=["All"] + sorted({row["Assignment"] for row in prepared_rows}),
+            key="leads_assignment_filter",
         )
-        prepared_rows.append(
-            {
-                "Lead ID": row.get("id"),
-                "Address": row.get("address") or "",
-                "Homeowner": homeowner_name,
-                "Phone": row.get("phone") or "",
-                "Email": row.get("email") or "",
-                "Status": row.get("lead_status") or "New",
-                "Legacy Lead Record Status": str(row.get("status") or "open").replace("_", " ").title(),
-                "Assignment": str(row.get("assignment_status") or "unassigned").replace("_", " ").title(),
-                "Assigned To": assigned_to_label,
-                "Created By": created_by_label,
-                "ZIP": row.get("zipcode") or "",
-                "Lead Status": row.get("lead_status") or "New",
-                "Flags": row.get("follow_up_flags") or [],
-                "Next Follow-Up": row.get("next_follow_up_at"),
-                "Next Recommended Step": row.get("next_recommended_step") or "",
-                "Appointment At": row.get("appointment_at"),
-                "Last Activity": row.get("last_activity_at"),
-                "Last Activity Type": row.get("last_activity_type") or "",
-                "Last Activity Outcome": row.get("last_activity_outcome") or "",
-                "First Outreach": row.get("first_outreach_at"),
-                "First Meaningful Contact": row.get("first_meaningful_contact_at"),
-                "Last Meaningful Contact": row.get("last_meaningful_contact_at"),
-                "Nurture Reason": row.get("nurture_reason") or "",
-                "Qualified": "No" if row.get("unqualified") else "Yes",
-                "Updated": (row.get("updated_at") or row.get("created_at") or "")[:10],
-                "Notes": row.get("notes") or "",
-                "Unqualified Reason": row.get("unqualified_reason") or "",
-                "Sold Date": row.get("sold_date") or "",
-                "Sale Price": row.get("sale_price"),
-                "Sun Hours": row.get("sun_hours"),
-                "City": infer_city_from_address(row.get("address")),
-                "Assigned To ID": row.get("assigned_to"),
-                "Created By ID": row.get("created_by"),
-                "_search_blob": " ".join(
-                    str(value or "")
-                    for value in [
-                        row.get("address"),
-                        homeowner_name,
-                        row.get("phone"),
-                        row.get("email"),
-                        assigned_to_label,
-                        created_by_label,
-                    ]
-                ).lower(),
-            }
+        assigned_to_filter = owner_col.selectbox(
+            "Assigned To",
+            options=["All"] + sorted({row["Assigned To"] for row in prepared_rows}),
+            key="leads_assigned_to_filter",
+        )
+        extra_filter_cols = st.columns(6)
+        zip_filter = extra_filter_cols[0].multiselect(
+            "ZIP Codes",
+            options=sorted({row["ZIP"] for row in prepared_rows if row["ZIP"]}),
+            key="leads_zipcodes_filter",
+        )
+        city_filter = extra_filter_cols[1].multiselect(
+            "Cities",
+            options=sorted({row["City"] for row in prepared_rows if row["City"] and row["City"] != "Unknown"}),
+            key="leads_cities_filter",
+        )
+        sold_date_filter = extra_filter_cols[2].text_input(
+            "Sold Date",
+            placeholder="Apr 2026",
+            key="leads_sold_date_filter",
+        ).strip().lower()
+        min_price_filter = extra_filter_cols[3].number_input(
+            "Min Price",
+            min_value=0,
+            value=0,
+            step=50000,
+            key="leads_min_price_filter",
+        )
+        max_price_filter = extra_filter_cols[4].number_input(
+            "Max Price",
+            min_value=0,
+            value=0,
+            step=50000,
+            key="leads_max_price_filter",
+        )
+        min_sun_filter = extra_filter_cols[5].number_input(
+            "Min Sun Hrs",
+            min_value=0.0,
+            value=0.0,
+            step=50.0,
+            key="leads_min_sun_filter",
         )
 
-    prepared_rows = [row for row in prepared_rows if is_open_crm_lead_row(row)]
-    if not prepared_rows:
-        st.info("No CRM-open leads are available in this view yet.")
-        return
+        filtered_rows = [
+            row
+            for row in prepared_rows
+            if (not search_term or search_term in row["_search_blob"])
+            and (status_filter == "All" or row["Status"] == status_filter)
+            and (assignment_filter == "All" or row["Assignment"] == assignment_filter)
+            and (assigned_to_filter == "All" or row["Assigned To"] == assigned_to_filter)
+            and (not zip_filter or row["ZIP"] in zip_filter)
+            and (not city_filter or row["City"] in city_filter)
+            and (not sold_date_filter or sold_date_filter in str(row["Sold Date"] or "").lower())
+            and (min_price_filter <= 0 or row["Sale Price"] is None or row["Sale Price"] >= float(min_price_filter))
+            and (max_price_filter <= 0 or row["Sale Price"] is None or row["Sale Price"] <= float(max_price_filter))
+            and (min_sun_filter <= 0 or row["Sun Hours"] is None or row["Sun Hours"] >= float(min_sun_filter))
+        ]
 
-    search_col, status_col, assignment_col, owner_col = st.columns([1.35, 0.8, 0.8, 1.0])
-    search_term = search_col.text_input(
-        "Search Leads",
-        placeholder="Address, homeowner, phone, email, or owner",
-        key="leads_search",
-    ).strip().lower()
-    status_filter = status_col.selectbox(
-        "Status",
-        options=["All"] + sorted({row["Status"] for row in prepared_rows}),
-        key="leads_status_filter",
-    )
-    assignment_filter = assignment_col.selectbox(
-        "Assignment",
-        options=["All"] + sorted({row["Assignment"] for row in prepared_rows}),
-        key="leads_assignment_filter",
-    )
-    assigned_to_filter = owner_col.selectbox(
-        "Assigned To",
-        options=["All"] + sorted({row["Assigned To"] for row in prepared_rows}),
-        key="leads_assigned_to_filter",
-    )
-    extra_filter_cols = st.columns(6)
-    zip_filter = extra_filter_cols[0].multiselect(
-        "ZIP Codes",
-        options=sorted({row["ZIP"] for row in prepared_rows if row["ZIP"]}),
-        key="leads_zipcodes_filter",
-    )
-    city_filter = extra_filter_cols[1].multiselect(
-        "Cities",
-        options=sorted({row["City"] for row in prepared_rows if row["City"] and row["City"] != "Unknown"}),
-        key="leads_cities_filter",
-    )
-    sold_date_filter = extra_filter_cols[2].text_input(
-        "Sold Date",
-        placeholder="Apr 2026",
-        key="leads_sold_date_filter",
-    ).strip().lower()
-    min_price_filter = extra_filter_cols[3].number_input(
-        "Min Price",
-        min_value=0,
-        value=0,
-        step=50000,
-        key="leads_min_price_filter",
-    )
-    max_price_filter = extra_filter_cols[4].number_input(
-        "Max Price",
-        min_value=0,
-        value=0,
-        step=50000,
-        key="leads_max_price_filter",
-    )
-    min_sun_filter = extra_filter_cols[5].number_input(
-        "Min Sun Hrs",
-        min_value=0.0,
-        value=0.0,
-        step=50.0,
-        key="leads_min_sun_filter",
-    )
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("Total Leads In Org", total_leads_in_scope)
+        metric_cols[1].metric("Loaded In Tab", len(prepared_rows))
+        metric_cols[2].metric("Filtered Results", len(filtered_rows))
+        metric_cols[3].metric("Qualified", sum(1 for row in filtered_rows if row["Qualified"] == "Yes"))
 
-    filtered_rows = [
-        row
-        for row in prepared_rows
-        if (not search_term or search_term in row["_search_blob"])
-        and (status_filter == "All" or row["Status"] == status_filter)
-        and (assignment_filter == "All" or row["Assignment"] == assignment_filter)
-        and (assigned_to_filter == "All" or row["Assigned To"] == assigned_to_filter)
-        and (not zip_filter or row["ZIP"] in zip_filter)
-        and (not city_filter or row["City"] in city_filter)
-        and (not sold_date_filter or sold_date_filter in str(row["Sold Date"] or "").lower())
-        and (min_price_filter <= 0 or row["Sale Price"] is None or row["Sale Price"] >= float(min_price_filter))
-        and (max_price_filter <= 0 or row["Sale Price"] is None or row["Sale Price"] <= float(max_price_filter))
-        and (min_sun_filter <= 0 or row["Sun Hours"] is None or row["Sun Hours"] >= float(min_sun_filter))
-    ]
-
-    metric_cols = st.columns(4)
-    metric_cols[0].metric("Total Leads In Org", total_leads_in_scope)
-    metric_cols[1].metric("Loaded In Tab", len(prepared_rows))
-    metric_cols[2].metric("Filtered Results", len(filtered_rows))
-    metric_cols[3].metric("Qualified", sum(1 for row in filtered_rows if row["Qualified"] == "Yes"))
-
-    if not filtered_rows:
-        st.info("No leads matched the current filters.")
-        return
-
-    selected_lead_id = st.session_state.get("selected_lead_id")
-    selected_lead = next((row for row in filtered_rows if row["Lead ID"] == selected_lead_id), None)
+        if not filtered_rows:
+            st.info("No leads matched the current filters.")
+            return
 
     if selected_lead:
         back_col, title_col = st.columns([0.22, 0.78])
@@ -2963,7 +2996,14 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
             key=f"lead_detail_last_{selected_lead['Lead ID']}",
         )
         detail_col3, detail_col4 = st.columns(2)
-        edit_phone = detail_col3.text_input("Phone", value=selected_lead["Phone"], key=f"lead_detail_phone_{selected_lead['Lead ID']}")
+        edit_phone_key = f"lead_detail_phone_{selected_lead['Lead ID']}"
+        edit_phone = detail_col3.text_input(
+            "Phone",
+            value=selected_lead["Phone"],
+            key=edit_phone_key,
+            on_change=format_phone_state_value,
+            args=(edit_phone_key,),
+        )
         edit_email = detail_col4.text_input("Email", value=selected_lead["Email"], key=f"lead_detail_email_{selected_lead['Lead ID']}")
         detail_col5, detail_col6 = st.columns(2)
         edit_lead_status = detail_col5.selectbox(
@@ -5344,21 +5384,22 @@ if workspace_mode == "Manager View" and st.session_state.get("last_snapshot_resu
     )
 
 workspace_tab_label = "Maps"
+main_view_options = [workspace_tab_label]
 if manager_workspace_enabled:
-    workspace_tab, manager_tab, leads_tab, calendar_tab, leaderboard_tab, reports_tab, team_tab, onboarding_tab = st.tabs(
-        [workspace_tab_label, "Manager Workspace", "Leads", "Calendar", "Leaderboard", "Reports", "People", "Onboarding"]
-    )
+    main_view_options.extend(["Manager Workspace", "Leads", "Calendar", "Leaderboard", "Reports", "People", "Onboarding"])
 else:
-    workspace_tab, leads_tab, calendar_tab, leaderboard_tab, reports_tab = st.tabs(
-        [workspace_tab_label, "Leads", "Calendar", "Leaderboard", "Reports"]
-    )
-    manager_tab = None
-    team_tab = None
-    onboarding_tab = None
+    main_view_options.extend(["Leads", "Calendar", "Leaderboard", "Reports"])
+if st.session_state.get("main_workspace_view") not in main_view_options:
+    st.session_state["main_workspace_view"] = workspace_tab_label
+selected_main_view = st.radio(
+    "Workspace Views",
+    options=main_view_options,
+    key="main_workspace_view",
+    horizontal=True,
+    label_visibility="collapsed",
+)
 
-planning_tab = manager_tab if (manager_tab is not None and workspace_mode == "Manager View") else workspace_tab
-
-with workspace_tab:
+if selected_main_view == workspace_tab_label:
     render_context_shell(
         "Maps Context",
         "Live route maps, current location, and field navigation stay here while manager planning and intelligence live in their own workspace tab.",
@@ -5396,12 +5437,10 @@ with workspace_tab:
                 )
             else:
                 render_blank_rep_map(auth_context)
-
-with planning_tab:
-    if workspace_mode == "Rep View" and "all_results" not in st.session_state:
+    elif "all_results" not in st.session_state:
         render_blank_rep_map(auth_context)
 
-with leads_tab:
+if selected_main_view == "Leads":
     render_context_shell(
         "Leads Context",
         "Browse the organization lead book in one place, with rep visibility limited to their own created or assigned leads.",
@@ -5409,7 +5448,7 @@ with leads_tab:
     )
     render_leads_hub(current_app_user, auth_context, active_org_role)
 
-with calendar_tab:
+if selected_main_view == "Calendar":
     render_context_shell(
         "Calendar Context",
         "Schedule, review, and track appointments for the current rep scope.",
@@ -5417,7 +5456,7 @@ with calendar_tab:
     )
     render_calendar_hub(current_app_user, auth_context, active_org_role)
 
-with leaderboard_tab:
+if selected_main_view == "Leaderboard":
     render_context_shell(
         "Leaderboard Context",
         "Rep ranking updates from saved field activity so everyone can see how they stack up.",
@@ -5425,7 +5464,7 @@ with leaderboard_tab:
     )
     render_leaderboard_hub(current_app_user, auth_context)
 
-with reports_tab:
+if selected_main_view == "Reports":
     render_context_shell(
         "Reports Context",
         "Personal KPI reporting for reps and team-wide drilldowns for managers.",
@@ -5433,25 +5472,23 @@ with reports_tab:
     )
     render_reports_hub(current_app_user, auth_context, active_org_role)
 
-if team_tab is not None:
-    with team_tab:
-        render_context_shell(
-            "People Context",
-            "Profiles, badges, and contact actions support the active field workflow but don’t interrupt it.",
-            ["Profiles", "Badges", "Contact", "Recognition"],
-        )
-        render_people_hub(current_app_user, auth_context)
+if selected_main_view == "People" and manager_workspace_enabled:
+    render_context_shell(
+        "People Context",
+        "Profiles, badges, and contact actions support the active field workflow but don’t interrupt it.",
+        ["Profiles", "Badges", "Contact", "Recognition"],
+    )
+    render_people_hub(current_app_user, auth_context)
 
-if onboarding_tab is not None:
-    with onboarding_tab:
-        render_context_shell(
-            "Onboarding Context",
-            "Bring new reps into the platform with structured setup, readiness tracking, and manager-owned onboarding notes.",
-            ["New Hires", "Checklist", "Readiness", "Setup"],
-        )
-        render_onboarding_hub(current_app_user, auth_context)
+if selected_main_view == "Onboarding" and manager_workspace_enabled:
+    render_context_shell(
+        "Onboarding Context",
+        "Bring new reps into the platform with structured setup, readiness tracking, and manager-owned onboarding notes.",
+        ["New Hires", "Checklist", "Readiness", "Setup"],
+    )
+    render_onboarding_hub(current_app_user, auth_context)
 
-with planning_tab:
+if selected_main_view == "Manager Workspace" and manager_workspace_enabled:
     if workspace_mode == "Manager View":
         render_workspace_shell(
             workspace_mode,
@@ -5663,7 +5700,7 @@ with planning_tab:
         st.markdown('<div class="siq-section">Open Lead Pool</div>', unsafe_allow_html=True)
         st.markdown("Load open, unassigned leads from Supabase into the planning workspace.")
 
-        open_pool_seed_results = get_open_lead_pool(limit=int(st.session_state.get("open_pool_limit", 5000)), auth_context=auth_context)
+        open_pool_seed_results = st.session_state.get("open_pool_filter_seed_results", [])
         open_pool_zip_options = sorted(
             {
                 str(result.get("zipcode") or "").strip()
@@ -5678,6 +5715,8 @@ with planning_tab:
                 if infer_city_from_address(result.get("address")) and infer_city_from_address(result.get("address")) != "Unknown"
             }
         )
+        if not open_pool_seed_results:
+            st.caption("ZIP and city filter options appear after the first open-pool load so the workspace doesn’t prefetch thousands of leads on every rerun.")
 
         pool_filter_col1, pool_filter_col2, pool_filter_col3 = st.columns(3)
         open_pool_limit = pool_filter_col1.selectbox(
@@ -5737,7 +5776,8 @@ with planning_tab:
         pool_col, drafts_col = st.columns(2)
 
         if pool_col.button("Load Open Lead Pool", use_container_width=True):
-            pool_results = open_pool_seed_results
+            pool_results = get_open_lead_pool(limit=int(open_pool_limit), auth_context=auth_context)
+            st.session_state["open_pool_filter_seed_results"] = pool_results
             pool_results = filter_open_lead_pool_results(
                 pool_results,
                 sold_date_query=open_pool_sold_date,
