@@ -3,6 +3,7 @@ import pandas as pd
 from engine.analysis_cache import get_cached_analysis, save_cached_analysis
 from engine.clustering import build_neighbor_analysis, get_walking_neighbors
 from engine.geo import extract_zip, get_coordinates, get_parking_ease, get_street_view_link
+from engine.normalization import coerce_zipcode
 from engine.scoring import (
     combined_priority,
     score_home_value,
@@ -54,13 +55,6 @@ def coerce_coordinate(value):
         return numeric
     except Exception:
         return None
-
-
-def coerce_zipcode(value):
-    text = str(value or "").strip()
-    if not text or text.lower() in {"nan", "none", "null"}:
-        return None
-    return text
 
 
 def provisional_fast_priority(value_score, sqft_score):

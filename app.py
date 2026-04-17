@@ -25,6 +25,7 @@ from engine.execution import (
     make_property_id,
 )
 from engine.geolocation_component import geolocation_picker
+from engine.normalization import coerce_zipcode
 try:
     from engine.lead_workflow import (
         ACTIVITY_TYPE_OPTIONS,
@@ -1645,7 +1646,7 @@ def compose_import_address(row, column_mapping):
     street = str(get_row_value(row, column_mapping.get("address")) or "").strip()
     city = str(get_row_value(row, column_mapping.get("city")) or "").strip()
     state = str(get_row_value(row, column_mapping.get("state")) or "").strip()
-    zipcode = str(get_row_value(row, column_mapping.get("zipcode")) or "").strip()
+    zipcode = coerce_zipcode(get_row_value(row, column_mapping.get("zipcode"))) or ""
 
     locality_parts = [part for part in [city, state] if part]
     locality = ", ".join(locality_parts) if locality_parts else ""
@@ -1735,6 +1736,14 @@ def is_probable_address(value):
     return has_digit or (has_address_hint and has_multiple_words)
 
 
+def _extract_address_component(components, desired_types):
+    for component in components or []:
+        component_types = component.get("types") or []
+        if any(component_type in component_types for component_type in desired_types):
+            return component.get("long_name") or component.get("short_name") or ""
+    return ""
+
+
 def fetch_address_suggestions(query, api_key, limit=5):
     query_text = str(query or "").strip()
     if len(query_text) < 4 or not api_key:
@@ -1752,10 +1761,42 @@ def fetch_address_suggestions(query, api_key, limit=5):
         if not description or description in seen:
             continue
         seen.add(description)
-        suggestions.append(description)
+        place_id = item.get("place_id")
+        suggestion = {
+            "label": description,
+            "address": description,
+            "city": "",
+            "state": "",
+            "zipcode": coerce_zipcode(extract_zip(description)),
+        }
+        if place_id:
+            try:
+                place_result = client.place(
+                    place_id,
+                    fields=["formatted_address", "address_component"],
+                ).get("result", {})
+                formatted_address = str(place_result.get("formatted_address") or description).strip()
+                components = place_result.get("address_components") or []
+                street_number = _extract_address_component(components, {"street_number"})
+                route = _extract_address_component(components, {"route"})
+                street = " ".join(part for part in [street_number, route] if part).strip() or formatted_address
+                suggestion = {
+                    "label": formatted_address,
+                    "address": street,
+                    "city": _extract_address_component(components, {"locality", "postal_town"}),
+                    "state": _extract_address_component(components, {"administrative_area_level_1"}),
+                    "zipcode": coerce_zipcode(_extract_address_component(components, {"postal_code"})),
+                }
+            except Exception:
+                pass
+        suggestions.append(suggestion)
         if len(suggestions) >= limit:
             break
     return suggestions
+
+
+def normalize_manual_address_fields():
+    st.session_state["manual_lead_zip"] = coerce_zipcode(st.session_state.get("manual_lead_zip")) or ""
 
 
 def format_phone_value(raw_value):
@@ -2722,6 +2763,7 @@ def build_prepared_lead_row(row, people_lookup):
         "Notes": row.get("notes") or "",
         "Unqualified Reason": row.get("unqualified_reason") or "",
         "Sold Date": row.get("sold_date") or "",
+        "Permit Pulled": row.get("permit_pulled") or "",
         "Sale Price": row.get("sale_price"),
         "Sun Hours": row.get("sun_hours"),
         "City": infer_city_from_address(row.get("address")),
@@ -2739,6 +2781,21 @@ def build_prepared_lead_row(row, people_lookup):
             ]
         ).lower(),
     }
+
+
+def parse_filterable_month(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for pattern in ["%b %Y", "%B %Y", "%Y-%m-%d", "%m/%d/%Y"]:
+        try:
+            return datetime.strptime(text, pattern).date()
+        except Exception:
+            continue
+    try:
+        return pd.to_datetime(text).date()
+    except Exception:
+        return None
 
 
 def render_leads_hub(current_app_user, auth_context, active_org_role):
@@ -2759,29 +2816,42 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         )
         address_suggestions = fetch_address_suggestions(manual_address, api_key)
         if address_suggestions:
+            suggestion_labels = [item["label"] for item in address_suggestions]
             selected_suggestion = st.selectbox(
                 "Suggestions",
-                options=[""] + [item for item in address_suggestions if item != manual_address],
+                options=[""] + [item for item in suggestion_labels if item != manual_address],
                 key="manual_lead_address_suggestion",
             )
             if selected_suggestion and selected_suggestion != manual_address:
-                st.session_state["manual_lead_address"] = selected_suggestion
-                extracted_zip = extract_zip(selected_suggestion)
-                if extracted_zip:
-                    st.session_state["manual_lead_zip"] = extracted_zip
+                selected_payload = next(
+                    (item for item in address_suggestions if item["label"] == selected_suggestion),
+                    None,
+                )
+                if selected_payload:
+                    st.session_state["manual_lead_address"] = selected_payload.get("address") or selected_suggestion
+                    st.session_state["manual_lead_city"] = selected_payload.get("city") or ""
+                    st.session_state["manual_lead_state"] = selected_payload.get("state") or ""
+                    st.session_state["manual_lead_zip"] = selected_payload.get("zipcode") or ""
                 st.rerun()
-        manual_zip = add_col2.text_input("ZIP", key="manual_lead_zip")
+        manual_city = add_col2.text_input("City", key="manual_lead_city")
         add_col3, add_col4 = st.columns(2)
-        manual_first_name = add_col3.text_input("First Name", key="manual_lead_first_name")
-        manual_last_name = add_col4.text_input("Last Name", key="manual_lead_last_name")
+        manual_state = add_col3.text_input("State", key="manual_lead_state")
+        manual_zip = add_col4.text_input(
+            "ZIP",
+            key="manual_lead_zip",
+            on_change=normalize_manual_address_fields,
+        )
         add_col5, add_col6 = st.columns(2)
-        manual_phone = add_col5.text_input(
+        manual_first_name = add_col5.text_input("First Name", key="manual_lead_first_name")
+        manual_last_name = add_col6.text_input("Last Name", key="manual_lead_last_name")
+        add_col7, add_col8 = st.columns(2)
+        manual_phone = add_col7.text_input(
             "Phone",
             key="manual_lead_phone",
             on_change=format_phone_state_value,
             args=("manual_lead_phone",),
         )
-        manual_email = add_col6.text_input("Email", key="manual_lead_email")
+        manual_email = add_col8.text_input("Email", key="manual_lead_email")
         manual_notes = st.text_area(
             "Notes",
             key="manual_lead_notes",
@@ -2792,6 +2862,8 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
             create_result = create_manual_lead(
                 {
                     "address": manual_address,
+                    "city": manual_city,
+                    "state": manual_state,
                     "zipcode": manual_zip,
                     "first_name": manual_first_name,
                     "last_name": manual_last_name,
@@ -2888,11 +2960,11 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
             options=sorted({row["City"] for row in prepared_rows if row["City"] and row["City"] != "Unknown"}),
             key="leads_cities_filter",
         )
-        sold_date_filter = extra_filter_cols[2].text_input(
-            "Sold Date",
-            placeholder="Apr 2026",
-            key="leads_sold_date_filter",
-        ).strip().lower()
+        date_field_filter = extra_filter_cols[2].selectbox(
+            "Date Field",
+            options=["Sold Date", "Permit Pulled"],
+            key="leads_date_field_filter",
+        )
         min_price_filter = extra_filter_cols[3].number_input(
             "Min Price",
             min_value=0,
@@ -2900,21 +2972,20 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
             step=50000,
             key="leads_min_price_filter",
         )
-        max_price_filter = extra_filter_cols[4].number_input(
-            "Max Price",
-            min_value=0,
-            value=0,
-            step=50000,
-            key="leads_max_price_filter",
-        )
-        min_sun_filter = extra_filter_cols[5].number_input(
+        min_sun_filter = extra_filter_cols[4].number_input(
             "Min Sun Hrs",
             min_value=0.0,
             value=0.0,
             step=50.0,
             key="leads_min_sun_filter",
         )
+        from_date_filter = extra_filter_cols[5].date_input(
+            "From Date",
+            value=None,
+            key="leads_from_date_filter",
+        )
 
+        selected_date_field = "Sold Date" if date_field_filter == "Sold Date" else "Permit Pulled"
         filtered_rows = [
             row
             for row in prepared_rows
@@ -2924,10 +2995,15 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
             and (assigned_to_filter == "All" or row["Assigned To"] == assigned_to_filter)
             and (not zip_filter or row["ZIP"] in zip_filter)
             and (not city_filter or row["City"] in city_filter)
-            and (not sold_date_filter or sold_date_filter in str(row["Sold Date"] or "").lower())
             and (min_price_filter <= 0 or row["Sale Price"] is None or row["Sale Price"] >= float(min_price_filter))
-            and (max_price_filter <= 0 or row["Sale Price"] is None or row["Sale Price"] <= float(max_price_filter))
             and (min_sun_filter <= 0 or row["Sun Hours"] is None or row["Sun Hours"] >= float(min_sun_filter))
+            and (
+                not from_date_filter
+                or (
+                    parse_filterable_month(row.get(selected_date_field))
+                    and parse_filterable_month(row.get(selected_date_field)) >= from_date_filter
+                )
+            )
         ]
 
         metric_cols = st.columns(4)
@@ -5587,7 +5663,7 @@ if selected_main_view == "Manager Workspace" and manager_workspace_enabled:
                     status_text.markdown(f"Analyzing **{i + 1} of {total}** — {str(addr)[:60]}")
                     row_data = {
                         "address": addr,
-                        "zipcode": get_row_value(row, column_mapping.get("zipcode")),
+                        "zipcode": coerce_zipcode(get_row_value(row, column_mapping.get("zipcode"))),
                         "city": get_row_value(row, column_mapping.get("city")),
                         "state": get_row_value(row, column_mapping.get("state")),
                         "price": get_row_value(row, col_price),

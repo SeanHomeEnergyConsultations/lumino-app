@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import requests
 
 from engine.cache_keys import make_analysis_cache_key
+from engine.normalization import coerce_zipcode
 from engine.scoring import score_home_value, score_sqft
 try:
     from engine.lead_workflow import (
@@ -1275,14 +1276,25 @@ def create_manual_lead(details, auth_context=None):
 
     organization_id = (auth_context or {}).get("organization_id")
     current_user_id = (auth_context or {}).get("app_user_id")
-    address = str((details or {}).get("address") or "").strip()
+    raw_address = str((details or {}).get("address") or "").strip()
+    city = _string_or_none((details or {}).get("city"))
+    state = _string_or_none((details or {}).get("state"))
+    zipcode = coerce_zipcode((details or {}).get("zipcode"))
+    locality_parts = [part for part in [city, state] if part]
+    locality = ", ".join(locality_parts) if locality_parts else ""
+    if zipcode:
+        locality = f"{locality} {zipcode}".strip() if locality else zipcode
+    address = raw_address
+    if raw_address and locality and locality.lower() not in raw_address.lower():
+        address = f"{raw_address}, {locality}"
+    elif not raw_address:
+        address = locality or ""
     if not organization_id or not current_user_id:
         return {"ok": False, "error": "No active signed-in user or organization."}
     if not address:
         return {"ok": False, "error": "Address is required."}
 
     normalized_address = _normalize_address(address)
-    zipcode = _string_or_none((details or {}).get("zipcode"))
     first_name = _string_or_none((details or {}).get("first_name"))
     last_name = _string_or_none((details or {}).get("last_name"))
     phone = _string_or_none((details or {}).get("phone"))
