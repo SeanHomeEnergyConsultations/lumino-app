@@ -4553,21 +4553,8 @@ with workspace_tab:
                 manager_map_results,
                 key=lambda x: (zip_rank.get(x["zipcode"], 99), -x["priority_score"], -x["doors_to_knock"]),
             )
-            selected_addresses = set(st.session_state.get("selected_route_addresses", set()))
-            manager_selected_results = [
-                result
-                for result in sorted_manager_results
-                if result.get("priority_score", 0) > 0 and (
-                    not selected_addresses or result.get("address") in selected_addresses
-                )
-            ]
-            if not manager_selected_results:
-                manager_selected_results = [
-                    result for result in sorted_manager_results if result.get("priority_score", 0) > 0
-                ]
-
             active_route = st.session_state.get("active_route_run")
-            execution_results = active_route.get("results", []) if active_route else manager_selected_results
+            execution_results = active_route.get("results", []) if active_route else sorted_manager_results
             if execution_results:
                 execution_properties = build_execution_properties(execution_results)
                 st.session_state["route_execution"] = ensure_execution_state(
