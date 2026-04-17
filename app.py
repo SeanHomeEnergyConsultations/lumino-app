@@ -24,16 +24,29 @@ from engine.execution import (
     make_property_id,
 )
 from engine.geolocation_component import geolocation_picker
-from engine.lead_workflow import (
-    ACTIVITY_TYPE_OPTIONS,
-    FLAG_OPTIONS,
-    LEAD_STATUS_OPTIONS,
-    NURTURE_REASON_OPTIONS,
-    OPEN_LEAD_STATUSES,
-    OUTCOME_OPTIONS,
-    QUICK_ACTIONS,
-    allowed_outcomes_for_activity,
-)
+try:
+    from engine.lead_workflow import (
+        ACTIVITY_TYPE_OPTIONS,
+        FLAG_OPTIONS,
+        LEAD_STATUS_OPTIONS,
+        NURTURE_REASON_OPTIONS,
+        OPEN_LEAD_STATUSES,
+        OUTCOME_OPTIONS,
+        QUICK_ACTIONS,
+        allowed_outcomes_for_activity,
+    )
+except ModuleNotFoundError:
+    # Deployment safety net: these CRM workflow helpers also live in engine.constants.
+    from engine.constants import (
+        ACTIVITY_TYPE_OPTIONS,
+        FLAG_OPTIONS,
+        LEAD_STATUS_OPTIONS,
+        NURTURE_REASON_OPTIONS,
+        OPEN_LEAD_STATUSES,
+        OUTCOME_OPTIONS,
+        QUICK_ACTIONS,
+        allowed_outcomes_for_activity,
+    )
 from engine.persistence import load_app_snapshot, save_app_snapshot
 from engine.processing import build_processing_error_result, process_address
 from engine.reporting import build_route_csv, build_zip_summary, generate_html_report

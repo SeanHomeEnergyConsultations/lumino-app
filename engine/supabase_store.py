@@ -8,14 +8,25 @@ from datetime import datetime, timezone
 import requests
 
 from engine.cache_keys import make_analysis_cache_key
-from engine.lead_workflow import (
-    ACTIVITY_TYPE_OPTIONS,
-    FLAG_OPTIONS,
-    LEAD_STATUS_OPTIONS,
-    OUTCOME_OPTIONS,
-    allowed_outcomes_for_activity,
-    derive_lead_follow_up,
-)
+try:
+    from engine.lead_workflow import (
+        ACTIVITY_TYPE_OPTIONS,
+        FLAG_OPTIONS,
+        LEAD_STATUS_OPTIONS,
+        OUTCOME_OPTIONS,
+        allowed_outcomes_for_activity,
+        derive_lead_follow_up,
+    )
+except ModuleNotFoundError:
+    # Deployment safety net: keep lead workflow logic available from an existing module.
+    from engine.constants import (
+        ACTIVITY_TYPE_OPTIONS,
+        FLAG_OPTIONS,
+        LEAD_STATUS_OPTIONS,
+        OUTCOME_OPTIONS,
+        allowed_outcomes_for_activity,
+        derive_lead_follow_up,
+    )
 
 
 TIMEOUT_SECONDS = 15
