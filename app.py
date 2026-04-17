@@ -3048,6 +3048,34 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         if selected_lead["Unqualified Reason"]:
             st.markdown(f"**Unqualified Reason:** {selected_lead['Unqualified Reason']}")
 
+        st.markdown("#### Contact Actions")
+        phone_value = urllib.parse.quote(str(selected_lead.get("Phone") or ""))
+        email_value = urllib.parse.quote(str(selected_lead.get("Email") or ""))
+        address_value = urllib.parse.quote(str(selected_lead.get("Address") or "Lead"))
+        contact_col1, contact_col2, contact_col3 = st.columns(3)
+        contact_col1.link_button(
+            "Call",
+            f"tel:{phone_value}" if phone_value else "https://example.com",
+            use_container_width=True,
+            disabled=not bool(phone_value),
+        )
+        contact_col2.link_button(
+            "Text",
+            f"sms:{phone_value}" if phone_value else "https://example.com",
+            use_container_width=True,
+            disabled=not bool(phone_value),
+        )
+        contact_col3.link_button(
+            "Email",
+            (
+                f"mailto:{email_value}?subject=Follow%20up%20for%20{address_value}"
+                if email_value
+                else "https://example.com"
+            ),
+            use_container_width=True,
+            disabled=not bool(email_value),
+        )
+
         with st.expander("Home Info", expanded=False):
             info_entries = home_info_entries(analysis_snapshot)
             if info_entries:
@@ -3169,9 +3197,7 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         if st.session_state.get(lead_form_keys["outcome"], "") not in allowed_outcomes:
             st.session_state[lead_form_keys["outcome"]] = ""
         activity_outcome = st.selectbox("Outcome", options=allowed_outcomes, key=lead_form_keys["outcome"])
-        activity_col1, activity_col2 = st.columns(2)
-        activity_date = activity_col1.date_input("Activity Date", key=lead_form_keys["date"])
-        activity_time = activity_col2.time_input("Activity Time", step=1800, key=lead_form_keys["time"])
+        st.caption("Activity time is recorded automatically when you save.")
         note_body = st.text_area(
             "History Note",
             placeholder="What happened, what you learned, and what should happen next.",
@@ -3212,7 +3238,6 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
                 key=lead_form_keys["confirm"],
             )
 
-        activity_timestamp = datetime.combine(activity_date, activity_time).isoformat()
         callback_timestamp = (
             datetime.combine(requested_callback_date, requested_callback_time).isoformat()
             if requested_callback_date and requested_callback_time
@@ -3241,18 +3266,18 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
                 attempt_number = min(count_not_home_attempts(activity_rows) + 1, 3)
                 event_metadata["attempt_number"] = attempt_number
                 event_metadata["route_attempt_status"] = f"Not Home {attempt_number}"
-            if add_lead_activity(
+            activity_save_result = add_lead_activity(
                 selected_lead["Lead ID"],
                 activity_type=activity_type,
                 outcome=activity_outcome or None,
                 note_body=note_body.strip(),
-                activity_at=activity_timestamp,
                 requested_callback_at=callback_timestamp if activity_outcome == "Requested Callback" else None,
                 appointment_at=appointment_timestamp if activity_type in {"Appointment Set", "Appointment Rescheduled"} else None,
                 nurture_reason=nurture_reason or None,
                 event_metadata=event_metadata,
                 auth_context=auth_context,
-            ):
+            )
+            if activity_save_result.get("ok"):
                 for key, value in {
                     lead_form_keys["selected_action"]: "",
                     lead_form_keys["activity_type"]: "Note",
@@ -3264,7 +3289,7 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
                     st.session_state[key] = value
                 st.success("Activity saved.")
                 st.rerun()
-            st.warning("Could not save activity.")
+            st.warning(activity_save_result.get("error") or "Could not save activity.")
 
         st.markdown("#### Activity History")
         if selected_lead["Notes"]:

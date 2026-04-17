@@ -1242,6 +1242,25 @@ def _sync_lead_follow_up(lead_row, auth_context=None):
         return False
 
 
+def _get_lead_for_activity(lead_id, auth_context=None):
+    if not lead_id:
+        return None
+    try:
+        lead_rows = _request(
+            "GET",
+            "leads",
+            params={
+                "id": f"eq.{lead_id}",
+                "select": "id",
+                "limit": "1",
+            },
+            auth_context=auth_context,
+        ) or []
+    except Exception:
+        return None
+    return (lead_rows or [None])[0]
+
+
 def update_lead_core_details(lead_id, details, auth_context=None):
     if not supabase_enabled() or not lead_id:
         return False
@@ -1398,31 +1417,17 @@ def add_lead_activity(
     auth_context=None,
 ):
     if not supabase_enabled() or not lead_id or activity_type not in ACTIVITY_TYPE_OPTIONS:
-        return False
+        return {"ok": False, "error": "Activity logging is not available."}
     if outcome and outcome not in allowed_outcomes_for_activity(activity_type):
-        return False
+        return {"ok": False, "error": "That outcome is not valid for the selected activity type."}
     organization_id = (auth_context or {}).get("organization_id")
     current_user_id = (auth_context or {}).get("app_user_id")
     if not organization_id:
-        return False
+        return {"ok": False, "error": "No active organization selected."}
 
-    lead_rows = _request(
-        "GET",
-        "leads",
-        params={
-            "id": f"eq.{lead_id}",
-            "select": (
-                "id,lead_status,follow_up_flags,first_outreach_at,first_meaningful_contact_at,last_outreach_at,"
-                "last_inbound_at,last_meaningful_contact_at,next_follow_up_at,last_activity_at,last_activity_type,"
-                "last_activity_outcome,next_recommended_step,nurture_reason,appointment_at"
-            ),
-            "limit": "1",
-        },
-        auth_context=auth_context,
-    ) or []
-    lead_row = (lead_rows or [None])[0]
+    lead_row = _get_lead_for_activity(lead_id, auth_context=auth_context)
     if not lead_row:
-        return False
+        return {"ok": False, "error": "Lead not found or not visible in the active organization."}
 
     payload = {
         "organization_id": organization_id,
@@ -1430,7 +1435,7 @@ def add_lead_activity(
         "activity_type": activity_type,
         "outcome": outcome if outcome in OUTCOME_OPTIONS else None,
         "note_body": note_body or None,
-        "activity_at": _iso_or_none(activity_at) or datetime.now(timezone.utc).isoformat(),
+        "activity_at": datetime.now(timezone.utc).isoformat(),
         "requested_callback_at": _iso_or_none(requested_callback_at),
         "appointment_at": _iso_or_none(appointment_at),
         "nurture_reason": nurture_reason or None,
@@ -1445,9 +1450,10 @@ def add_lead_activity(
             prefer="return=minimal",
             auth_context=auth_context,
         )
-        return _sync_lead_follow_up({**lead_row, "id": lead_id}, auth_context=auth_context)
-    except Exception:
-        return False
+    except Exception as err:
+        return {"ok": False, "error": str(err)}
+    _sync_lead_follow_up({"id": lead_id}, auth_context=auth_context)
+    return {"ok": True}
 
 
 def delete_lead_activity(activity_id, lead_id, auth_context=None):
@@ -1462,24 +1468,11 @@ def delete_lead_activity(activity_id, lead_id, auth_context=None):
         )
     except Exception:
         return False
-    lead_rows = _request(
-        "GET",
-        "leads",
-        params={
-            "id": f"eq.{lead_id}",
-            "select": (
-                "id,lead_status,follow_up_flags,first_outreach_at,first_meaningful_contact_at,last_outreach_at,"
-                "last_inbound_at,last_meaningful_contact_at,next_follow_up_at,last_activity_at,last_activity_type,"
-                "last_activity_outcome,next_recommended_step,nurture_reason,appointment_at"
-            ),
-            "limit": "1",
-        },
-        auth_context=auth_context,
-    ) or []
-    lead_row = (lead_rows or [None])[0]
+    lead_row = _get_lead_for_activity(lead_id, auth_context=auth_context)
     if not lead_row:
         return True
-    return _sync_lead_follow_up(lead_row, auth_context=auth_context)
+    _sync_lead_follow_up({"id": lead_id}, auth_context=auth_context)
+    return True
 
 
 def get_team_route_activity(limit=5000, auth_context=None):
