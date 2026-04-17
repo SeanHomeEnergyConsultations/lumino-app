@@ -13,7 +13,7 @@ def get_priority_meta(score):
     return PRIORITY.get(score, DEFAULT_PRIORITY)
 
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 OUTREACH_ACTIVITY_TYPES = [
@@ -166,14 +166,15 @@ def _to_datetime(value):
     if not value:
         return None
     if isinstance(value, datetime):
-        return value
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
     text = str(value or "").strip()
     if not text:
         return None
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
     try:
-        return datetime.fromisoformat(text)
+        parsed = datetime.fromisoformat(text)
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
     except Exception:
         return None
 
@@ -207,7 +208,7 @@ def _rotate_channel(next_attempt_count):
 
 
 def derive_lead_follow_up(lead_row, activity_rows, now=None):
-    now = now or datetime.now()
+    now = now or datetime.now(timezone.utc)
     activities = sorted(
         [row for row in (activity_rows or []) if row.get("activity_type") in ACTIVITY_TYPE_OPTIONS],
         key=lambda row: _to_datetime(row.get("activity_at")) or now,
