@@ -485,8 +485,13 @@ select
   a.solar_details,
   a.doors_to_knock
 from public.leads l
-left join public.lead_analysis a
-  on a.lead_id = l.id
+left join lateral (
+  select *
+  from public.lead_analysis a
+  where a.lead_id = l.id
+  order by a.updated_at desc nulls last, a.created_at desc nulls last, a.id desc
+  limit 1
+) a on true
 where l.status = 'open'
   and l.assignment_status = 'unassigned';
 

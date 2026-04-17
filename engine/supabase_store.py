@@ -422,6 +422,212 @@ def get_cached_analysis(row_data, auth_context=None):
     return None
 
 
+def _chunked(items, size):
+    chunk_size = max(1, int(size or 1))
+    for index in range(0, len(items), chunk_size):
+        yield items[index : index + chunk_size]
+
+
+def _minimal_result_from_lead(lead_row):
+    result = {
+        "lead_id": lead_row.get("id"),
+        "address": lead_row.get("address", ""),
+        "lat": lead_row.get("lat"),
+        "lng": lead_row.get("lng"),
+        "zipcode": lead_row.get("zipcode", "Unknown"),
+        "sun_hours": None,
+        "sun_hours_display": "N/A",
+        "category": "Unknown",
+        "street_view_link": "",
+        "parking_ease": "",
+        "walkable_count": 0,
+        "ideal_count": 0,
+        "good_count": 0,
+        "priority_score": 0,
+        "priority_label": "",
+        "parking_address": lead_row.get("address", ""),
+        "doors_to_knock": 0,
+        "knock_addresses": _knock_addresses(lead_row.get("address", ""), [], "Unknown"),
+        "neighbor_records": [],
+        "sale_price": None,
+        "price_display": "N/A",
+        "value_badge": "Unknown",
+        "sqft": None,
+        "sqft_display": "N/A",
+        "sold_date": "Unknown",
+        "permit_pulled": "Unknown",
+        "beds": "",
+        "baths": "",
+        "value_score": 0,
+        "sqft_score": 0,
+        "analysis_error": None,
+        "first_name": lead_row.get("first_name"),
+        "last_name": lead_row.get("last_name"),
+        "phone": lead_row.get("phone"),
+        "email": lead_row.get("email"),
+        "notes": lead_row.get("notes"),
+        "unqualified": lead_row.get("unqualified"),
+        "unqualified_reason": lead_row.get("unqualified_reason"),
+        "listing_agent": lead_row.get("listing_agent"),
+    }
+    return _merge_solar_details(result, None)
+
+
+def _open_lead_result_rank(row):
+    return (
+        int(row.get("priority_score") or 0),
+        int(row.get("doors_to_knock") or 0),
+        1 if row.get("sun_hours") is not None else 0,
+        1 if row.get("sale_price") is not None else 0,
+        1 if row.get("sqft") is not None else 0,
+        len(str(row.get("notes") or "")),
+    )
+
+
+def _dedupe_open_lead_results(rows):
+    best_by_lead_id = {}
+    for row in rows or []:
+        lead_id = row.get("lead_id") or row.get("id")
+        if not lead_id:
+            continue
+        current = best_by_lead_id.get(lead_id)
+        if current is None or _open_lead_result_rank(row) > _open_lead_result_rank(current):
+            best_by_lead_id[lead_id] = row
+    deduped_rows = list(best_by_lead_id.values())
+    deduped_rows.sort(
+        key=lambda row: (
+            -(row.get("priority_score") or 0),
+            -(row.get("doors_to_knock") or 0),
+            str(row.get("address") or "").lower(),
+        )
+    )
+    return deduped_rows
+
+
+def _cleanup_duplicate_lead_analysis_rows(lead_id, keep_analysis_id, auth_context=None):
+    if not lead_id or not keep_analysis_id:
+        return
+    try:
+        analysis_rows = _request(
+            "GET",
+            "lead_analysis",
+            params={
+                "lead_id": f"eq.{lead_id}",
+                "select": "id",
+                "order": "updated_at.desc",
+            },
+            auth_context=auth_context,
+        ) or []
+    except Exception:
+        return
+
+    duplicate_ids = [
+        row.get("id")
+        for row in analysis_rows
+        if row.get("id") and row.get("id") != keep_analysis_id
+    ]
+    if not duplicate_ids:
+        return
+
+    try:
+        _request(
+            "DELETE",
+            "lead_neighbors",
+            params={"lead_analysis_id": f"in.({','.join(_quoted(analysis_id) for analysis_id in duplicate_ids)})"},
+            auth_context=auth_context,
+        )
+    except Exception:
+        pass
+
+    try:
+        _request(
+            "DELETE",
+            "lead_analysis",
+            params={"id": f"in.({','.join(_quoted(analysis_id) for analysis_id in duplicate_ids)})"},
+            auth_context=auth_context,
+        )
+    except Exception:
+        pass
+
+
+def _get_open_lead_pool_direct(limit=5000, auth_context=None):
+    organization_id = (auth_context or {}).get("organization_id")
+    if not organization_id:
+        return []
+
+    lead_rows = _request(
+        "GET",
+        "leads",
+        params={
+            "organization_id": f"eq.{organization_id}",
+            "status": "eq.open",
+            "assignment_status": "eq.unassigned",
+            "select": (
+                "id,address,zipcode,lat,lng,first_name,last_name,phone,email,notes,"
+                "unqualified,unqualified_reason,listing_agent,updated_at"
+            ),
+            "order": "updated_at.desc,address.asc",
+            "limit": str(limit),
+        },
+        auth_context=auth_context,
+    ) or []
+    if not lead_rows:
+        return []
+
+    lead_lookup = {row["id"]: row for row in lead_rows if row.get("id")}
+    lead_ids = list(lead_lookup.keys())
+    analysis_rows = []
+    for lead_id_chunk in _chunked(lead_ids, 200):
+        analysis_rows.extend(
+            _request(
+                "GET",
+                "lead_analysis",
+                params={
+                    "lead_id": f"in.({','.join(_quoted(lead_id) for lead_id in lead_id_chunk)})",
+                    "select": "*",
+                    "order": "updated_at.desc",
+                },
+                auth_context=auth_context,
+            ) or []
+        )
+
+    analysis_lookup = {}
+    analysis_ids = []
+    for analysis_row in analysis_rows:
+        lead_id = analysis_row.get("lead_id")
+        if not lead_id or lead_id in analysis_lookup:
+            continue
+        analysis_lookup[lead_id] = analysis_row
+        if analysis_row.get("id"):
+            analysis_ids.append(analysis_row["id"])
+
+    neighbor_lookup = {}
+    for analysis_id_chunk in _chunked(analysis_ids, 200):
+        neighbor_rows = _request(
+            "GET",
+            "lead_neighbors",
+            params={
+                "lead_analysis_id": f"in.({','.join(_quoted(analysis_id) for analysis_id in analysis_id_chunk)})",
+                "select": "lead_analysis_id,address,zipcode,lat,lng,sun_hours,sun_hours_display,category,priority_score",
+            },
+            auth_context=auth_context,
+        ) or []
+        for neighbor in neighbor_rows:
+            neighbor_lookup.setdefault(neighbor.get("lead_analysis_id"), []).append(neighbor)
+
+    results = []
+    for lead_row in lead_rows:
+        analysis_row = analysis_lookup.get(lead_row.get("id"))
+        if analysis_row:
+            analysis_row = dict(analysis_row)
+            analysis_row["lead_neighbors"] = neighbor_lookup.get(analysis_row.get("id"), [])
+            results.append(_draft_result_from_parts(lead_row, analysis_row))
+        else:
+            results.append(_minimal_result_from_lead(lead_row))
+
+    return _dedupe_open_lead_results(results)
+
+
 def get_open_lead_pool(limit=5000, auth_context=None):
     if not supabase_enabled():
         return []
@@ -477,8 +683,16 @@ def get_open_lead_pool(limit=5000, auth_context=None):
                     auth_context=auth_context,
                 )
             except Exception:
-                return []
-    return [_open_lead_pool_row_to_result(row) for row in (rows or [])]
+                try:
+                    return _get_open_lead_pool_direct(limit=limit, auth_context=auth_context)
+                except Exception:
+                    return []
+    if rows:
+        return _dedupe_open_lead_results([_open_lead_pool_row_to_result(row) for row in rows])
+    try:
+        return _get_open_lead_pool_direct(limit=limit, auth_context=auth_context)
+    except Exception:
+        return []
 
 
 def get_visible_leads(limit=1000, auth_context=None):
@@ -1343,6 +1557,7 @@ def save_analysis_result(row_data, result, auth_context=None):
                 prefer="return=minimal",
                 auth_context=auth_context,
             )
+        _cleanup_duplicate_lead_analysis_rows(lead_id, analysis_id, auth_context=auth_context)
         return {
             "ok": True,
             "lead_id": lead_id,
