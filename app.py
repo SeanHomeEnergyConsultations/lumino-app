@@ -1429,6 +1429,11 @@ COLUMN_ALIASES = {
     "baths": ["baths", "bathrooms", "bath"],
     "sqft": ["sqft", "squarefeet", "livingarea", "livingsqft", "area"],
     "sold_date": ["solddate", "date", "closedate", "datesold"],
+    "property_type": ["propertytype", "type", "hometype", "residentialtype"],
+    "lot_size": ["lotsize", "lotsqft", "lotsquarefeet", "lotarea"],
+    "year_built": ["yearbuilt", "built", "year"],
+    "latitude": ["latitude", "lat", "ycoord", "ycoordinate"],
+    "longitude": ["longitude", "lng", "lon", "xcoord", "xcoordinate"],
     "listing_agent": ["listingagent", "agent", "agentname"],
     "first_name": ["firstname", "first"],
     "last_name": ["lastname", "last"],
@@ -1560,6 +1565,11 @@ def enrich_result_with_source_fields(result, row_data):
         "unqualified_reason",
         "unqualified_reason_notes",
         "listing_agent",
+        "property_type",
+        "lot_size",
+        "year_built",
+        "source_latitude",
+        "source_longitude",
     ]:
         enriched[key] = row_data.get(key)
     return enriched
@@ -2285,59 +2295,104 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         st.info("No leads matched the current filters.")
         return
 
-    display_rows = [
-        {
-            key: value
-            for key, value in row.items()
-            if not key.startswith("_") and key not in {"Lead ID", "Notes", "Listing Agent", "Unqualified Reason", "Assigned To ID", "Created By ID"}
-        }
-        for row in filtered_rows
-    ]
-    st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True, height=520)
+    selected_lead_id = st.session_state.get("selected_lead_id")
+    selected_lead = next((row for row in filtered_rows if row["Lead ID"] == selected_lead_id), None)
 
-    st.markdown("#### Lead Cards")
-    for row in filtered_rows:
-        title_suffix = f" · {row['Assigned To']}" if row["Assigned To"] and row["Assigned To"] != "Unassigned" else ""
-        with st.expander(f"{row['Address']} · {row['Status']}{title_suffix}", expanded=False):
-            info_col1, info_col2 = st.columns(2)
-            info_col1.markdown(f"**Homeowner:** {row['Homeowner'] or 'Unknown'}")
-            info_col1.markdown(f"**Phone:** {row['Phone'] or 'Not set'}")
-            info_col1.markdown(f"**Email:** {row['Email'] or 'Not set'}")
-            info_col1.markdown(f"**ZIP:** {row['ZIP'] or 'Unknown'}")
-            info_col2.markdown(f"**Status:** {row['Status']}")
-            info_col2.markdown(f"**Assignment:** {row['Assignment']}")
-            info_col2.markdown(f"**Assigned To:** {row['Assigned To']}")
-            info_col2.markdown(f"**Created By:** {row['Created By']}")
-            if row["Listing Agent"]:
-                st.markdown(f"**Listing Agent:** {row['Listing Agent']}")
-            if row["Unqualified Reason"]:
-                st.markdown(f"**Unqualified Reason:** {row['Unqualified Reason']}")
-            st.markdown(f"**Qualified:** {row['Qualified']}")
-            st.markdown(f"**Updated:** {row['Updated']}")
-            st.text_area(
-                "Lead Notes",
-                value=row["Notes"],
-                height=120,
-                key=f"lead_notes_card_{row['Lead ID']}",
-                disabled=True,
+    if selected_lead:
+        back_col, title_col = st.columns([0.22, 0.78])
+        if back_col.button("Back", key="lead_detail_back", use_container_width=True):
+            st.session_state.pop("selected_lead_id", None)
+            st.rerun()
+        title_col.markdown(f"### {selected_lead['Address']}")
+
+        info_col1, info_col2 = st.columns(2)
+        info_col1.markdown(f"**Homeowner:** {selected_lead['Homeowner'] or 'Unknown'}")
+        info_col1.markdown(f"**Phone:** {selected_lead['Phone'] or 'Not set'}")
+        info_col1.markdown(f"**Email:** {selected_lead['Email'] or 'Not set'}")
+        info_col1.markdown(f"**ZIP:** {selected_lead['ZIP'] or 'Unknown'}")
+        info_col2.markdown(f"**Status:** {selected_lead['Status']}")
+        info_col2.markdown(f"**Assignment:** {selected_lead['Assignment']}")
+        info_col2.markdown(f"**Assigned To:** {selected_lead['Assigned To']}")
+        info_col2.markdown(f"**Created By:** {selected_lead['Created By']}")
+        if selected_lead["Listing Agent"]:
+            st.markdown(f"**Listing Agent:** {selected_lead['Listing Agent']}")
+        if selected_lead["Unqualified Reason"]:
+            st.markdown(f"**Unqualified Reason:** {selected_lead['Unqualified Reason']}")
+        st.markdown(f"**Qualified:** {selected_lead['Qualified']}")
+        st.markdown(f"**Updated:** {selected_lead['Updated']}")
+        st.text_area(
+            "Lead Notes",
+            value=selected_lead["Notes"],
+            height=160,
+            key=f"lead_notes_card_{selected_lead['Lead ID']}",
+            disabled=True,
+        )
+
+        if can_access_manager_workspace(active_org_role):
+            assignment_labels = ["Unassigned"] + sorted(rep_lookup.keys())
+            current_assignment_label = selected_lead["Assigned To"] if selected_lead["Assigned To"] in assignment_labels else "Unassigned"
+            assign_col1, assign_col2 = st.columns([1.3, 0.8])
+            selected_assignment = assign_col1.selectbox(
+                "Assign To Rep",
+                options=assignment_labels,
+                index=assignment_labels.index(current_assignment_label),
+                key=f"lead_assign_select_{selected_lead['Lead ID']}",
             )
+            if assign_col2.button("Save Assignment", key=f"lead_assign_save_{selected_lead['Lead ID']}", use_container_width=True):
+                selected_rep_id = rep_lookup.get(selected_assignment)
+                if update_lead_assignment(selected_lead["Lead ID"], assigned_to=selected_rep_id, auth_context=auth_context):
+                    st.success("Lead assignment updated.")
+                    st.rerun()
+                st.warning("Could not update lead assignment.")
+        return
 
-            if can_access_manager_workspace(active_org_role):
-                assignment_labels = ["Unassigned"] + list(rep_lookup.keys())
-                current_assignment_label = row["Assigned To"] if row["Assigned To"] in assignment_labels else "Unassigned"
-                assign_col1, assign_col2 = st.columns([1.3, 0.8])
-                selected_assignment = assign_col1.selectbox(
-                    "Assign To Rep",
-                    options=assignment_labels,
-                    index=assignment_labels.index(current_assignment_label),
-                    key=f"lead_assign_select_{row['Lead ID']}",
-                )
-                if assign_col2.button("Save Assignment", key=f"lead_assign_save_{row['Lead ID']}", use_container_width=True):
-                    selected_rep_id = rep_lookup.get(selected_assignment)
-                    if update_lead_assignment(row["Lead ID"], assigned_to=selected_rep_id, auth_context=auth_context):
-                        st.success("Lead assignment updated.")
-                        st.rerun()
-                    st.warning("Could not update lead assignment.")
+    page_control_col1, page_control_col2, page_control_col3 = st.columns([0.8, 0.8, 1.4])
+    page_size = page_control_col1.selectbox("Leads Per Page", options=[25, 50, 75, 100], index=0, key="leads_page_size")
+    total_pages = max(1, math.ceil(len(filtered_rows) / page_size))
+    current_page = min(st.session_state.get("leads_page_number", 1), total_pages)
+    current_page = page_control_col2.number_input("Page", min_value=1, max_value=total_pages, value=current_page, step=1, key="leads_page_number")
+    page_control_col3.caption(f"Showing page {current_page} of {total_pages} · {len(filtered_rows)} matching leads")
+
+    start_index = (current_page - 1) * page_size
+    end_index = start_index + page_size
+    paged_rows = filtered_rows[start_index:end_index]
+
+    table_rows = [
+        {
+            "Address": row["Address"],
+            "Homeowner": row["Homeowner"],
+            "Phone": row["Phone"],
+            "Email": row["Email"],
+            "Status": row["Status"],
+            "Assignment": row["Assignment"],
+            "Assigned To": row["Assigned To"],
+            "Created By": row["Created By"],
+            "ZIP": row["ZIP"],
+            "Qualified": row["Qualified"],
+            "Updated": row["Updated"],
+        }
+        for row in paged_rows
+    ]
+    st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True, height=420)
+
+    st.markdown("#### Open Lead")
+    list_header_cols = st.columns([1.8, 1.1, 1.0, 0.9, 0.8])
+    list_header_cols[0].caption("Lead")
+    list_header_cols[1].caption("Assigned To")
+    list_header_cols[2].caption("Status")
+    list_header_cols[3].caption("Updated")
+    list_header_cols[4].caption("")
+
+    for row in paged_rows:
+        row_cols = st.columns([1.8, 1.1, 1.0, 0.9, 0.8])
+        lead_label = row["Homeowner"] or row["Address"]
+        row_cols[0].markdown(f"**{lead_label}**  \n{row['Address']}")
+        row_cols[1].write(row["Assigned To"])
+        row_cols[2].write(row["Status"])
+        row_cols[3].write(row["Updated"])
+        if row_cols[4].button("Open", key=f"lead_open_{row['Lead ID']}", use_container_width=True):
+            st.session_state["selected_lead_id"] = row["Lead ID"]
+            st.rerun()
 
 
 def build_team_activity_frames(auth_context):
@@ -4402,17 +4457,29 @@ if workspace_mode == "Manager View" and st.session_state.get("last_snapshot_resu
 
 workspace_tab_label = "Maps"
 if manager_workspace_enabled:
-    workspace_tab, leads_tab, calendar_tab, leaderboard_tab, reports_tab, team_tab, onboarding_tab = st.tabs(
-        [workspace_tab_label, "Leads", "Calendar", "Leaderboard", "Reports", "People", "Onboarding"]
+    workspace_tab, manager_tab, leads_tab, calendar_tab, leaderboard_tab, reports_tab, team_tab, onboarding_tab = st.tabs(
+        [workspace_tab_label, "Manager Workspace", "Leads", "Calendar", "Leaderboard", "Reports", "People", "Onboarding"]
     )
 else:
     workspace_tab, leads_tab, calendar_tab, leaderboard_tab, reports_tab = st.tabs(
         [workspace_tab_label, "Leads", "Calendar", "Leaderboard", "Reports"]
     )
+    manager_tab = None
     team_tab = None
     onboarding_tab = None
 
+planning_tab = manager_tab if (manager_tab is not None and workspace_mode == "Manager View") else workspace_tab
+
 with workspace_tab:
+    render_context_shell(
+        "Maps Context",
+        "Live route maps, current location, and field navigation stay here while manager planning and intelligence live in their own workspace tab.",
+        ["Map", "Route", "Location", "Navigation"],
+    )
+    if workspace_mode == "Manager View":
+        st.info("Open the `Manager Workspace` tab for planning, upload, open lead pool, and intelligence reporting.")
+
+with planning_tab:
     if workspace_mode == "Manager View" and supabase_enabled():
         section_title = "Open Lead Pool" if workspace_mode == "Manager View" else "My Turf Drafts"
         section_copy = (
@@ -4536,7 +4603,7 @@ if onboarding_tab is not None:
         )
         render_onboarding_hub(current_app_user, auth_context)
 
-with workspace_tab:
+with planning_tab:
     if workspace_mode == "Manager View":
         render_workspace_shell(
             workspace_mode,
@@ -4629,6 +4696,11 @@ with workspace_tab:
                         "baths": get_row_value(row, col_baths),
                         "sqft": get_row_value(row, col_sqft),
                         "sold_date": get_row_value(row, col_sold),
+                        "property_type": get_row_value(row, column_mapping.get("property_type")),
+                        "lot_size": get_row_value(row, column_mapping.get("lot_size")),
+                        "year_built": get_row_value(row, column_mapping.get("year_built")),
+                        "source_latitude": get_row_value(row, column_mapping.get("latitude")),
+                        "source_longitude": get_row_value(row, column_mapping.get("longitude")),
                         "listing_agent": get_row_value(row, column_mapping.get("listing_agent")),
                         "first_name": get_row_value(row, column_mapping.get("first_name")),
                         "last_name": get_row_value(row, column_mapping.get("last_name")),

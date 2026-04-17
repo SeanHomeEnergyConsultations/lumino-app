@@ -42,6 +42,16 @@ def format_date(date_val):
         return str(date_val)
 
 
+def coerce_coordinate(value):
+    try:
+        if pd.isna(value):
+            return None
+        numeric = float(str(value).replace(",", "").strip())
+        return numeric
+    except Exception:
+        return None
+
+
 def process_address(row_data, gmaps_client, key, auth_context=None):
     cached_result = get_cached_analysis(row_data, auth_context=auth_context)
     if cached_result:
@@ -63,6 +73,9 @@ def process_address(row_data, gmaps_client, key, auth_context=None):
     sold_date = format_date(row_data.get("sold_date"))
     beds = row_data.get("beds")
     baths = row_data.get("baths")
+    property_type = row_data.get("property_type")
+    lot_size = row_data.get("lot_size")
+    year_built = row_data.get("year_built")
 
     try:
         sqft_val = float(str(sqft).replace(",", "")) if pd.notna(sqft) else None
@@ -70,7 +83,12 @@ def process_address(row_data, gmaps_client, key, auth_context=None):
         sqft_val = None
 
     zipcode = extract_zip(address)
-    lat, lng = get_coordinates(address, gmaps_client)
+    source_lat = coerce_coordinate(row_data.get("source_latitude"))
+    source_lng = coerce_coordinate(row_data.get("source_longitude"))
+    if source_lat is not None and source_lng is not None:
+        lat, lng = source_lat, source_lng
+    else:
+        lat, lng = get_coordinates(address, gmaps_client)
     value_score, price_display, value_badge = score_home_value(sale_price)
     sqft_score, sqft_display = score_sqft(sqft_val)
 
@@ -115,6 +133,11 @@ def process_address(row_data, gmaps_client, key, auth_context=None):
             "sold_date": sold_date,
             "beds": beds,
             "baths": baths,
+            "property_type": property_type,
+            "lot_size": lot_size,
+            "year_built": year_built,
+            "source_latitude": source_lat,
+            "source_longitude": source_lng,
             "value_score": value_score,
             "sqft_score": sqft_score,
         }
@@ -208,6 +231,11 @@ def process_address(row_data, gmaps_client, key, auth_context=None):
         "sold_date": sold_date,
         "beds": beds,
         "baths": baths,
+        "property_type": property_type,
+        "lot_size": lot_size,
+        "year_built": year_built,
+        "source_latitude": source_lat,
+        "source_longitude": source_lng,
         "value_score": value_score,
         "sqft_score": sqft_score,
     }
@@ -222,6 +250,11 @@ def build_processing_error_result(row_data, error_message):
     sold_date = format_date(row_data.get("sold_date"))
     beds = row_data.get("beds")
     baths = row_data.get("baths")
+    property_type = row_data.get("property_type")
+    lot_size = row_data.get("lot_size")
+    year_built = row_data.get("year_built")
+    source_lat = coerce_coordinate(row_data.get("source_latitude"))
+    source_lng = coerce_coordinate(row_data.get("source_longitude"))
 
     try:
         sqft_val = float(str(sqft).replace(",", "")) if pd.notna(sqft) else None
@@ -271,6 +304,11 @@ def build_processing_error_result(row_data, error_message):
         "sold_date": sold_date,
         "beds": beds,
         "baths": baths,
+        "property_type": property_type,
+        "lot_size": lot_size,
+        "year_built": year_built,
+        "source_latitude": source_lat,
+        "source_longitude": source_lng,
         "value_score": value_score,
         "sqft_score": sqft_score,
         "analysis_error": error_message,
