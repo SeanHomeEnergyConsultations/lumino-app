@@ -44,6 +44,42 @@ def sign_in_with_password(email, password):
         return {"ok": False, "error": str(err)}
 
 
+def refresh_session(refresh_token):
+    if not supabase_auth_enabled():
+        return {"ok": False, "error": "Supabase auth is not configured."}
+    if not refresh_token:
+        return {"ok": False, "error": "Refresh token is required."}
+
+    try:
+        response = requests.post(
+            f"{_base_url()}/auth/v1/token?grant_type=refresh_token",
+            headers={
+                "apikey": _public_key(),
+                "Content-Type": "application/json",
+            },
+            json={"refresh_token": refresh_token},
+            timeout=AUTH_TIMEOUT_SECONDS,
+        )
+        if response.status_code >= 400:
+            try:
+                detail = response.json()
+                message = detail.get("msg") or detail.get("message") or str(detail)
+            except Exception:
+                message = response.text
+            return {"ok": False, "error": message}
+        payload = response.json()
+        return {
+            "ok": True,
+            "access_token": payload.get("access_token"),
+            "refresh_token": payload.get("refresh_token") or refresh_token,
+            "expires_in": payload.get("expires_in"),
+            "token_type": payload.get("token_type"),
+            "user": payload.get("user") or {},
+        }
+    except Exception as err:
+        return {"ok": False, "error": str(err)}
+
+
 def send_password_reset_email(email, redirect_to=None):
     if not supabase_auth_enabled():
         return {"ok": False, "error": "Supabase auth is not configured."}

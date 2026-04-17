@@ -262,6 +262,10 @@ def derive_lead_follow_up(lead_row, activity_rows, now=None):
             manual_status = str(metadata.get("manual_status") or "").strip()
             if manual_status in LEAD_STATUS_OPTIONS:
                 latest_status_override = manual_status
+            scheduled_follow_up_at = _to_datetime(metadata.get("scheduled_follow_up_at"))
+            if scheduled_follow_up_at:
+                derived["next_follow_up_at"] = _dt_iso(scheduled_follow_up_at)
+                derived["next_recommended_step"] = "Follow up at the scheduled time"
 
         if activity_type == "Appointment Set":
             appointment_at = _to_datetime(metadata.get("appointment_at") or activity.get("appointment_at"))

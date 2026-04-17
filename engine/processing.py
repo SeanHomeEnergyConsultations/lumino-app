@@ -39,7 +39,7 @@ def parse_sale_price(price_thousands, price_remainder):
 
 def format_date(date_val):
     if pd.isna(date_val) or not date_val:
-        return "Unknown"
+        return None
     try:
         return pd.to_datetime(date_val).strftime("%b %Y")
     except Exception:
@@ -61,6 +61,15 @@ def coerce_zipcode(value):
     if not text or text.lower() in {"nan", "none", "null"}:
         return None
     return text
+
+
+def provisional_fast_priority(value_score, sqft_score):
+    base = int(value_score or 0) + int(sqft_score or 0)
+    if base >= 4:
+        return 2, "HIGH — Fast provisional"
+    if base >= 2:
+        return 1, "MEDIUM — Fast provisional"
+    return 0, "LOW — Fast provisional"
 
 
 def process_address(row_data, gmaps_client, key, auth_context=None, analysis_mode="full"):
@@ -201,6 +210,10 @@ def process_address(row_data, gmaps_client, key, auth_context=None, analysis_mod
         sqft_score,
         len(knock_doors),
     )
+    if str(analysis_mode or "full").strip().lower() == "fast" and sun_hours is None:
+        priority_score, priority_label = provisional_fast_priority(value_score, sqft_score)
+        if category == "Unknown":
+            category = "Fast Review"
 
     best_home, best_score = address, sun_score
     for home in cluster:

@@ -168,3 +168,128 @@ def geolocation_picker(key, label="Use My Current Location", auto_request=False,
         height=74 if show_button else 28,
     )
     return payload
+
+
+def _consume_address_payload(prefix):
+    query_params = _get_query_params()
+    address_key = f"{prefix}_address"
+    postal_key = f"{prefix}_postal"
+    city_key = f"{prefix}_city"
+    state_key = f"{prefix}_state"
+
+    payload = None
+    if address_key in query_params:
+        payload = {
+            "address": query_params[address_key][0],
+            "postal_code": query_params.get(postal_key, [""])[0],
+            "city": query_params.get(city_key, [""])[0],
+            "state": query_params.get(state_key, [""])[0],
+        }
+        for key in [address_key, postal_key, city_key, state_key]:
+            query_params.pop(key, None)
+        _set_query_params(query_params)
+    return payload
+
+
+def address_autocomplete_input(key, api_key, label="Search address"):
+    prefix = f"lumino_addr_{key}"
+    payload = _consume_address_payload(prefix)
+    escaped_label = html.escape(label, quote=True)
+    encoded_prefix = json.dumps(prefix)
+    encoded_api_key = json.dumps(api_key or "")
+
+    components.html(
+        f"""
+        <div style="display:flex;flex-direction:column;gap:0.35rem;min-height:82px;">
+          <label for="{prefix}_input" style="font-size:0.92rem;font-weight:600;color:#d6deec;">{escaped_label}</label>
+          <input id="{prefix}_input" type="text" placeholder="Start typing an address"
+            style="
+              width:100%;
+              padding:0.75rem 0.9rem;
+              border:1px solid #2a3654;
+              border-radius:0.65rem;
+              background:#0d1423;
+              color:#eef3ff;
+              font-size:0.95rem;
+            " />
+          <div id="{prefix}_status" style="font-size:0.8rem;color:#8a95aa;">Choose a suggested address to fill the form.</div>
+        </div>
+        <script>
+          const prefix = {encoded_prefix};
+          const apiKey = {encoded_api_key};
+          const input = document.getElementById("{prefix}_input");
+          const status = document.getElementById("{prefix}_status");
+
+          function updateParentUrl(payload) {{
+            const rootWindow = window.parent || window.top || window;
+            const nextUrl = new URL(rootWindow.location.href);
+            const params = nextUrl.searchParams;
+            params.set(`${{prefix}}_address`, payload.address || "");
+            params.set(`${{prefix}}_postal`, payload.postal_code || "");
+            params.set(`${{prefix}}_city`, payload.city || "");
+            params.set(`${{prefix}}_state`, payload.state || "");
+            rootWindow.location.href = nextUrl.toString();
+          }}
+
+          function loadPlacesScript(callback) {{
+            if (window.google && window.google.maps && window.google.maps.places) {{
+              callback();
+              return;
+            }}
+            const existing = document.getElementById(`${{prefix}}_places_script`);
+            if (existing) {{
+              existing.addEventListener("load", callback, {{ once: true }});
+              return;
+            }}
+            const script = document.createElement("script");
+            script.id = `${{prefix}}_places_script`;
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${{apiKey}}&libraries=places`;
+            script.async = true;
+            script.defer = true;
+            script.addEventListener("load", callback, {{ once: true }});
+            script.addEventListener("error", () => {{
+              status.textContent = "Address autocomplete could not load.";
+            }});
+            document.head.appendChild(script);
+          }}
+
+          function componentValue(components, type) {{
+            const match = (components || []).find((item) => (item.types || []).includes(type));
+            return match ? match.long_name : "";
+          }}
+
+          function initAutocomplete() {{
+            if (!(window.google && window.google.maps && window.google.maps.places)) {{
+              status.textContent = "Address autocomplete unavailable.";
+              return;
+            }}
+            const autocomplete = new google.maps.places.Autocomplete(input, {{
+              types: ["address"],
+              fields: ["formatted_address", "address_components"],
+            }});
+            autocomplete.addListener("place_changed", () => {{
+              const place = autocomplete.getPlace();
+              const components = place.address_components || [];
+              const payload = {{
+                address: place.formatted_address || input.value || "",
+                postal_code: componentValue(components, "postal_code"),
+                city: componentValue(components, "locality") || componentValue(components, "postal_town"),
+                state: componentValue(components, "administrative_area_level_1"),
+              }};
+              status.textContent = payload.address ? "Address selected." : "Choose a suggested address.";
+              if (payload.address) {{
+                updateParentUrl(payload);
+              }}
+            }});
+          }}
+
+          if (!apiKey) {{
+            status.textContent = "Google API key missing.";
+          }} else {{
+            loadPlacesScript(initAutocomplete);
+          }}
+        </script>
+        """,
+        height=96,
+    )
+    return payload

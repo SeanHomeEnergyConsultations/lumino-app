@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import requests
 
 from engine.cache_keys import make_analysis_cache_key
+from engine.scoring import score_home_value, score_sqft
 try:
     from engine.lead_workflow import (
         ACTIVITY_TYPE_OPTIONS,
@@ -88,6 +89,60 @@ def _request(method, path, *, params=None, json_body=None, prefer=None, auth_con
     if not response.text:
         return None
     return response.json()
+
+
+def _request_paged_get(path, *, params=None, auth_context=None, desired_limit=None, page_size=100):
+    collected = []
+    offset = 0
+    base_params = dict(params or {})
+    base_params.pop("offset", None)
+    base_params.pop("limit", None)
+
+    while True:
+        remaining = None if desired_limit is None else max(int(desired_limit) - len(collected), 0)
+        if remaining == 0:
+            break
+        batch_size = page_size if remaining is None else min(page_size, remaining)
+        page_rows = _request(
+            "GET",
+            path,
+            params={
+                **base_params,
+                "limit": str(batch_size),
+                "offset": str(offset),
+            },
+            auth_context=auth_context,
+        ) or []
+        if not page_rows:
+            break
+        collected.extend(page_rows)
+        if len(page_rows) < batch_size:
+            break
+        offset += len(page_rows)
+
+    return collected
+
+
+def _count_rows(path, *, params=None, auth_context=None):
+    response = requests.request(
+        "HEAD",
+        f"{_base_url()}/rest/v1/{path.lstrip('/')}",
+        headers={
+            **_headers(prefer="count=exact", auth_context=auth_context),
+            "Range": "0-0",
+        },
+        params=params,
+        timeout=TIMEOUT_SECONDS,
+    )
+    if response.status_code >= 400:
+        return None
+    content_range = response.headers.get("Content-Range", "")
+    if "/" in content_range:
+        try:
+            return int(content_range.split("/")[-1])
+        except Exception:
+            return None
+    return None
 
 
 def _service_headers():
@@ -297,7 +352,7 @@ def _result_from_supabase_row(row):
         "unqualified_reason": lead_row.get("unqualified_reason"),
         "listing_agent": lead_row.get("listing_agent"),
     }
-    return _merge_solar_details(result, row.get("solar_details"))
+    return _apply_display_priority(_merge_solar_details(result, row.get("solar_details")))
 
 
 def _neighbor_record_from_row(row):
@@ -362,7 +417,7 @@ def _open_lead_pool_row_to_result(row):
         "unqualified_reason": row.get("unqualified_reason"),
         "listing_agent": row.get("listing_agent"),
     }
-    return _merge_solar_details(result, row.get("solar_details"))
+    return _apply_display_priority(_merge_solar_details(result, row.get("solar_details")))
 
 
 def _knock_addresses(primary_address, neighbor_rows, category):
@@ -405,6 +460,24 @@ def _missing_solar_details_column(error):
     return "solar_details" in message and ("column" in message or "schema cache" in message)
 
 
+def _missing_table_column(error, table_name):
+    message = str(error)
+    marker = f"column of '{table_name}' in the schema cache"
+    if marker not in message:
+        lowered = message.lower()
+        if table_name.lower() not in lowered or "could not find the '" not in lowered:
+            return None
+    prefix = "Could not find the '"
+    start = message.find(prefix)
+    if start == -1:
+        return None
+    start += len(prefix)
+    end = message.find("'", start)
+    if end == -1:
+        return None
+    return message[start:end]
+
+
 def _missing_open_lead_pool_column(error):
     message = str(error).lower()
     return "open_lead_pool" in message and ("column" in message or "schema cache" in message)
@@ -434,6 +507,148 @@ def _merge_solar_details(result, solar_details):
     }.items():
         merged[key] = (solar_details or {}).get(key, default)
     return merged
+
+
+def _request_lead_analysis_with_fallback(method, params, payload, *, prefer, auth_context=None):
+    working_payload = dict(payload or {})
+    for _ in range(8):
+        try:
+            return _request(
+                method,
+                "lead_analysis",
+                params=params,
+                json_body=working_payload,
+                prefer=prefer,
+                auth_context=auth_context,
+            )
+        except Exception as err:
+            missing_column = _missing_table_column(err, "lead_analysis")
+            if not missing_column or missing_column not in working_payload:
+                raise
+            working_payload.pop(missing_column, None)
+    return _request(
+        method,
+        "lead_analysis",
+        params=params,
+        json_body=working_payload,
+        prefer=prefer,
+        auth_context=auth_context,
+    )
+
+
+def _request_leads_with_fallback(method, params, payload, *, prefer, auth_context=None):
+    working_payload = dict(payload or {})
+    for _ in range(8):
+        try:
+            return _request(
+                method,
+                "leads",
+                params=params,
+                json_body=working_payload,
+                prefer=prefer,
+                auth_context=auth_context,
+            )
+        except Exception as err:
+            missing_column = _missing_table_column(err, "leads")
+            if not missing_column or missing_column not in working_payload:
+                raise
+            working_payload.pop(missing_column, None)
+    return _request(
+        method,
+        "leads",
+        params=params,
+        json_body=working_payload,
+        prefer=prefer,
+        auth_context=auth_context,
+    )
+
+
+def _apply_display_priority(result):
+    adjusted = dict(result or {})
+    current_priority = int(adjusted.get("priority_score") or 0)
+    if current_priority > 0:
+        return adjusted
+
+    sale_price = adjusted.get("sale_price")
+    sqft = adjusted.get("sqft")
+    sun_hours = adjusted.get("sun_hours")
+    category = str(adjusted.get("category") or "").strip()
+    value_score, _, _ = score_home_value(sale_price)
+    sqft_score, _ = score_sqft(sqft)
+
+    solar_hint = 0
+    if sun_hours is not None:
+        try:
+            if float(sun_hours) >= 1400:
+                solar_hint = 2
+            elif float(sun_hours) >= 1200:
+                solar_hint = 1
+        except Exception:
+            solar_hint = 0
+    elif category in {"Best", "Better", "Good", "Fast Review"}:
+        solar_hint = 1
+
+    provisional_total = int(value_score or 0) + int(sqft_score or 0) + solar_hint
+    if provisional_total >= 4:
+        adjusted["priority_score"] = 2
+        adjusted["priority_label"] = adjusted.get("priority_label") or "HIGH — Fast provisional"
+    elif provisional_total >= 2:
+        adjusted["priority_score"] = 1
+        adjusted["priority_label"] = adjusted.get("priority_label") or "MEDIUM — Fast provisional"
+    return adjusted
+
+
+def _enrich_rows_with_analysis(rows, auth_context=None, chunk_size=50):
+    enriched_rows = list(rows or [])
+    if not enriched_rows:
+        return enriched_rows
+
+    lead_ids = [row.get("id") for row in enriched_rows if row.get("id")]
+    analysis_lookup = {}
+    for lead_id_chunk in _chunked(lead_ids, chunk_size):
+        try:
+            analysis_rows = _request_paged_get(
+                "lead_analysis",
+                params={
+                    "lead_id": f"in.({','.join(_quoted(lead_id) for lead_id in lead_id_chunk)})",
+                    "select": (
+                        "lead_id,sale_price,price_display,sqft,sqft_display,beds,baths,sold_date,permit_pulled,"
+                        "priority_score,priority_label,category,sun_hours,sun_hours_display,doors_to_knock,updated_at,created_at"
+                    ),
+                    "order": "updated_at.desc,created_at.desc,id.desc",
+                },
+                auth_context=auth_context,
+            ) or []
+        except Exception:
+            continue
+        for analysis_row in analysis_rows:
+            lead_id = analysis_row.get("lead_id")
+            if lead_id and lead_id not in analysis_lookup:
+                analysis_lookup[lead_id] = analysis_row
+
+    for row in enriched_rows:
+        analysis_row = analysis_lookup.get(row.get("id"), {})
+        for field in [
+            "sale_price",
+            "price_display",
+            "sqft",
+            "sqft_display",
+            "beds",
+            "baths",
+            "sold_date",
+            "permit_pulled",
+            "priority_score",
+            "priority_label",
+            "category",
+            "sun_hours",
+            "sun_hours_display",
+            "doors_to_knock",
+        ]:
+            if field not in row or row.get(field) in (None, "", 0):
+                row[field] = analysis_row.get(field, row.get(field))
+        display_adjusted = _apply_display_priority(row)
+        row.update(display_adjusted)
+    return enriched_rows
 
 
 def get_cached_analysis(row_data, auth_context=None):
@@ -511,7 +726,7 @@ def _minimal_result_from_lead(lead_row):
         "unqualified_reason": lead_row.get("unqualified_reason"),
         "listing_agent": lead_row.get("listing_agent"),
     }
-    return _merge_solar_details(result, None)
+    return _apply_display_priority(_merge_solar_details(result, None))
 
 
 def _open_lead_result_rank(row):
@@ -596,8 +811,7 @@ def _get_open_lead_pool_direct(limit=5000, auth_context=None):
     if not organization_id:
         return []
 
-    lead_rows = _request(
-        "GET",
+    lead_rows = _request_paged_get(
         "leads",
         params={
             "organization_id": f"eq.{organization_id}",
@@ -608,9 +822,9 @@ def _get_open_lead_pool_direct(limit=5000, auth_context=None):
                 "unqualified,unqualified_reason,listing_agent,updated_at"
             ),
             "order": "updated_at.desc,address.asc",
-            "limit": str(limit),
         },
         auth_context=auth_context,
+        desired_limit=limit,
     ) or []
     if not lead_rows:
         return []
@@ -620,13 +834,12 @@ def _get_open_lead_pool_direct(limit=5000, auth_context=None):
     analysis_rows = []
     for lead_id_chunk in _chunked(lead_ids, 200):
         analysis_rows.extend(
-            _request(
-                "GET",
+            _request_paged_get(
                 "lead_analysis",
                 params={
                     "lead_id": f"in.({','.join(_quoted(lead_id) for lead_id in lead_id_chunk)})",
                     "select": "*",
-                    "order": "updated_at.desc",
+                    "order": "updated_at.desc,created_at.desc,id.desc",
                 },
                 auth_context=auth_context,
             ) or []
@@ -644,12 +857,12 @@ def _get_open_lead_pool_direct(limit=5000, auth_context=None):
 
     neighbor_lookup = {}
     for analysis_id_chunk in _chunked(analysis_ids, 200):
-        neighbor_rows = _request(
-            "GET",
+        neighbor_rows = _request_paged_get(
             "lead_neighbors",
             params={
                 "lead_analysis_id": f"in.({','.join(_quoted(analysis_id) for analysis_id in analysis_id_chunk)})",
                 "select": "lead_analysis_id,address,zipcode,lat,lng,sun_hours,sun_hours_display,category,priority_score",
+                "order": "address.asc",
             },
             auth_context=auth_context,
         ) or []
@@ -690,13 +903,17 @@ def get_open_lead_pool(limit=5000, auth_context=None):
         "limit": str(limit),
     }
     try:
-        rows = _request("GET", "open_lead_pool", params=params, auth_context=auth_context)
+        rows = _request_paged_get(
+            "open_lead_pool",
+            params=params,
+            auth_context=auth_context,
+            desired_limit=limit,
+        )
     except Exception as err:
         if not (_missing_solar_details_column(err) or _missing_open_lead_pool_column(err)):
             return []
         try:
-            rows = _request(
-                "GET",
+            rows = _request_paged_get(
                 "open_lead_pool",
                 params={
                     "organization_id": f"eq.{organization_id}",
@@ -706,16 +923,15 @@ def get_open_lead_pool(limit=5000, auth_context=None):
                         "beds,baths,sold_date,permit_pulled,priority_score,priority_label,category,sun_hours,doors_to_knock"
                     ),
                     "order": "priority_score.desc,doors_to_knock.desc,address.asc",
-                    "limit": str(limit),
                 },
                 auth_context=auth_context,
+                desired_limit=limit,
             )
         except Exception as fallback_err:
             if not (_missing_solar_details_column(fallback_err) or _missing_open_lead_pool_column(fallback_err)):
                 return []
             try:
-                rows = _request(
-                    "GET",
+                rows = _request_paged_get(
                     "open_lead_pool",
                     params={
                         "organization_id": f"eq.{organization_id}",
@@ -725,9 +941,9 @@ def get_open_lead_pool(limit=5000, auth_context=None):
                             "category,sun_hours,doors_to_knock"
                         ),
                         "order": "priority_score.desc,doors_to_knock.desc,address.asc",
-                        "limit": str(limit),
                     },
                     auth_context=auth_context,
+                    desired_limit=limit,
                 )
             except Exception:
                 try:
@@ -771,14 +987,21 @@ def get_visible_leads(limit=1000, auth_context=None):
         params["or"] = f"(created_by.eq.{current_user_id},assigned_to.eq.{current_user_id})"
 
     try:
-        rows = _request("GET", "leads", params=params, auth_context=auth_context)
-        return rows or []
+        rows = _request_paged_get(
+            "leads",
+            params=params,
+            auth_context=auth_context,
+            desired_limit=limit,
+        )
+        rows = rows or []
+        if not rows:
+            return rows
+        return _enrich_rows_with_analysis(rows, auth_context=auth_context)
     except Exception as err:
         if not _missing_lead_followup_column(err):
             return []
         try:
-            legacy_rows = _request(
-                "GET",
+            legacy_rows = _request_paged_get(
                 "leads",
                 params={
                     **{k: v for k, v in params.items() if k != "select"},
@@ -789,6 +1012,7 @@ def get_visible_leads(limit=1000, auth_context=None):
                     ),
                 },
                 auth_context=auth_context,
+                desired_limit=limit,
             ) or []
             for row in legacy_rows:
                 row.setdefault("lead_status", None)
@@ -805,9 +1029,54 @@ def get_visible_leads(limit=1000, auth_context=None):
                 row.setdefault("next_recommended_step", None)
                 row.setdefault("nurture_reason", None)
                 row.setdefault("appointment_at", None)
-            return legacy_rows
+            return _enrich_rows_with_analysis(legacy_rows, auth_context=auth_context)
         except Exception:
             return []
+
+
+def get_org_lead_count(auth_context=None):
+    if not supabase_enabled():
+        return 0
+    organization_id = (auth_context or {}).get("organization_id")
+    current_user_id = (auth_context or {}).get("app_user_id")
+    if not organization_id:
+        return 0
+    params = {
+        "organization_id": f"eq.{organization_id}",
+        "select": "id",
+    }
+    if auth_context and not can_access_manager_workspace(auth_context=auth_context):
+        if not current_user_id:
+            return 0
+        params["or"] = f"(created_by.eq.{current_user_id},assigned_to.eq.{current_user_id})"
+    return _count_rows("leads", params=params, auth_context=auth_context) or 0
+
+
+def get_lead_analysis_snapshot(lead_id, auth_context=None):
+    if not supabase_enabled() or not lead_id:
+        return None
+    try:
+        rows = _request(
+            "GET",
+            "lead_analysis",
+            params={
+                "lead_id": f"eq.{lead_id}",
+                "select": (
+                    "id,sale_price,price_display,value_badge,sqft,sqft_display,beds,baths,sold_date,permit_pulled,"
+                    "sun_hours,sun_hours_display,category,solar_details,priority_score,priority_label,parking_address,"
+                    "parking_ease,doors_to_knock,ideal_count,good_count,walkable_count,street_view_link,value_score,"
+                    "sqft_score,analysis_error,created_at,updated_at"
+                ),
+                "order": "updated_at.desc,created_at.desc,id.desc",
+                "limit": "1",
+            },
+            auth_context=auth_context,
+        ) or []
+        if not rows:
+            return None
+        return _merge_solar_details(dict(rows[0]), rows[0].get("solar_details"))
+    except Exception:
+        return None
 
 
 def get_lead_activity_rows(lead_id, auth_context=None):
@@ -893,6 +1162,109 @@ def update_lead_core_details(lead_id, details, auth_context=None):
         return True
     except Exception:
         return False
+
+
+def create_manual_lead(details, auth_context=None):
+    if not supabase_enabled():
+        return {"ok": False, "error": "Supabase is not configured."}
+
+    organization_id = (auth_context or {}).get("organization_id")
+    current_user_id = (auth_context or {}).get("app_user_id")
+    address = str((details or {}).get("address") or "").strip()
+    if not organization_id or not current_user_id:
+        return {"ok": False, "error": "No active signed-in user or organization."}
+    if not address:
+        return {"ok": False, "error": "Address is required."}
+
+    normalized_address = _normalize_address(address)
+    zipcode = _string_or_none((details or {}).get("zipcode"))
+    first_name = _string_or_none((details or {}).get("first_name"))
+    last_name = _string_or_none((details or {}).get("last_name"))
+    phone = _string_or_none((details or {}).get("phone"))
+    email = _string_or_none((details or {}).get("email"))
+    notes = _string_or_none((details or {}).get("notes"))
+
+    try:
+        existing_rows = _request(
+            "GET",
+            "leads",
+            params={
+                "organization_id": f"eq.{organization_id}",
+                "normalized_address": f"eq.{normalized_address}",
+                "select": "id,assigned_to,assignment_status,created_by,address",
+                "limit": "1",
+            },
+            auth_context=auth_context,
+        ) or []
+        existing = (existing_rows or [None])[0]
+
+        if existing:
+            payload = {
+                "address": address,
+                "zipcode": zipcode,
+                "first_name": first_name,
+                "last_name": last_name,
+                "phone": phone,
+                "email": email,
+                "notes": notes,
+                "source": "field",
+            }
+            if not existing.get("assigned_to"):
+                payload["assigned_to"] = current_user_id
+                payload["assignment_status"] = "assigned"
+            updated_rows = _request_leads_with_fallback(
+                "PATCH",
+                params={
+                    "id": f"eq.{existing['id']}",
+                    "select": "id,assigned_to,assignment_status,address",
+                },
+                prefer="return=representation",
+                payload=payload,
+                auth_context=auth_context,
+            ) or []
+            lead_row = (updated_rows or [existing])[0]
+            return {
+                "ok": True,
+                "lead_id": lead_row.get("id"),
+                "created": False,
+                "assigned_to_current_user": lead_row.get("assigned_to") == current_user_id,
+            }
+
+        created_rows = _request_leads_with_fallback(
+            "POST",
+            params=None,
+            payload={
+                "organization_id": organization_id,
+                "normalized_address": normalized_address,
+                "address": address,
+                "zipcode": zipcode,
+                "owner_name": _combine_name(first_name, last_name),
+                "first_name": first_name,
+                "last_name": last_name,
+                "phone": phone,
+                "email": email,
+                "notes": notes,
+                "status": "open",
+                "lead_status": "New",
+                "assignment_status": "assigned",
+                "assigned_to": current_user_id,
+                "created_by": current_user_id,
+                "source": "field",
+            },
+            prefer="return=representation",
+            auth_context=auth_context,
+        ) or []
+        if not created_rows:
+            return {"ok": False, "error": "Could not create lead."}
+        lead_row = created_rows[0]
+        return {
+            "ok": True,
+            "lead_id": lead_row.get("id"),
+            "created": True,
+            "assigned_to_current_user": True,
+        }
+    except Exception as err:
+        return {"ok": False, "error": str(err)}
 
 
 def add_lead_activity(
@@ -1757,29 +2129,27 @@ def save_analysis_result(row_data, result, auth_context=None):
         if existing_analysis:
             analysis_id = existing_analysis[0]["id"]
             try:
-                updated_rows = _request(
+                updated_rows = _request_lead_analysis_with_fallback(
                     "PATCH",
-                    "lead_analysis",
                     params={
                         "id": f"eq.{analysis_id}",
                         "select": "id",
                     },
-                    json_body=analysis_payload,
                     prefer="return=representation",
+                    payload=analysis_payload,
                     auth_context=auth_context,
                 )
             except Exception as err:
                 if not _missing_solar_details_column(err):
                     raise
-                updated_rows = _request(
+                updated_rows = _request_lead_analysis_with_fallback(
                     "PATCH",
-                    "lead_analysis",
                     params={
                         "id": f"eq.{analysis_id}",
                         "select": "id",
                     },
-                    json_body=legacy_analysis_payload,
                     prefer="return=representation",
+                    payload=legacy_analysis_payload,
                     auth_context=auth_context,
                 )
             if not updated_rows:
@@ -1787,20 +2157,20 @@ def save_analysis_result(row_data, result, auth_context=None):
             analysis_id = updated_rows[0]["id"]
         else:
             try:
-                created_rows = _request(
+                created_rows = _request_lead_analysis_with_fallback(
                     "POST",
-                    "lead_analysis",
-                    json_body=analysis_payload,
+                    params=None,
+                    payload=analysis_payload,
                     prefer="return=representation",
                     auth_context=auth_context,
                 )
             except Exception as err:
                 if not _missing_solar_details_column(err):
                     raise
-                created_rows = _request(
+                created_rows = _request_lead_analysis_with_fallback(
                     "POST",
-                    "lead_analysis",
-                    json_body=legacy_analysis_payload,
+                    params=None,
+                    payload=legacy_analysis_payload,
                     prefer="return=representation",
                     auth_context=auth_context,
                 )
@@ -1887,4 +2257,4 @@ def _draft_result_from_parts(lead_row, analysis_row):
         "unqualified_reason": lead_row.get("unqualified_reason"),
         "listing_agent": lead_row.get("listing_agent"),
     }
-    return _merge_solar_details(result, analysis_row.get("solar_details"))
+    return _apply_display_priority(_merge_solar_details(result, analysis_row.get("solar_details")))

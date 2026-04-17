@@ -1,4 +1,5 @@
 import calendar
+import base64
 import json
 import math
 import os
@@ -52,6 +53,7 @@ from engine.processing import build_processing_error_result, process_address
 from engine.reporting import build_route_csv, build_zip_summary, generate_html_report
 from engine.routing import optimize_route
 from engine.supabase_auth import (
+    refresh_session,
     send_password_reset_email,
     sign_in_with_password,
     sign_out,
@@ -61,11 +63,14 @@ from engine.supabase_auth import (
 )
 from engine.supabase_store import (
     add_lead_activity,
+    create_manual_lead,
     create_onboarding_user,
     create_route_run,
     delete_lead_activity,
     get_current_app_user,
+    get_lead_analysis_snapshot,
     get_lead_activity_rows,
+    get_org_lead_count,
     get_open_lead_pool,
     get_team_route_activity,
     get_visible_leads,
@@ -82,6 +87,91 @@ from engine.supabase_store import (
 )
 from engine.sheets import get_sheets_service, summarize_result_sources, sync_results_to_sheet
 from engine.geo import extract_zip
+
+
+AUTH_COOKIE_NAME = "lumino_auth_session"
+ORG_COOKIE_NAME = "lumino_selected_org"
+
+
+def _cookie_expiry(days=30):
+    return (datetime.utcnow() + timedelta(days=days)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+
+def _encode_cookie_payload(payload):
+    try:
+        raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def _decode_cookie_payload(value):
+    try:
+        raw = base64.urlsafe_b64decode(str(value or "").encode("utf-8"))
+        return json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+
+
+def persist_browser_cookie(name, value, days=30):
+    expires = _cookie_expiry(days=days)
+    st.components.v1.html(
+        f"""
+        <script>
+        document.cookie = "{name}={value}; expires={expires}; path=/; SameSite=Lax";
+        </script>
+        """,
+        height=0,
+    )
+
+
+def clear_browser_cookie(name):
+    st.components.v1.html(
+        f"""
+        <script>
+        document.cookie = "{name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax";
+        </script>
+        """,
+        height=0,
+    )
+
+
+def sync_auth_cookies_from_session():
+    session_payload = st.session_state.get("auth_session")
+    if session_payload:
+        persist_browser_cookie(
+            AUTH_COOKIE_NAME,
+            _encode_cookie_payload(
+                {
+                    "access_token": session_payload.get("access_token"),
+                    "refresh_token": session_payload.get("refresh_token"),
+                    "api_key": session_payload.get("api_key"),
+                    "user": session_payload.get("user") or {},
+                }
+            ),
+        )
+    else:
+        clear_browser_cookie(AUTH_COOKIE_NAME)
+
+    selected_org_id = st.session_state.get("selected_org_id")
+    if selected_org_id:
+        persist_browser_cookie(ORG_COOKIE_NAME, selected_org_id)
+    else:
+        clear_browser_cookie(ORG_COOKIE_NAME)
+
+
+def restore_auth_session_from_cookies():
+    if st.session_state.get("auth_session"):
+        return
+    cookie_store = getattr(getattr(st, "context", None), "cookies", {}) or {}
+    auth_cookie = cookie_store.get(AUTH_COOKIE_NAME)
+    restored = _decode_cookie_payload(auth_cookie) if auth_cookie else None
+    if restored and restored.get("access_token"):
+        st.session_state["auth_session"] = restored
+    if not st.session_state.get("selected_org_id"):
+        selected_org_cookie = cookie_store.get(ORG_COOKIE_NAME)
+        if selected_org_cookie:
+            st.session_state["selected_org_id"] = selected_org_cookie
 
 
 def priority_color(score):
@@ -1644,6 +1734,29 @@ def is_probable_address(value):
     return has_digit or (has_address_hint and has_multiple_words)
 
 
+def fetch_address_suggestions(query, api_key, limit=5):
+    query_text = str(query or "").strip()
+    if len(query_text) < 4 or not api_key:
+        return []
+    try:
+        client = googlemaps.Client(key=api_key)
+        predictions = client.places_autocomplete(query_text)
+    except Exception:
+        return []
+
+    suggestions = []
+    seen = set()
+    for item in predictions or []:
+        description = str(item.get("description") or "").strip()
+        if not description or description in seen:
+            continue
+        seen.add(description)
+        suggestions.append(description)
+        if len(suggestions) >= limit:
+            break
+    return suggestions
+
+
 def enrich_result_with_source_fields(result, row_data):
     enriched = dict(result)
     for key in [
@@ -2042,6 +2155,7 @@ if "auth_session" not in st.session_state:
     st.session_state["auth_session"] = None
 if "recovery_session" not in st.session_state:
     st.session_state["recovery_session"] = None
+restore_auth_session_from_cookies()
 
 password_setup_mode = str(st.query_params.get("mode", "")).strip().lower() == "set-password" or bool(
     str(st.query_params.get("token_hash", "")).strip()
@@ -2284,18 +2398,257 @@ def lead_flag_badges(flags):
     return " · ".join(badges) if badges else "None"
 
 
-def quick_action_prefill(action_label):
-    mapping = {
-        "Log Call": ("Call Outbound", "No Answer"),
-        "Log Text": ("Text Outbound", "Connected"),
-        "Log Conversation": ("Conversation", "Interested"),
-        "Book Appointment": ("Appointment Set", "Booked Appointment"),
-        "Snooze / Reschedule Follow-Up": ("Status Changed", None),
-        "Mark Nurture": ("Conversation", "Needs Nurture"),
-        "Mark Closed Lost": ("Status Changed", "Not Interested"),
-        "Mark Do Not Contact": ("Status Changed", "Do Not Contact"),
+LEAD_CARD_QUICK_ACTIONS = [
+    {
+        "label": "Call",
+        "icon": "📞",
+        "help": "Log an outbound call.",
+        "activity_type": "Call Outbound",
+        "outcome": "No Answer",
+    },
+    {
+        "label": "Text",
+        "icon": "💬",
+        "help": "Log an outbound text.",
+        "activity_type": "Text Outbound",
+        "outcome": "Connected",
+    },
+    {
+        "label": "Conversation",
+        "icon": "🗣️",
+        "help": "Log a meaningful conversation.",
+        "activity_type": "Conversation",
+        "outcome": "Interested",
+    },
+    {
+        "label": "Appointment",
+        "icon": "📅",
+        "help": "Book an appointment.",
+        "activity_type": "Appointment Set",
+        "outcome": "Booked Appointment",
+    },
+    {
+        "label": "Not Home",
+        "icon": "🚪",
+        "help": "Log a door attempt with no answer.",
+        "activity_type": "Door Knock",
+        "outcome": "No Answer",
+    },
+    {
+        "label": "Nurture",
+        "icon": "🌱",
+        "help": "Move this lead into nurture.",
+        "activity_type": "Conversation",
+        "outcome": "Needs Nurture",
+    },
+    {
+        "label": "Follow-Up / Snooze",
+        "icon": "⏰",
+        "help": "Schedule the next follow-up.",
+        "activity_type": "Status Changed",
+        "outcome": None,
+    },
+    {
+        "label": "Closed Lost",
+        "icon": "⛔",
+        "help": "Mark this lead as closed lost.",
+        "activity_type": "Status Changed",
+        "outcome": None,
+        "manual_status": "Closed Lost",
+        "requires_confirm": True,
+    },
+    {
+        "label": "Do Not Contact",
+        "icon": "🚫",
+        "help": "Apply a do-not-contact state.",
+        "activity_type": "Status Changed",
+        "outcome": "Do Not Contact",
+        "manual_status": "Do Not Contact",
+        "requires_confirm": True,
+    },
+]
+
+LEAD_CARD_QUICK_ACTION_LOOKUP = {item["label"]: item for item in LEAD_CARD_QUICK_ACTIONS}
+
+
+def lead_activity_form_keys(lead_id):
+    return {
+        "selected_action": f"lead_activity_quick_action_{lead_id}",
+        "activity_type": f"lead_activity_type_{lead_id}",
+        "outcome": f"lead_activity_outcome_{lead_id}",
+        "date": f"lead_activity_date_{lead_id}",
+        "time": f"lead_activity_time_{lead_id}",
+        "note": f"lead_activity_note_{lead_id}",
+        "callback_date": f"lead_callback_date_{lead_id}",
+        "callback_time": f"lead_callback_time_{lead_id}",
+        "appointment_date": f"lead_card_appt_date_{lead_id}",
+        "appointment_time": f"lead_card_appt_time_{lead_id}",
+        "follow_up_date": f"lead_followup_date_{lead_id}",
+        "follow_up_time": f"lead_followup_time_{lead_id}",
+        "nurture_reason": f"lead_activity_nurture_{lead_id}",
+        "manual_status": f"lead_activity_manual_status_{lead_id}",
+        "confirm": f"lead_activity_confirm_{lead_id}",
     }
-    return mapping.get(action_label, ("Note", None))
+
+
+def default_form_time():
+    return datetime.now().replace(second=0, microsecond=0).time()
+
+
+def parse_datetime_value(value):
+    if not value:
+        return None
+    try:
+        return pd.to_datetime(value).to_pydatetime()
+    except Exception:
+        return None
+
+
+def initialize_lead_activity_form_state(lead_id, selected_lead):
+    keys = lead_activity_form_keys(lead_id)
+    now = datetime.now()
+    next_follow_up_dt = parse_datetime_value(selected_lead.get("Next Follow-Up")) or now
+    appointment_dt = parse_datetime_value(selected_lead.get("Appointment At")) or now
+    defaults = {
+        keys["selected_action"]: "",
+        keys["activity_type"]: "Note",
+        keys["outcome"]: "",
+        keys["date"]: now.date(),
+        keys["time"]: default_form_time(),
+        keys["note"]: "",
+        keys["callback_date"]: next_follow_up_dt.date(),
+        keys["callback_time"]: next_follow_up_dt.time().replace(second=0, microsecond=0),
+        keys["appointment_date"]: appointment_dt.date(),
+        keys["appointment_time"]: appointment_dt.time().replace(second=0, microsecond=0),
+        keys["follow_up_date"]: next_follow_up_dt.date(),
+        keys["follow_up_time"]: next_follow_up_dt.time().replace(second=0, microsecond=0),
+        keys["nurture_reason"]: selected_lead.get("Nurture Reason") or "",
+        keys["manual_status"]: "",
+        keys["confirm"]: False,
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+    return keys
+
+
+def count_not_home_attempts(activity_rows):
+    highest_attempt = 0
+    for item in activity_rows or []:
+        metadata = item.get("event_metadata") or {}
+        if metadata.get("route_attempt_status") in {"Not Home 1", "Not Home 2", "Not Home 3"}:
+            try:
+                highest_attempt = max(highest_attempt, int(metadata.get("attempt_number") or 0))
+            except Exception:
+                pass
+            continue
+        if item.get("activity_type") == "Door Knock" and item.get("outcome") == "No Answer":
+            highest_attempt += 1
+    return max(0, min(highest_attempt, 3))
+
+
+def apply_lead_quick_action(lead_id, selected_lead, activity_rows, action_label):
+    keys = lead_activity_form_keys(lead_id)
+    config = LEAD_CARD_QUICK_ACTION_LOOKUP[action_label]
+    now = datetime.now()
+    st.session_state[keys["selected_action"]] = action_label
+    st.session_state[keys["activity_type"]] = config["activity_type"]
+    st.session_state[keys["outcome"]] = config.get("outcome") or ""
+    st.session_state[keys["manual_status"]] = config.get("manual_status") or ""
+    st.session_state[keys["confirm"]] = False
+
+    if action_label == "Appointment":
+        appointment_dt = parse_datetime_value(selected_lead.get("Appointment At")) or (now + timedelta(days=1))
+        st.session_state[keys["appointment_date"]] = appointment_dt.date()
+        st.session_state[keys["appointment_time"]] = appointment_dt.time().replace(second=0, microsecond=0)
+        st.session_state[keys["note"]] = "Appointment booked."
+    elif action_label == "Not Home":
+        next_attempt = min(count_not_home_attempts(activity_rows) + 1, 3)
+        st.session_state[keys["note"]] = f"Door attempt marked as Not Home {next_attempt}."
+    elif action_label == "Nurture":
+        st.session_state[keys["note"]] = "Lead moved into nurture."
+    elif action_label == "Follow-Up / Snooze":
+        follow_up_dt = parse_datetime_value(selected_lead.get("Next Follow-Up")) or (now + timedelta(days=1))
+        st.session_state[keys["follow_up_date"]] = follow_up_dt.date()
+        st.session_state[keys["follow_up_time"]] = follow_up_dt.time().replace(second=0, microsecond=0)
+        st.session_state[keys["note"]] = "Follow-up rescheduled."
+    elif action_label == "Closed Lost":
+        st.session_state[keys["note"]] = "Lead marked closed lost."
+    elif action_label == "Do Not Contact":
+        st.session_state[keys["note"]] = "Lead marked do not contact."
+    else:
+        st.session_state[keys["note"]] = ""
+
+
+def format_home_info_value(key, value, snapshot):
+    if value in (None, "", "Unknown", "N/A"):
+        return None
+    if key == "sale_price":
+        try:
+            return f"${float(value):,.0f}"
+        except Exception:
+            return str(value)
+    if key == "sun_hours":
+        return snapshot.get("sun_hours_display") or f"{float(value):.1f} hrs"
+    if key == "sqft":
+        return snapshot.get("sqft_display") or f"{float(value):,.0f} sq ft"
+    if key in {"max_array_area_m2", "whole_roof_area_m2", "building_area_m2"}:
+        try:
+            return f"{float(value):,.1f} m²"
+        except Exception:
+            return str(value)
+    if key == "system_capacity_kw":
+        try:
+            return f"{float(value):,.1f} kW"
+        except Exception:
+            return str(value)
+    if key == "yearly_energy_dc_kwh":
+        try:
+            return f"{float(value):,.0f} kWh"
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def home_info_entries(snapshot):
+    if not snapshot:
+        return []
+    labels = [
+        ("sun_hours", "Sun Hours"),
+        ("sqft", "Square Footage"),
+        ("sale_price", "Price"),
+        ("beds", "Beds"),
+        ("baths", "Baths"),
+        ("sold_date", "Sold Date"),
+        ("permit_pulled", "Permit Pulled"),
+        ("priority_label", "Priority"),
+        ("category", "Lead Category"),
+        ("doors_to_knock", "Doors To Knock"),
+        ("parking_ease", "Parking Ease"),
+        ("roof_capacity_score", "Roof Capacity Score"),
+        ("roof_complexity_score", "Roof Complexity Score"),
+        ("roof_segment_count", "Roof Segments"),
+        ("south_facing_segment_count", "South-Facing Segments"),
+        ("whole_roof_area_m2", "Whole Roof Area"),
+        ("building_area_m2", "Building Area"),
+        ("max_array_panels_count", "Max Array Panels"),
+        ("max_array_area_m2", "Max Array Area"),
+        ("panel_capacity_watts", "Panel Capacity Watts"),
+        ("system_capacity_kw", "System Capacity"),
+        ("yearly_energy_dc_kwh", "Yearly Energy"),
+        ("imagery_quality", "Imagery Quality"),
+        ("street_view_link", "Street View"),
+    ]
+    entries = []
+    for key, label in labels:
+        raw_value = snapshot.get(key)
+        if key == "street_view_link" and raw_value:
+            entries.append((label, f"[Open Street View]({raw_value})"))
+            continue
+        rendered = format_home_info_value(key, raw_value, snapshot)
+        if rendered:
+            entries.append((label, rendered))
+    return entries
 
 
 def is_open_crm_lead_row(row):
@@ -2317,7 +2670,66 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         st.info("Lead storage becomes available once Supabase auth and data access are active.")
         return
 
+    with st.expander("Add Lead", expanded=False):
+        st.caption("Create a single lead manually. New leads are assigned to you automatically when they are unassigned.")
+        manual_address_search = st.text_input(
+            "Address Search",
+            key="manual_lead_address_search",
+            placeholder="Start typing an address",
+        )
+        address_suggestions = fetch_address_suggestions(manual_address_search, api_key)
+        if address_suggestions:
+            selected_suggestion = st.selectbox(
+                "Suggestions",
+                options=[""] + address_suggestions,
+                key="manual_lead_address_suggestion",
+            )
+            if selected_suggestion:
+                st.session_state["manual_lead_address"] = selected_suggestion
+                extracted_zip = extract_zip(selected_suggestion)
+                if extracted_zip:
+                    st.session_state["manual_lead_zip"] = extracted_zip
+        add_col1, add_col2 = st.columns(2)
+        manual_address = add_col1.text_input("Address", key="manual_lead_address")
+        manual_zip = add_col2.text_input("ZIP", key="manual_lead_zip")
+        add_col3, add_col4 = st.columns(2)
+        manual_first_name = add_col3.text_input("First Name", key="manual_lead_first_name")
+        manual_last_name = add_col4.text_input("Last Name", key="manual_lead_last_name")
+        add_col5, add_col6 = st.columns(2)
+        manual_phone = add_col5.text_input("Phone", key="manual_lead_phone")
+        manual_email = add_col6.text_input("Email", key="manual_lead_email")
+        manual_notes = st.text_area(
+            "Notes",
+            key="manual_lead_notes",
+            height=90,
+            placeholder="Anything the rep learned in the field.",
+        )
+        if st.button("Save Lead", key="manual_lead_save", use_container_width=True):
+            create_result = create_manual_lead(
+                {
+                    "address": manual_address,
+                    "zipcode": manual_zip,
+                    "first_name": manual_first_name,
+                    "last_name": manual_last_name,
+                    "phone": manual_phone,
+                    "email": manual_email,
+                    "notes": manual_notes,
+                },
+                auth_context=auth_context,
+            )
+            if create_result.get("ok"):
+                if create_result.get("assigned_to_current_user"):
+                    st.success("Lead saved and assigned to you.")
+                else:
+                    st.success("Lead already existed. Details were refreshed without changing the current assignment.")
+                if create_result.get("lead_id"):
+                    st.session_state["selected_lead_id"] = create_result["lead_id"]
+                st.rerun()
+            else:
+                st.warning(create_result.get("error") or "Could not save lead.")
+
     lead_rows = get_visible_leads(auth_context=auth_context)
+    total_leads_in_scope = get_org_lead_count(auth_context=auth_context)
     if not lead_rows:
         if can_access_manager_workspace(active_org_role):
             st.info("No leads are stored for this organization yet.")
@@ -2383,6 +2795,10 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
                 "Updated": (row.get("updated_at") or row.get("created_at") or "")[:10],
                 "Notes": row.get("notes") or "",
                 "Unqualified Reason": row.get("unqualified_reason") or "",
+                "Sold Date": row.get("sold_date") or "",
+                "Sale Price": row.get("sale_price"),
+                "Sun Hours": row.get("sun_hours"),
+                "City": infer_city_from_address(row.get("address")),
                 "Assigned To ID": row.get("assigned_to"),
                 "Created By ID": row.get("created_by"),
                 "_search_blob": " ".join(
@@ -2404,7 +2820,7 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         st.info("No CRM-open leads are available in this view yet.")
         return
 
-    search_col, status_col, assignment_col, owner_col = st.columns([1.5, 0.8, 0.8, 1.0])
+    search_col, status_col, assignment_col, owner_col = st.columns([1.35, 0.8, 0.8, 1.0])
     search_term = search_col.text_input(
         "Search Leads",
         placeholder="Address, homeowner, phone, email, or owner",
@@ -2425,6 +2841,43 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         options=["All"] + sorted({row["Assigned To"] for row in prepared_rows}),
         key="leads_assigned_to_filter",
     )
+    extra_filter_cols = st.columns(6)
+    zip_filter = extra_filter_cols[0].multiselect(
+        "ZIP Codes",
+        options=sorted({row["ZIP"] for row in prepared_rows if row["ZIP"]}),
+        key="leads_zipcodes_filter",
+    )
+    city_filter = extra_filter_cols[1].multiselect(
+        "Cities",
+        options=sorted({row["City"] for row in prepared_rows if row["City"] and row["City"] != "Unknown"}),
+        key="leads_cities_filter",
+    )
+    sold_date_filter = extra_filter_cols[2].text_input(
+        "Sold Date",
+        placeholder="Apr 2026",
+        key="leads_sold_date_filter",
+    ).strip().lower()
+    min_price_filter = extra_filter_cols[3].number_input(
+        "Min Price",
+        min_value=0,
+        value=0,
+        step=50000,
+        key="leads_min_price_filter",
+    )
+    max_price_filter = extra_filter_cols[4].number_input(
+        "Max Price",
+        min_value=0,
+        value=0,
+        step=50000,
+        key="leads_max_price_filter",
+    )
+    min_sun_filter = extra_filter_cols[5].number_input(
+        "Min Sun Hrs",
+        min_value=0.0,
+        value=0.0,
+        step=50.0,
+        key="leads_min_sun_filter",
+    )
 
     filtered_rows = [
         row
@@ -2433,12 +2886,18 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         and (status_filter == "All" or row["Status"] == status_filter)
         and (assignment_filter == "All" or row["Assignment"] == assignment_filter)
         and (assigned_to_filter == "All" or row["Assigned To"] == assigned_to_filter)
+        and (not zip_filter or row["ZIP"] in zip_filter)
+        and (not city_filter or row["City"] in city_filter)
+        and (not sold_date_filter or sold_date_filter in str(row["Sold Date"] or "").lower())
+        and (min_price_filter <= 0 or row["Sale Price"] is None or row["Sale Price"] >= float(min_price_filter))
+        and (max_price_filter <= 0 or row["Sale Price"] is None or row["Sale Price"] <= float(max_price_filter))
+        and (min_sun_filter <= 0 or row["Sun Hours"] is None or row["Sun Hours"] >= float(min_sun_filter))
     ]
 
     metric_cols = st.columns(4)
-    metric_cols[0].metric("Visible Leads", len(filtered_rows))
-    metric_cols[1].metric("Assigned", sum(1 for row in filtered_rows if row["Assignment"] != "Unassigned"))
-    metric_cols[2].metric("Unassigned", sum(1 for row in filtered_rows if row["Assignment"] == "Unassigned"))
+    metric_cols[0].metric("Total Leads In Org", total_leads_in_scope)
+    metric_cols[1].metric("Loaded In Tab", len(prepared_rows))
+    metric_cols[2].metric("Filtered Results", len(filtered_rows))
     metric_cols[3].metric("Qualified", sum(1 for row in filtered_rows if row["Qualified"] == "Yes"))
 
     if not filtered_rows:
@@ -2455,7 +2914,9 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
             st.rerun()
         title_col.markdown(f"### {selected_lead['Address']}")
 
+        lead_form_keys = initialize_lead_activity_form_state(selected_lead["Lead ID"], selected_lead)
         activity_rows = get_lead_activity_rows(selected_lead["Lead ID"], auth_context=auth_context)
+        analysis_snapshot = get_lead_analysis_snapshot(selected_lead["Lead ID"], auth_context=auth_context)
         top_cols = st.columns(5)
         top_cols[0].metric("Follow-Up Status", selected_lead["Lead Status"])
         top_cols[1].metric("Next Follow-Up Due", format_follow_up_datetime(selected_lead["Next Follow-Up"]))
@@ -2477,6 +2938,17 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         secondary_col2.markdown(f"**Created By:** {selected_lead['Created By']}")
         if selected_lead["Unqualified Reason"]:
             st.markdown(f"**Unqualified Reason:** {selected_lead['Unqualified Reason']}")
+
+        with st.expander("Home Info", expanded=False):
+            info_entries = home_info_entries(analysis_snapshot)
+            if info_entries:
+                info_col1, info_col2 = st.columns(2)
+                midpoint = math.ceil(len(info_entries) / 2)
+                for col, entries in zip([info_col1, info_col2], [info_entries[:midpoint], info_entries[midpoint:]]):
+                    for label, value in entries:
+                        col.markdown(f"**{label}:** {value}")
+            else:
+                st.caption("No property details are stored for this lead yet.")
 
         st.markdown("#### Lead Details")
         detail_col1, detail_col2 = st.columns(2)
@@ -2552,82 +3024,107 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
                 st.warning("Could not update lead assignment.")
 
         st.markdown("#### Quick Actions")
-        quick_action_cols = st.columns(len(QUICK_ACTIONS))
-        for index, action_label in enumerate(QUICK_ACTIONS):
-            if quick_action_cols[index].button(action_label, key=f"lead_quick_{selected_lead['Lead ID']}_{action_label}", use_container_width=True):
-                prefill_type, prefill_outcome = quick_action_prefill(action_label)
-                st.session_state[f"lead_activity_type_{selected_lead['Lead ID']}"] = prefill_type
-                st.session_state[f"lead_activity_outcome_{selected_lead['Lead ID']}"] = prefill_outcome or ""
+        quick_action_cols = st.columns(len(LEAD_CARD_QUICK_ACTIONS))
+        selected_action = st.session_state.get(lead_form_keys["selected_action"], "")
+        for index, action_config in enumerate(LEAD_CARD_QUICK_ACTIONS):
+            is_selected_action = selected_action == action_config["label"]
+            if quick_action_cols[index].button(
+                action_config["icon"],
+                key=f"lead_quick_{selected_lead['Lead ID']}_{action_config['label']}",
+                help=action_config["help"],
+                type="primary" if is_selected_action else "secondary",
+                use_container_width=True,
+            ):
+                apply_lead_quick_action(selected_lead["Lead ID"], selected_lead, activity_rows, action_config["label"])
+                st.rerun()
+        if selected_action:
+            st.caption(f"Selected action: {selected_action}")
+            if selected_action == "Not Home":
+                next_attempt = min(count_not_home_attempts(activity_rows) + 1, 3)
+                st.caption(f"This will preserve the operational attempt marker as Not Home {next_attempt}.")
 
         st.markdown("#### Log Activity")
-        activity_type = st.selectbox(
-            "Activity Type",
-            options=ACTIVITY_TYPE_OPTIONS,
-            key=f"lead_activity_type_{selected_lead['Lead ID']}",
-        )
+        activity_type = st.session_state.get(lead_form_keys["activity_type"], "Note")
+        if activity_type not in ACTIVITY_TYPE_OPTIONS:
+            st.session_state[lead_form_keys["activity_type"]] = "Note"
+            activity_type = "Note"
+        activity_type = st.selectbox("Activity Type", options=ACTIVITY_TYPE_OPTIONS, key=lead_form_keys["activity_type"])
         allowed_outcomes = [""] + allowed_outcomes_for_activity(activity_type)
-        current_outcome_value = st.session_state.get(f"lead_activity_outcome_{selected_lead['Lead ID']}", "")
-        if current_outcome_value not in allowed_outcomes:
-            current_outcome_value = ""
-        activity_outcome = st.selectbox(
-            "Outcome",
-            options=allowed_outcomes,
-            index=allowed_outcomes.index(current_outcome_value),
-            key=f"lead_activity_outcome_{selected_lead['Lead ID']}",
-        )
+        if st.session_state.get(lead_form_keys["outcome"], "") not in allowed_outcomes:
+            st.session_state[lead_form_keys["outcome"]] = ""
+        activity_outcome = st.selectbox("Outcome", options=allowed_outcomes, key=lead_form_keys["outcome"])
         activity_col1, activity_col2 = st.columns(2)
-        activity_date = activity_col1.date_input(
-            "Activity Date",
-            value=datetime.now().date(),
-            key=f"lead_activity_date_{selected_lead['Lead ID']}",
-        )
-        activity_time = activity_col2.time_input(
-            "Activity Time",
-            value=datetime.now().replace(second=0, microsecond=0).time(),
-            step=1800,
-            key=f"lead_activity_time_{selected_lead['Lead ID']}",
-        )
+        activity_date = activity_col1.date_input("Activity Date", key=lead_form_keys["date"])
+        activity_time = activity_col2.time_input("Activity Time", step=1800, key=lead_form_keys["time"])
         note_body = st.text_area(
             "History Note",
-            value="",
             placeholder="What happened, what you learned, and what should happen next.",
-            key=f"lead_activity_note_{selected_lead['Lead ID']}",
+            key=lead_form_keys["note"],
             height=120,
         )
-        callback_col1, callback_col2 = st.columns(2)
-        requested_callback_date = callback_col1.date_input(
-            "Requested Callback Date",
-            value=datetime.now().date(),
-            key=f"lead_callback_date_{selected_lead['Lead ID']}",
-        )
-        requested_callback_time = callback_col2.time_input(
-            "Requested Callback Time",
-            value=datetime.now().replace(second=0, microsecond=0).time(),
-            step=1800,
-            key=f"lead_callback_time_{selected_lead['Lead ID']}",
-        )
-        appointment_col1, appointment_col2 = st.columns(2)
-        appointment_date = appointment_col1.date_input(
-            "Appointment Date",
-            value=datetime.now().date(),
-            key=f"lead_card_appt_date_{selected_lead['Lead ID']}",
-        )
-        appointment_time = appointment_col2.time_input(
-            "Appointment Time",
-            value=datetime.now().replace(second=0, microsecond=0).time(),
-            step=1800,
-            key=f"lead_card_appt_time_{selected_lead['Lead ID']}",
-        )
-        nurture_reason = st.selectbox(
-            "Nurture Reason",
-            options=[""] + NURTURE_REASON_OPTIONS,
-            key=f"lead_activity_nurture_{selected_lead['Lead ID']}",
-        )
+        requested_callback_date = None
+        requested_callback_time = None
+        if activity_outcome == "Requested Callback":
+            callback_col1, callback_col2 = st.columns(2)
+            requested_callback_date = callback_col1.date_input("Requested Callback Date", key=lead_form_keys["callback_date"])
+            requested_callback_time = callback_col2.time_input("Requested Callback Time", step=1800, key=lead_form_keys["callback_time"])
+
+        appointment_date = None
+        appointment_time = None
+        if activity_type in {"Appointment Set", "Appointment Rescheduled"}:
+            appointment_col1, appointment_col2 = st.columns(2)
+            appointment_date = appointment_col1.date_input("Appointment Date", key=lead_form_keys["appointment_date"])
+            appointment_time = appointment_col2.time_input("Appointment Time", step=1800, key=lead_form_keys["appointment_time"])
+
+        nurture_reason = ""
+        if activity_outcome == "Needs Nurture":
+            nurture_reason = st.selectbox("Nurture Reason", options=[""] + NURTURE_REASON_OPTIONS, key=lead_form_keys["nurture_reason"])
+
+        scheduled_follow_up_date = None
+        scheduled_follow_up_time = None
+        if st.session_state.get(lead_form_keys["selected_action"]) == "Follow-Up / Snooze":
+            follow_up_col1, follow_up_col2 = st.columns(2)
+            scheduled_follow_up_date = follow_up_col1.date_input("Next Follow-Up Date", key=lead_form_keys["follow_up_date"])
+            scheduled_follow_up_time = follow_up_col2.time_input("Next Follow-Up Time", step=1800, key=lead_form_keys["follow_up_time"])
+
+        manual_status = st.session_state.get(lead_form_keys["manual_status"], "")
+        requires_confirm = bool(LEAD_CARD_QUICK_ACTION_LOOKUP.get(selected_action, {}).get("requires_confirm"))
+        confirm_action = True
+        if requires_confirm:
+            confirm_action = st.checkbox(
+                f"Confirm {manual_status or selected_action}",
+                key=lead_form_keys["confirm"],
+            )
 
         activity_timestamp = datetime.combine(activity_date, activity_time).isoformat()
-        callback_timestamp = datetime.combine(requested_callback_date, requested_callback_time).isoformat()
-        appointment_timestamp = datetime.combine(appointment_date, appointment_time).isoformat()
+        callback_timestamp = (
+            datetime.combine(requested_callback_date, requested_callback_time).isoformat()
+            if requested_callback_date and requested_callback_time
+            else None
+        )
+        appointment_timestamp = (
+            datetime.combine(appointment_date, appointment_time).isoformat()
+            if appointment_date and appointment_time
+            else None
+        )
+        follow_up_timestamp = (
+            datetime.combine(scheduled_follow_up_date, scheduled_follow_up_time).isoformat()
+            if scheduled_follow_up_date and scheduled_follow_up_time
+            else None
+        )
         if st.button("Save Activity", key=f"lead_activity_save_{selected_lead['Lead ID']}", use_container_width=True):
+            if requires_confirm and not confirm_action:
+                st.warning(f"Please confirm before marking this lead as {manual_status or selected_action}.")
+                st.stop()
+            event_metadata = {"source": "lead_card"}
+            if manual_status:
+                event_metadata["manual_status"] = manual_status
+            if selected_action == "Follow-Up / Snooze" and follow_up_timestamp:
+                event_metadata["scheduled_follow_up_at"] = follow_up_timestamp
+            if selected_action == "Not Home":
+                attempt_number = min(count_not_home_attempts(activity_rows) + 1, 3)
+                event_metadata["attempt_number"] = attempt_number
+                event_metadata["route_attempt_status"] = f"Not Home {attempt_number}"
             if add_lead_activity(
                 selected_lead["Lead ID"],
                 activity_type=activity_type,
@@ -2637,9 +3134,18 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
                 requested_callback_at=callback_timestamp if activity_outcome == "Requested Callback" else None,
                 appointment_at=appointment_timestamp if activity_type in {"Appointment Set", "Appointment Rescheduled"} else None,
                 nurture_reason=nurture_reason or None,
-                event_metadata={"source": "lead_card"},
+                event_metadata=event_metadata,
                 auth_context=auth_context,
             ):
+                for key, value in {
+                    lead_form_keys["selected_action"]: "",
+                    lead_form_keys["activity_type"]: "Note",
+                    lead_form_keys["outcome"]: "",
+                    lead_form_keys["note"]: "",
+                    lead_form_keys["manual_status"]: "",
+                    lead_form_keys["confirm"]: False,
+                }.items():
+                    st.session_state[key] = value
                 st.success("Activity saved.")
                 st.rerun()
             st.warning("Could not save activity.")
@@ -4644,6 +5150,27 @@ if auth_enabled and st.session_state.get("auth_session"):
         "user_id": (session_payload.get("user") or {}).get("id"),
     }
     current_app_user = get_current_app_user(auth_context=base_auth_context)
+    if not current_app_user and session_payload.get("refresh_token"):
+        refreshed_session = refresh_session(session_payload.get("refresh_token"))
+        if refreshed_session.get("ok"):
+            refreshed_session["api_key"] = (
+                session_payload.get("api_key")
+                or os.getenv("SUPABASE_ANON_KEY", "").strip()
+                or os.getenv("SUPABASE_PUBLISHABLE_KEY", "").strip()
+                or os.getenv("SUPABASE_SECRET_KEY", "").strip()
+            )
+            st.session_state["auth_session"] = refreshed_session
+            sync_auth_cookies_from_session()
+            session_payload = refreshed_session
+            base_auth_context = {
+                "access_token": session_payload.get("access_token"),
+                "api_key": session_payload.get("api_key"),
+                "user_id": (session_payload.get("user") or {}).get("id"),
+            }
+            current_app_user = get_current_app_user(auth_context=base_auth_context)
+        else:
+            st.session_state["auth_session"] = None
+            sync_auth_cookies_from_session()
     if current_app_user:
         current_memberships = get_user_memberships(auth_context=base_auth_context)
         membership_ids = [item["organization_id"] for item in current_memberships if item.get("organization_id")]
@@ -4656,6 +5183,7 @@ if auth_enabled and st.session_state.get("auth_session"):
             if default_org_id not in membership_ids:
                 default_org_id = membership_ids[0]
             st.session_state["selected_org_id"] = default_org_id
+            sync_auth_cookies_from_session()
             auth_context = {
                 **base_auth_context,
                 "app_user_id": current_app_user["id"],
@@ -4692,6 +5220,7 @@ with st.sidebar:
                         or os.getenv("SUPABASE_SECRET_KEY", "").strip()
                     )
                     st.session_state["auth_session"] = login_result
+                    sync_auth_cookies_from_session()
                     st.rerun()
                 else:
                     st.error(login_result.get("error", "Could not sign in."))
@@ -4717,10 +5246,12 @@ with st.sidebar:
                     key="org_switcher",
                 )
                 st.session_state["selected_org_id"] = membership_labels[selected_org_label]
+                sync_auth_cookies_from_session()
             if st.button("Log Out", use_container_width=True):
                 sign_out()
                 st.session_state["auth_session"] = None
                 st.session_state["selected_org_id"] = None
+                sync_auth_cookies_from_session()
                 st.rerun()
     workspace_options = ["Manager View", "Rep View"] if manager_workspace_enabled else ["Rep View"]
     if not manager_workspace_enabled and st.session_state.get("workspace_mode") != "Rep View":
