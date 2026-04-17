@@ -546,6 +546,28 @@ def get_team_route_activity(limit=5000, auth_context=None):
         return []
 
 
+def update_lead_assignment(lead_id, assigned_to=None, auth_context=None):
+    if not supabase_enabled() or not lead_id:
+        return False
+
+    payload = {
+        "assigned_to": assigned_to or None,
+        "assignment_status": "assigned" if assigned_to else "unassigned",
+    }
+    try:
+        _request(
+            "PATCH",
+            "leads",
+            params={"id": f"eq.{lead_id}"},
+            json_body=payload,
+            prefer="return=minimal",
+            auth_context=auth_context,
+        )
+        return True
+    except Exception:
+        return False
+
+
 def get_rep_options(auth_context=None):
     if not supabase_enabled():
         return []

@@ -50,6 +50,7 @@ from engine.supabase_store import (
     save_analysis_result,
     save_route_draft,
     supabase_enabled,
+    update_lead_assignment,
     update_route_run_stop,
 )
 from engine.sheets import get_sheets_service, summarize_result_sources, sync_results_to_sheet
@@ -2190,6 +2191,13 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         if person.get("id"):
             people_lookup[person["id"]] = person.get("full_name") or person.get("email") or person["id"]
 
+    rep_options = get_rep_options(auth_context=auth_context)
+    rep_lookup = {
+        (person.get("full_name") or person.get("email") or person.get("id")): person.get("id")
+        for person in rep_options
+        if person.get("id")
+    }
+
     prepared_rows = []
     for row in lead_rows:
         homeowner_name = " ".join(
@@ -2205,6 +2213,7 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         )
         prepared_rows.append(
             {
+                "Lead ID": row.get("id"),
                 "Address": row.get("address") or "",
                 "Homeowner": homeowner_name,
                 "Phone": row.get("phone") or "",
@@ -2216,6 +2225,11 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
                 "ZIP": row.get("zipcode") or "",
                 "Qualified": "No" if row.get("unqualified") else "Yes",
                 "Updated": (row.get("updated_at") or row.get("created_at") or "")[:10],
+                "Notes": row.get("notes") or "",
+                "Listing Agent": row.get("listing_agent") or "",
+                "Unqualified Reason": row.get("unqualified_reason") or "",
+                "Assigned To ID": row.get("assigned_to"),
+                "Created By ID": row.get("created_by"),
                 "_search_blob": " ".join(
                     str(value or "")
                     for value in [
@@ -2230,7 +2244,7 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
             }
         )
 
-    search_col, status_col, assignment_col = st.columns([1.6, 0.8, 0.8])
+    search_col, status_col, assignment_col, owner_col = st.columns([1.5, 0.8, 0.8, 1.0])
     search_term = search_col.text_input(
         "Search Leads",
         placeholder="Address, homeowner, phone, email, or owner",
@@ -2246,6 +2260,11 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         options=["All"] + sorted({row["Assignment"] for row in prepared_rows}),
         key="leads_assignment_filter",
     )
+    assigned_to_filter = owner_col.selectbox(
+        "Assigned To",
+        options=["All"] + sorted({row["Assigned To"] for row in prepared_rows}),
+        key="leads_assigned_to_filter",
+    )
 
     filtered_rows = [
         row
@@ -2253,6 +2272,7 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         if (not search_term or search_term in row["_search_blob"])
         and (status_filter == "All" or row["Status"] == status_filter)
         and (assignment_filter == "All" or row["Assignment"] == assignment_filter)
+        and (assigned_to_filter == "All" or row["Assigned To"] == assigned_to_filter)
     ]
 
     metric_cols = st.columns(4)
@@ -2265,8 +2285,59 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
         st.info("No leads matched the current filters.")
         return
 
-    display_rows = [{key: value for key, value in row.items() if not key.startswith("_")} for row in filtered_rows]
+    display_rows = [
+        {
+            key: value
+            for key, value in row.items()
+            if not key.startswith("_") and key not in {"Lead ID", "Notes", "Listing Agent", "Unqualified Reason", "Assigned To ID", "Created By ID"}
+        }
+        for row in filtered_rows
+    ]
     st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True, height=520)
+
+    st.markdown("#### Lead Cards")
+    for row in filtered_rows:
+        title_suffix = f" · {row['Assigned To']}" if row["Assigned To"] and row["Assigned To"] != "Unassigned" else ""
+        with st.expander(f"{row['Address']} · {row['Status']}{title_suffix}", expanded=False):
+            info_col1, info_col2 = st.columns(2)
+            info_col1.markdown(f"**Homeowner:** {row['Homeowner'] or 'Unknown'}")
+            info_col1.markdown(f"**Phone:** {row['Phone'] or 'Not set'}")
+            info_col1.markdown(f"**Email:** {row['Email'] or 'Not set'}")
+            info_col1.markdown(f"**ZIP:** {row['ZIP'] or 'Unknown'}")
+            info_col2.markdown(f"**Status:** {row['Status']}")
+            info_col2.markdown(f"**Assignment:** {row['Assignment']}")
+            info_col2.markdown(f"**Assigned To:** {row['Assigned To']}")
+            info_col2.markdown(f"**Created By:** {row['Created By']}")
+            if row["Listing Agent"]:
+                st.markdown(f"**Listing Agent:** {row['Listing Agent']}")
+            if row["Unqualified Reason"]:
+                st.markdown(f"**Unqualified Reason:** {row['Unqualified Reason']}")
+            st.markdown(f"**Qualified:** {row['Qualified']}")
+            st.markdown(f"**Updated:** {row['Updated']}")
+            st.text_area(
+                "Lead Notes",
+                value=row["Notes"],
+                height=120,
+                key=f"lead_notes_card_{row['Lead ID']}",
+                disabled=True,
+            )
+
+            if can_access_manager_workspace(active_org_role):
+                assignment_labels = ["Unassigned"] + list(rep_lookup.keys())
+                current_assignment_label = row["Assigned To"] if row["Assigned To"] in assignment_labels else "Unassigned"
+                assign_col1, assign_col2 = st.columns([1.3, 0.8])
+                selected_assignment = assign_col1.selectbox(
+                    "Assign To Rep",
+                    options=assignment_labels,
+                    index=assignment_labels.index(current_assignment_label),
+                    key=f"lead_assign_select_{row['Lead ID']}",
+                )
+                if assign_col2.button("Save Assignment", key=f"lead_assign_save_{row['Lead ID']}", use_container_width=True):
+                    selected_rep_id = rep_lookup.get(selected_assignment)
+                    if update_lead_assignment(row["Lead ID"], assigned_to=selected_rep_id, auth_context=auth_context):
+                        st.success("Lead assignment updated.")
+                        st.rerun()
+                    st.warning("Could not update lead assignment.")
 
 
 def build_team_activity_frames(auth_context):
@@ -2553,14 +2624,35 @@ def render_calendar_hub(current_app_user, auth_context, active_org_role):
                 height=220,
             )
 
+    visible_lead_rows = get_visible_leads(auth_context=auth_context) if auth_context else []
     route_results = st.session_state.get("all_results", [])
     route_execution = st.session_state.get("route_execution", {})
-    if not route_results:
-        st.caption("Load a route in Maps to schedule new appointments from this tab.")
-        return
 
-    lead_options = {result.get("address"): result for result in route_results if result.get("address")}
+    lead_options = {}
+    for row in visible_lead_rows:
+        address = row.get("address")
+        if not address:
+            continue
+        lead_options[address] = {
+            "lead_id": row.get("id"),
+            "address": address,
+            "lat": row.get("lat"),
+            "lng": row.get("lng"),
+            "zipcode": row.get("zipcode"),
+            "phone": row.get("phone"),
+            "email": row.get("email"),
+            "first_name": row.get("first_name"),
+            "last_name": row.get("last_name"),
+            "notes": row.get("notes"),
+            "route_run_stop_id": None,
+            "route_run_status": str(row.get("status") or "pending").lower(),
+        }
+    for result in route_results:
+        if result.get("address"):
+            lead_options[result["address"]] = result
+
     if not lead_options:
+        st.caption("No visible leads are available to schedule yet.")
         return
     st.markdown("#### Set Appointment")
     if selected_date < today:
@@ -2571,6 +2663,18 @@ def render_calendar_hub(current_app_user, auth_context, active_org_role):
     selected_result = lead_options[appointment_address]
     selected_property_id = make_property_id("primary_stop", appointment_address)
     active_entry = route_execution.setdefault(selected_property_id, default_execution_entry())
+    if not active_entry.get("homeowner_name"):
+        active_entry["homeowner_name"] = " ".join(
+            part.strip()
+            for part in [selected_result.get("first_name") or "", selected_result.get("last_name") or ""]
+            if part and str(part).strip()
+        ).strip()
+    if not active_entry.get("phone"):
+        active_entry["phone"] = selected_result.get("phone") or ""
+    if not active_entry.get("email"):
+        active_entry["email"] = selected_result.get("email") or ""
+    if not active_entry.get("notes"):
+        active_entry["notes"] = selected_result.get("notes") or ""
 
     booked_slots = set()
     if not day_schedule_df.empty:
