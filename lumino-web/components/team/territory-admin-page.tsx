@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import type {
+  ManagerDashboardResponse,
+  TeamMembersResponse,
+  TeamMemberItem,
   TerritoriesResponse,
   TerritoryDetailResponse,
   TerritoryListItem,
@@ -33,6 +36,11 @@ export function TerritoryAdminPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<TerritoryPropertyItem[]>([]);
   const [searching, setSearching] = useState(false);
+  const [dashboard, setDashboard] = useState<ManagerDashboardResponse | null>(null);
+  const [members, setMembers] = useState<TeamMemberItem[]>([]);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteRole, setInviteRole] = useState<"owner" | "admin" | "manager" | "rep" | "setter">("rep");
 
   const assignedPropertyIds = useMemo(
     () => new Set((selectedTerritory?.properties ?? []).map((item) => item.propertyId)),
@@ -80,6 +88,37 @@ export function TerritoryAdminPage() {
   useEffect(() => {
     void loadTerritories();
   }, [loadTerritories]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    authFetch(accessToken, "/api/dashboard/manager")
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as ManagerDashboardResponse;
+      })
+      .then((json) => {
+        if (json) setDashboard(json);
+      })
+      .catch(() => {
+        setDashboard(null);
+      });
+  }, [accessToken]);
+
+  const loadMembers = useCallback(async () => {
+    if (!accessToken) return;
+
+    const response = await authFetch(accessToken, "/api/team/members");
+    if (!response.ok) throw new Error("Failed to load team members");
+    const json = (await response.json()) as TeamMembersResponse;
+    setMembers(json.items);
+  }, [accessToken]);
+
+  useEffect(() => {
+    void loadMembers().catch(() => {
+      setMembers([]);
+    });
+  }, [loadMembers]);
 
   useEffect(() => {
     void loadTerritoryDetail(selectedTerritoryId);
@@ -212,14 +251,252 @@ export function TerritoryAdminPage() {
     }
   }
 
+  async function handleInviteMember() {
+    if (!accessToken || !inviteEmail.trim() || !inviteName.trim()) return;
+
+    setSaveState("saving");
+    try {
+      const response = await authFetch(accessToken, "/api/team/members", {
+        method: "POST",
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          fullName: inviteName.trim(),
+          role: inviteRole
+        })
+      });
+
+      if (!response.ok) throw new Error("Failed to invite member");
+      setInviteEmail("");
+      setInviteName("");
+      setInviteRole("rep");
+      await loadMembers();
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  }
+
+  async function handleUpdateMember(
+    memberId: string,
+    payload: { role?: "owner" | "admin" | "manager" | "rep" | "setter"; isActive?: boolean }
+  ) {
+    if (!accessToken) return;
+
+    setSaveState("saving");
+    try {
+      const response = await authFetch(accessToken, `/api/team/members/${memberId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) throw new Error("Failed to update member");
+      await loadMembers();
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  }
+
   return (
     <div className="p-4 md:p-6">
       <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
-        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Territories</div>
-        <h1 className="mt-2 text-3xl font-semibold text-ink">Team coverage and assignment control</h1>
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Team</div>
+        <h1 className="mt-2 text-3xl font-semibold text-ink">Roster, coaching, and territory control</h1>
         <p className="mt-3 max-w-3xl text-sm text-slate-600">
-          Create territories, attach properties, and keep manager reporting grounded in a real coverage model.
+          Keep reps visible, surface coaching risk quickly, and ground manager reporting in real territory assignments.
         </p>
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Rep Roster</div>
+              <p className="mt-2 text-sm text-slate-500">Who is active today and how their field output is trending.</p>
+            </div>
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+              {dashboard?.repScorecards.length ?? 0}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {(dashboard?.repScorecards ?? []).slice(0, 6).map((rep) => (
+              <div key={rep.userId} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-sm font-semibold text-ink">{rep.fullName ?? rep.email ?? "Unknown rep"}</div>
+                <div className="mt-1 text-xs uppercase tracking-[0.12em] text-slate-500">{rep.role}</div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-sm text-slate-600">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Knocks</div>
+                    <div className="mt-1">{rep.knocks}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Opps</div>
+                    <div className="mt-1">{rep.opportunities}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Overdue</div>
+                    <div className="mt-1">{rep.overdueFollowUps}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {!dashboard?.repScorecards.length ? (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500 md:col-span-2">
+                No rep activity yet for this organization.
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Coaching Snapshot</div>
+              <p className="mt-2 text-sm text-slate-500">Flags worth discussing with the team before they become process leaks.</p>
+            </div>
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+              {dashboard?.coachingFlags.length ?? 0}
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {(dashboard?.coachingFlags ?? []).slice(0, 4).map((flag) => (
+              <div key={flag.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-ink">{flag.repName ?? "Rep"}</div>
+                    <div className="mt-1 text-xs uppercase tracking-[0.12em] text-slate-500">{flag.reason}</div>
+                  </div>
+                  <div className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+                    {flag.severity}
+                  </div>
+                </div>
+                <div className="mt-2 text-sm text-slate-600">{flag.detail}</div>
+              </div>
+            ))}
+            {!dashboard?.coachingFlags.length ? (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                No coaching flags right now.
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Team Members</div>
+              <p className="mt-2 text-sm text-slate-500">Manage roles and activation state for everyone in this organization.</p>
+            </div>
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+              {members.length}
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {members.length ? (
+              members.map((member) => (
+                <div key={member.memberId} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-ink">{member.fullName ?? member.email ?? "Team member"}</div>
+                      <div className="mt-1 text-xs text-slate-500">{member.email ?? "No email"}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Joined {member.joinedAt ? new Date(member.joinedAt).toLocaleDateString() : "unknown"}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <select
+                        value={member.role}
+                        onChange={(event) =>
+                          void handleUpdateMember(member.memberId, {
+                            role: event.target.value as "owner" | "admin" | "manager" | "rep" | "setter"
+                          })
+                        }
+                        className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                      >
+                        {["owner", "admin", "manager", "rep", "setter"].map((role) => (
+                          <option key={role} value={role}>
+                            {role}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => void handleUpdateMember(member.memberId, { isActive: !member.isActive })}
+                        className={`rounded-2xl px-3 py-2 text-sm font-semibold transition ${
+                          member.isActive
+                            ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                            : "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                        }`}
+                      >
+                        {member.isActive ? "Deactivate" : "Reactivate"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                No members found yet.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Invite User</div>
+            <p className="mt-2 text-sm text-slate-500">Create or reactivate a teammate record and attach it to this organization.</p>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            <input
+              type="text"
+              value={inviteName}
+              onChange={(event) => setInviteName(event.target.value)}
+              placeholder="Full name"
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+            />
+            <input
+              type="email"
+              value={inviteEmail}
+              onChange={(event) => setInviteEmail(event.target.value)}
+              placeholder="Email"
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+            />
+            <select
+              value={inviteRole}
+              onChange={(event) =>
+                setInviteRole(event.target.value as "owner" | "admin" | "manager" | "rep" | "setter")
+              }
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+            >
+              {["owner", "admin", "manager", "rep", "setter"].map((role) => (
+                <option key={role} value={role}>
+                  {role}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void handleInviteMember()}
+              disabled={!inviteEmail.trim() || !inviteName.trim() || saveState === "saving"}
+              className="w-full rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saveState === "saving" ? "Saving..." : "Invite User"}
+            </button>
+            <div className="text-sm text-slate-500">
+              {saveState === "saved"
+                ? "Saved."
+                : saveState === "error"
+                  ? "Could not save the team update."
+                  : "This creates or reactivates the user record and membership. Email invite sending can come next."}
+            </div>
+          </div>
+        </section>
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[22rem_1fr]">

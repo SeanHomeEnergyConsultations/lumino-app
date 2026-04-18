@@ -358,3 +358,17 @@ export interface LeadDetailItem {
 export interface LeadDetailResponse {
   item: LeadDetailItem;
 }
+
+export interface TeamMemberItem {
+  memberId: string;
+  userId: string;
+  fullName: string | null;
+  email: string | null;
+  role: string;
+  isActive: boolean;
+  joinedAt: string | null;
+}
+
+export interface TeamMembersResponse {
+  items: TeamMemberItem[];
+}
