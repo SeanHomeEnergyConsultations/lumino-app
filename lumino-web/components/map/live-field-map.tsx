@@ -124,6 +124,7 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
 
   useEffect(() => {
     if (!session?.access_token || !selectedPropertyId) {
+      setPropertyLoading(false);
       setSelectedProperty(null);
       return;
     }
@@ -320,9 +321,11 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
         savingVisit={isSavingVisit}
         onLogOutcome={handleLogOutcome}
         onSaveLead={handleSaveLead}
+        isOpen={Boolean(selectedPropertyId)}
         onDismiss={() => {
           setSelectedPropertyId(null);
           setSelectedProperty(null);
+          setPropertyLoading(false);
         }}
       />
     </div>

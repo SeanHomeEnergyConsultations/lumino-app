@@ -26,7 +26,8 @@ export function PropertyDrawer({
   savingVisit,
   onLogOutcome,
   onSaveLead,
-  onDismiss
+  onDismiss,
+  isOpen = false
 }: {
   property: PropertyDetail | null;
   loading: boolean;
@@ -34,6 +35,7 @@ export function PropertyDrawer({
   onLogOutcome: (outcome: string) => void;
   onSaveLead: (input: LeadInput) => Promise<void>;
   onDismiss?: () => void;
+  isOpen?: boolean;
 }) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -274,7 +276,7 @@ export function PropertyDrawer({
         {content}
       </aside>
 
-      {loading || property ? (
+      {isOpen ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 p-3 xl:hidden">
           <div className="pointer-events-auto mx-auto max-h-[55vh] max-w-md overflow-y-auto rounded-[1.75rem] border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur">
             <div className="mb-3 flex items-center justify-between">
