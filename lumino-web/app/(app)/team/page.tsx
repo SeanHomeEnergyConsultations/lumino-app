@@ -1,17 +1,10 @@
 import { ProtectedAppShell } from "@/components/app-shell/protected-app-shell";
+import { TerritoryAdminPage } from "@/components/team/territory-admin-page";
 
 export default function TeamPage() {
   return (
     <ProtectedAppShell>
-      <div className="p-6">
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-panel">
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Team</div>
-          <h1 className="mt-2 text-2xl font-semibold text-ink">Sprint 1 placeholder</h1>
-          <p className="mt-3 text-sm text-slate-600">
-            This page will hold rep scorecards, territory performance, and coaching visibility in Sprint 3 and beyond.
-          </p>
-        </div>
-      </div>
+      <TerritoryAdminPage />
     </ProtectedAppShell>
   );
 }

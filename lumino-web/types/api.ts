@@ -178,3 +178,36 @@ export interface ManagerCoachingFlag {
   severity: "high" | "medium" | "low";
   href: string;
 }
+
+export interface TerritoryListItem {
+  territoryId: string;
+  name: string;
+  status: string;
+  propertyCount: number;
+  createdAt: string;
+}
+
+export interface TerritoryPropertyItem {
+  propertyId: string;
+  address: string;
+  city: string | null;
+  state: string | null;
+}
+
+export interface TerritoryDetailResponse {
+  item: {
+    territoryId: string;
+    name: string;
+    status: string;
+    propertyCount: number;
+    properties: TerritoryPropertyItem[];
+  };
+}
+
+export interface TerritoriesResponse {
+  items: TerritoryListItem[];
+}
+
+export interface TerritoryPropertySearchResponse {
+  items: TerritoryPropertyItem[];
+}
