@@ -98,6 +98,9 @@ export interface ManagerDashboardResponse {
   repScorecards: ManagerRepScorecard[];
   recentActivity: ManagerRecentActivityItem[];
   neighborhoods: ManagerNeighborhoodPerformanceItem[];
+  neighborhoodTrends: ManagerNeighborhoodTrendItem[];
+  repPresence: ManagerRepPresenceItem[];
+  supervisionMap: ManagerMapPoint[];
   territories: ManagerTerritorySummaryItem[];
   leakage: {
     overdueCount: number;
@@ -124,4 +127,34 @@ export interface ManagerTerritorySummaryItem {
   knocksToday: number;
   opportunitiesToday: number;
   appointmentsToday: number;
+  health: "strong" | "mixed" | "cold";
+}
+
+export interface ManagerNeighborhoodTrendItem {
+  city: string | null;
+  state: string | null;
+  todayKnocks: number;
+  todayOpportunities: number;
+  trailingAvgKnocks: number;
+  trailingAvgOpportunities: number;
+}
+
+export interface ManagerRepPresenceItem {
+  userId: string;
+  fullName: string | null;
+  lastSeenAt: string | null;
+  lastOutcome: string | null;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface ManagerMapPoint {
+  id: string;
+  propertyId: string;
+  address: string;
+  lat: number;
+  lng: number;
+  outcome: string | null;
+  actorName: string | null;
+  capturedAt: string;
 }

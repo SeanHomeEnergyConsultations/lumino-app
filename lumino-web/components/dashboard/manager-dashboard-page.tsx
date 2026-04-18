@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CalendarCheck2, Layers3, MapPinned, Target, Users } from "lucide-react";
 import type { ManagerDashboardResponse } from "@/types/api";
 import { authFetch, useAuth } from "@/lib/auth/client";
+import { ManagerSupervisionMap } from "@/components/dashboard/manager-supervision-map";
 
 function formatDateTime(value: string | null) {
   if (!value) return "Unknown";
@@ -69,6 +70,10 @@ export function ManagerDashboardPage() {
             );
           })}
         </div>
+      </div>
+
+      <div className="mt-6">
+        <ManagerSupervisionMap points={dashboard?.supervisionMap ?? []} repPresence={dashboard?.repPresence ?? []} />
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
@@ -196,7 +201,15 @@ export function ManagerDashboardPage() {
                       <div className="text-sm font-semibold text-ink">{territory.name}</div>
                       <div className="mt-1 text-xs uppercase tracking-[0.12em] text-slate-500">{territory.status}</div>
                     </div>
-                    <div className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
+                    <div
+                      className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                        territory.health === "strong"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : territory.health === "mixed"
+                            ? "border-amber-200 bg-amber-50 text-amber-700"
+                            : "border-slate-200 bg-white text-slate-700"
+                      }`}
+                    >
                       {territory.propertyCount} props
                     </div>
                   </div>
@@ -234,6 +247,44 @@ export function ManagerDashboardPage() {
               {!loading && !(dashboard?.recentActivity.length ?? 0) ? (
                 <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
                   No recent activity yet.
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Neighborhood Yield Over Time</div>
+                <p className="mt-2 text-sm text-slate-500">Today versus the trailing 7-day neighborhood average.</p>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {(dashboard?.neighborhoodTrends ?? []).map((item) => (
+                <div
+                  key={`${item.city ?? "Unknown"}-${item.state ?? ""}-trend`}
+                  className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-ink">
+                        {[item.city, item.state].filter(Boolean).join(", ") || "Unknown area"}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Today: {item.todayKnocks} knocks / {item.todayOpportunities} opps
+                      </div>
+                    </div>
+                    <div className="text-right text-xs text-slate-500">
+                      <div>7d avg knocks: {item.trailingAvgKnocks}</div>
+                      <div>7d avg opps: {item.trailingAvgOpportunities}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {!loading && !(dashboard?.neighborhoodTrends.length ?? 0) ? (
+                <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                  Not enough history yet for neighborhood comparisons.
                 </div>
               ) : null}
             </div>

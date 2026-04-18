@@ -2,7 +2,10 @@ import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import type {
   ManagerDashboardResponse,
   ManagerLeakageItem,
+  ManagerMapPoint,
   ManagerNeighborhoodPerformanceItem,
+  ManagerNeighborhoodTrendItem,
+  ManagerRepPresenceItem,
   ManagerRecentActivityItem,
   ManagerRepScorecard,
   ManagerTerritorySummaryItem
@@ -28,6 +31,12 @@ function minutesBetween(first: string | null, last: string | null) {
   return Math.round((end - start) / 60000);
 }
 
+function subtractDaysIso(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date.toISOString();
+}
+
 export async function getManagerDashboard(context: AuthSessionContext): Promise<ManagerDashboardResponse> {
   const supabase = createServerSupabaseClient();
 
@@ -37,6 +46,8 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
 
   const todayIso = startOfTodayIso();
   const nowIso = new Date().toISOString();
+  const fourHoursAgoIso = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+  const eightDaysAgoIso = subtractDaysIso(8);
 
   const [
     { data: membershipRows, error: membershipsError },
@@ -47,7 +58,9 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
     { data: recentVisits, error: recentVisitsError },
     { data: recentLeadActivities, error: recentLeadActivitiesError },
     { data: territoryRows, error: territoryError },
-    { data: propertyTerritoryRows, error: propertyTerritoryError }
+    { data: propertyTerritoryRows, error: propertyTerritoryError },
+    { data: supervisionVisitRows, error: supervisionVisitsError },
+    { data: trailingVisitRows, error: trailingVisitsError }
   ] = await Promise.all([
     supabase
       .from("organization_members")
@@ -103,7 +116,19 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
     supabase
       .from("property_territories")
       .select("property_id,territory_id")
+      .eq("organization_id", context.organizationId),
+    supabase
+      .from("visits")
+      .select("id,user_id,outcome,captured_at,property_id,lat,lng")
       .eq("organization_id", context.organizationId)
+      .gte("captured_at", fourHoursAgoIso)
+      .order("captured_at", { ascending: false })
+      .limit(60),
+    supabase
+      .from("visits")
+      .select("outcome,captured_at,property_id")
+      .eq("organization_id", context.organizationId)
+      .gte("captured_at", eightDaysAgoIso)
   ]);
 
   if (membershipsError) throw membershipsError;
@@ -115,6 +140,8 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
   if (recentLeadActivitiesError) throw recentLeadActivitiesError;
   if (territoryError) throw territoryError;
   if (propertyTerritoryError) throw propertyTerritoryError;
+  if (supervisionVisitsError) throw supervisionVisitsError;
+  if (trailingVisitsError) throw trailingVisitsError;
 
   const members = membershipRows ?? [];
   const visits = visitRows ?? [];
@@ -125,6 +152,8 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
   const recentLeadRows = recentLeadActivities ?? [];
   const territories = territoryRows ?? [];
   const propertyTerritories = propertyTerritoryRows ?? [];
+  const supervisionVisits = supervisionVisitRows ?? [];
+  const trailingVisits = trailingVisitRows ?? [];
 
   const userIds = [
     ...new Set([
@@ -140,6 +169,9 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
       ...visits.map((row) => row.property_id as string | null).filter(Boolean),
       ...stale.map((row) => row.property_id as string | null).filter(Boolean),
       ...overdueLeakage.map((row) => row.property_id as string | null).filter(Boolean)
+      ,
+      ...supervisionVisits.map((row) => row.property_id as string | null).filter(Boolean),
+      ...trailingVisits.map((row) => row.property_id as string | null).filter(Boolean)
     ])
   ];
 
@@ -151,7 +183,7 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
       propertyIds.length
         ? supabase
             .from("property_history_view")
-            .select("property_id,raw_address,city,state")
+            .select("property_id,raw_address,city,state,lat,lng")
             .in("property_id", propertyIds)
         : Promise.resolve({ data: [], error: null })
     ]);
@@ -332,15 +364,96 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
       propertyCount: new Set(propertyIdsForTerritory).size,
       knocksToday: visitsForTerritory.length,
       opportunitiesToday: visitsForTerritory.filter((visit) => visit.outcome === "opportunity").length,
-      appointmentsToday: visitsForTerritory.filter((visit) => visit.outcome === "appointment_set").length
+      appointmentsToday: visitsForTerritory.filter((visit) => visit.outcome === "appointment_set").length,
+      health:
+        visitsForTerritory.filter((visit) => visit.outcome === "opportunity").length >= 3
+          ? "strong"
+          : visitsForTerritory.length >= 3
+            ? "mixed"
+            : "cold"
     };
   });
+
+  const repPresenceMap = new Map<string, ManagerRepPresenceItem>();
+  for (const visit of supervisionVisits) {
+    const userId = visit.user_id as string | null;
+    if (!userId || repPresenceMap.has(userId)) continue;
+    const property = propertyMap.get(visit.property_id as string);
+    repPresenceMap.set(userId, {
+      userId,
+      fullName: (userMap.get(userId)?.full_name as string | null) ?? null,
+      lastSeenAt: visit.captured_at as string,
+      lastOutcome: visit.outcome as string | null,
+      lat: (visit.lat as number | null) ?? ((property?.lat as number | null) ?? null),
+      lng: (visit.lng as number | null) ?? ((property?.lng as number | null) ?? null)
+    });
+  }
+
+  const supervisionMap: ManagerMapPoint[] = supervisionVisits
+    .map((visit) => {
+      const property = propertyMap.get(visit.property_id as string);
+      const lat = (visit.lat as number | null) ?? ((property?.lat as number | null) ?? null);
+      const lng = (visit.lng as number | null) ?? ((property?.lng as number | null) ?? null);
+      if (lat == null || lng == null) return null;
+
+      return {
+        id: visit.id as string,
+        propertyId: visit.property_id as string,
+        address: (property?.raw_address as string | undefined) ?? "Unknown address",
+        lat,
+        lng,
+        outcome: visit.outcome as string | null,
+        actorName: (userMap.get(visit.user_id as string)?.full_name as string | null) ?? null,
+        capturedAt: visit.captured_at as string
+      };
+    })
+    .filter((item): item is ManagerMapPoint => Boolean(item));
+
+  const trendMap = new Map<string, ManagerNeighborhoodTrendItem>();
+  for (const visit of trailingVisits) {
+    const property = propertyMap.get(visit.property_id as string);
+    const city = (property?.city as string | null) ?? null;
+    const state = (property?.state as string | null) ?? null;
+    const key = `${city ?? "Unknown"}|${state ?? ""}`;
+    const capturedAt = visit.captured_at as string;
+    const isToday = capturedAt >= todayIso;
+    const current = trendMap.get(key) ?? {
+      city,
+      state,
+      todayKnocks: 0,
+      todayOpportunities: 0,
+      trailingAvgKnocks: 0,
+      trailingAvgOpportunities: 0
+    };
+
+    if (isToday) {
+      current.todayKnocks += 1;
+      if (visit.outcome === "opportunity") current.todayOpportunities += 1;
+    } else {
+      current.trailingAvgKnocks += 1 / 7;
+      if (visit.outcome === "opportunity") current.trailingAvgOpportunities += 1 / 7;
+    }
+
+    trendMap.set(key, current);
+  }
+
+  const neighborhoodTrends = [...trendMap.values()]
+    .map((item) => ({
+      ...item,
+      trailingAvgKnocks: Math.round(item.trailingAvgKnocks * 10) / 10,
+      trailingAvgOpportunities: Math.round(item.trailingAvgOpportunities * 10) / 10
+    }))
+    .sort((a, b) => b.todayOpportunities - a.todayOpportunities || b.todayKnocks - a.todayKnocks)
+    .slice(0, 8);
 
   return {
     summary,
     repScorecards,
     recentActivity,
     neighborhoods,
+    neighborhoodTrends,
+    repPresence: [...repPresenceMap.values()],
+    supervisionMap,
     territories: territorySummaries,
     leakage: {
       overdueCount: overdue.length,
