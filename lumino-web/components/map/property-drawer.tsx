@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CalendarCheck2, Clock3, X } from "lucide-react";
 import type { LeadInput, PropertyDetail } from "@/types/entities";
@@ -282,6 +283,14 @@ export function PropertyDrawer({
           <div>Lead status: {property.leadStatus ?? "No active lead"}</div>
           <div className="mt-1">Last visit outcome: {property.lastVisitOutcome ?? "No field history yet"}</div>
           <div className="mt-1">Last visited: {property.lastVisitedAt ? new Date(property.lastVisitedAt).toLocaleString() : "Never"}</div>
+          <div className="mt-3">
+            <Link
+              href={`/properties/${property.propertyId}`}
+              className="text-sm font-semibold text-ink underline decoration-slate-300 underline-offset-4 transition hover:text-slate-700"
+            >
+              Open full property page
+            </Link>
+          </div>
         </div>
 
         <div className="mt-6">

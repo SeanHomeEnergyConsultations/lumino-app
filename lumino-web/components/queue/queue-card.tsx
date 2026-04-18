@@ -146,6 +146,12 @@ export function QueueCard({
         >
           Open on Map
         </Link>
+        <Link
+          href={`/properties/${item.propertyId}`}
+          className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-slate-300"
+        >
+          Full Property
+        </Link>
       </div>
 
       <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
