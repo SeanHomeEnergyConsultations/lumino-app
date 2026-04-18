@@ -49,3 +49,57 @@ export interface RepQueueResponse {
   opportunities: RepQueueItem[];
   needsAttention: RepQueueItem[];
 }
+
+export interface ManagerKpiSummary {
+  activeReps: number;
+  knocksToday: number;
+  opportunitiesToday: number;
+  appointmentsToday: number;
+  overdueFollowUps: number;
+}
+
+export interface ManagerRepScorecard {
+  userId: string;
+  fullName: string | null;
+  email: string | null;
+  role: string;
+  knocks: number;
+  notHome: number;
+  doorhangers: number;
+  opportunities: number;
+  appointments: number;
+  overdueFollowUps: number;
+  opportunityRate: number;
+  activeWindowMinutes: number;
+}
+
+export interface ManagerRecentActivityItem {
+  id: string;
+  type: "visit" | "lead";
+  address: string;
+  outcome: string | null;
+  leadStatus: string | null;
+  actorName: string | null;
+  createdAt: string;
+}
+
+export interface ManagerLeakageItem {
+  leadId: string;
+  propertyId: string | null;
+  address: string;
+  leadStatus: string | null;
+  nextFollowUpAt: string | null;
+  lastActivityAt: string | null;
+  leakageReason: "overdue_follow_up" | "stale_opportunity";
+}
+
+export interface ManagerDashboardResponse {
+  summary: ManagerKpiSummary;
+  repScorecards: ManagerRepScorecard[];
+  recentActivity: ManagerRecentActivityItem[];
+  leakage: {
+    overdueCount: number;
+    staleOpportunityCount: number;
+    items: ManagerLeakageItem[];
+  };
+}
