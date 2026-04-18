@@ -32,6 +32,6 @@ export async function POST(request: Request) {
   }
 
   const origin = new URL(request.url).origin;
-  const result = await inviteTeamMember(parsed.data, context, `${origin}/login`);
+  const result = await inviteTeamMember(parsed.data, context, `${origin}/set-password?mode=invite`);
   return NextResponse.json(result);
 }

@@ -54,14 +54,19 @@ export function DailySummaryPanel() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void handleCopyEmail()}
-          disabled={!report?.emailBody}
-          className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Copy Email Summary
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void handleCopyEmail()}
+            disabled={!report?.emailBody}
+            className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {copyState === "copied" ? "Summary Copied" : "Send Summary"}
+          </button>
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+            Automation next
+          </div>
+        </div>
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -84,7 +89,7 @@ export function DailySummaryPanel() {
         <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
           <div className="text-sm font-semibold text-ink">Highlights</div>
           <div className="mt-3 space-y-2 text-sm text-slate-600">
-            {(report?.highlights ?? []).map((item) => (
+            {(report?.highlights ?? []).slice(0, 3).map((item) => (
               <div key={item} className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
                 {item}
               </div>
@@ -98,7 +103,7 @@ export function DailySummaryPanel() {
         <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
           <div className="text-sm font-semibold text-ink">Risks and focus</div>
           <div className="mt-3 space-y-2 text-sm text-slate-600">
-            {(report?.risks ?? []).map((item) => (
+            {(report?.risks ?? []).slice(0, 3).map((item) => (
               <div key={item} className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
                 {item}
               </div>
@@ -108,20 +113,11 @@ export function DailySummaryPanel() {
                 {report.territoryNotes}
               </div>
             ) : null}
+            <div className="text-xs uppercase tracking-[0.14em] text-slate-400">
+              {copyState === "error" ? "Copy failed" : report?.emailSubject ?? ""}
+            </div>
           </div>
         </div>
-      </div>
-
-      <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-950 p-4 text-sm text-slate-100">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm font-semibold">Email-ready summary</div>
-          <div className="text-xs uppercase tracking-[0.14em] text-slate-400">
-            {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : report?.emailSubject ?? ""}
-          </div>
-        </div>
-        <pre className="mt-3 whitespace-pre-wrap font-sans leading-6 text-slate-200">
-          {loading ? "Generating email summary..." : report?.emailBody ?? "No summary available."}
-        </pre>
       </div>
     </section>
   );

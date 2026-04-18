@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useEffect, useState } from "react";
 import type { LeadDetailResponse } from "@/types/api";
+import type { TaskInput } from "@/types/entities";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
 function formatDateTime(value: string | null) {
@@ -20,6 +21,10 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
   const { session } = useAuth();
   const [lead, setLead] = useState<LeadDetailResponse["item"] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [taskType, setTaskType] = useState<TaskInput["type"]>("call");
+  const [taskDueAt, setTaskDueAt] = useState("");
+  const [taskNotes, setTaskNotes] = useState("");
+  const [taskState, setTaskState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const loadLead = useCallback(async () => {
     if (!session?.access_token) return null;
@@ -38,6 +43,32 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
   useEffect(() => {
     void loadLead();
   }, [loadLead]);
+
+  async function handleCreateTask(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session?.access_token || !lead) return;
+    setTaskState("saving");
+    try {
+      const response = await authFetch(session.access_token, "/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          propertyId: lead.propertyId,
+          leadId: lead.leadId,
+          type: taskType,
+          dueAt: taskDueAt ? new Date(taskDueAt).toISOString() : null,
+          notes: taskNotes || null
+        })
+      });
+
+      if (!response.ok) throw new Error("Failed to create task");
+      setTaskState("saved");
+      setTaskNotes("");
+      setTaskDueAt("");
+      setTaskType("call");
+    } catch {
+      setTaskState("error");
+    }
+  }
 
   return (
     <div className="p-4 md:p-6">
@@ -119,6 +150,61 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Notes</div>
               <div className="mt-2">{lead?.notes ?? "No lead notes yet."}</div>
             </div>
+
+            <form className="rounded-3xl border border-slate-200 bg-slate-50 p-4" onSubmit={handleCreateTask}>
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Add task</div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <label className="text-xs text-slate-500">
+                  Task type
+                  <select
+                    value={taskType}
+                    onChange={(event) => setTaskType(event.target.value as TaskInput["type"])}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  >
+                    <option value="call">Call</option>
+                    <option value="text">Text</option>
+                    <option value="revisit">Revisit</option>
+                    <option value="appointment_confirm">Appointment Confirm</option>
+                    <option value="manager_review">Manager Review</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </label>
+                <label className="text-xs text-slate-500">
+                  Due at
+                  <input
+                    type="datetime-local"
+                    value={taskDueAt}
+                    onChange={(event) => setTaskDueAt(event.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  />
+                </label>
+                <label className="text-xs text-slate-500 md:col-span-2">
+                  Notes
+                  <textarea
+                    value={taskNotes}
+                    onChange={(event) => setTaskNotes(event.target.value)}
+                    rows={3}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  />
+                </label>
+              </div>
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <div className="text-xs text-slate-500">
+                  {taskState === "saved"
+                    ? "Task created."
+                    : taskState === "error"
+                      ? "Task save failed."
+                      : "Drop a follow-up directly onto this lead."}
+                </div>
+                <button
+                  type="submit"
+                  disabled={taskState === "saving"}
+                  className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200"
+                >
+                  {taskState === "saving" ? "Saving..." : "Add Task"}
+                </button>
+              </div>
+            </form>
           </div>
         </section>
 

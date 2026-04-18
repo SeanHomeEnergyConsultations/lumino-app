@@ -12,6 +12,7 @@ import {
   Handshake,
   HelpCircle,
   House,
+  LocateFixed,
   PhoneCall,
   UserRoundCheck,
   XCircle
@@ -24,7 +25,7 @@ import Map, {
   type ViewStateChangeEvent
 } from "react-map-gl/maplibre";
 import type { ResolvePropertyResponse } from "@/types/api";
-import type { LeadInput, MapProperty, PropertyDetail } from "@/types/entities";
+import type { LeadInput, MapProperty, PropertyDetail, TaskInput } from "@/types/entities";
 import { MapToolbar, type MapFilterKey } from "@/components/map/map-toolbar";
 import { PropertyResultsPanel } from "@/components/map/property-results-panel";
 import { PropertyDrawer } from "@/components/map/property-drawer";
@@ -101,6 +102,7 @@ export function LiveFieldMap({
   const [selectedProperty, setSelectedProperty] = useState<PropertyDetail | null>(null);
   const [propertyLoading, setPropertyLoading] = useState(false);
   const [viewState, setViewState] = useState(DEFAULT_CENTER);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isSavingVisit, setIsSavingVisit] = useState(false);
   const [isResolvingTap, setIsResolvingTap] = useState(false);
 
@@ -127,18 +129,33 @@ export function LiveFieldMap({
 
   useEffect(() => {
     if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setViewState((current) => ({
-          ...current,
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          zoom: 14
-        }));
-      },
-      () => undefined,
-      { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 }
-    );
+    const success = (position: GeolocationPosition) => {
+      const nextLocation = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude
+      };
+      setUserLocation(nextLocation);
+      setViewState((current) => ({
+        ...current,
+        latitude: nextLocation.latitude,
+        longitude: nextLocation.longitude,
+        zoom: Math.max(current.zoom, 18)
+      }));
+    };
+
+    navigator.geolocation.getCurrentPosition(success, () => undefined, {
+      enableHighAccuracy: true,
+      maximumAge: 30000,
+      timeout: 10000
+    });
+
+    const watchId = navigator.geolocation.watchPosition(success, () => undefined, {
+      enableHighAccuracy: true,
+      maximumAge: 15000,
+      timeout: 10000
+    });
+
+    return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
   async function loadPropertiesForViewport(bounds?: maplibregl.LngLatBoundsLike | null) {
@@ -321,6 +338,22 @@ export function LiveFieldMap({
     await refreshSelectedProperty(input.propertyId);
   }
 
+  async function handleCreateTask(input: TaskInput) {
+    if (!session?.access_token) return;
+    const response = await authFetch(session.access_token, "/api/tasks", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to save task");
+    }
+
+    if (input.propertyId) {
+      await refreshSelectedProperty(input.propertyId);
+    }
+  }
+
   function handleMoveEnd(event: ViewStateChangeEvent) {
     setViewState(event.viewState);
     void loadPropertiesForViewport(event.target.getBounds());
@@ -388,6 +421,14 @@ export function LiveFieldMap({
               </Marker>
             );
           })}
+          {userLocation ? (
+            <Marker latitude={userLocation.latitude} longitude={userLocation.longitude} anchor="center">
+              <div className="relative">
+                <span className="absolute inset-0 rounded-full bg-sky-500/30 animate-ping" />
+                <span className="relative block h-5 w-5 rounded-full border-4 border-white bg-sky-500 shadow-lg" />
+              </div>
+            </Marker>
+          ) : null}
         </Map>
 
         <div className="absolute bottom-4 left-4 rounded-full border border-slate-200 bg-white/90 px-4 py-2 text-sm text-slate-600 shadow-panel">
@@ -397,6 +438,23 @@ export function LiveFieldMap({
               ? "Opening property..."
               : "Pan the map, tap any property, log the outcome"}
         </div>
+        {userLocation ? (
+          <button
+            type="button"
+            onClick={() =>
+              setViewState((current) => ({
+                ...current,
+                latitude: userLocation.latitude,
+                longitude: userLocation.longitude,
+                zoom: Math.max(current.zoom, 18)
+              }))
+            }
+            className="absolute bottom-20 right-4 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-700 shadow-panel transition hover:bg-white"
+            aria-label="Center on my location"
+          >
+            <LocateFixed className="h-5 w-5" />
+          </button>
+        ) : null}
 
         {selectedMapItem ? (
           <div className="absolute right-4 top-4 rounded-2xl border border-slate-200 bg-white/92 px-4 py-3 text-sm text-slate-700 shadow-panel xl:hidden">
@@ -414,6 +472,7 @@ export function LiveFieldMap({
         savingVisit={isSavingVisit}
         onLogOutcome={handleLogOutcome}
         onSaveLead={handleSaveLead}
+        onCreateTask={handleCreateTask}
         isOpen={Boolean(selectedPropertyId)}
         onDismiss={() => {
           setSelectedPropertyId(null);

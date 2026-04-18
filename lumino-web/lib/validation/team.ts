@@ -10,3 +10,7 @@ export const teamMemberUpdateSchema = z.object({
   role: z.enum(["owner", "admin", "manager", "rep", "setter"]).optional(),
   isActive: z.boolean().optional()
 });
+
+export const teamMemberActionSchema = z.object({
+  action: z.enum(["resend_invite", "send_password_reset"])
+});

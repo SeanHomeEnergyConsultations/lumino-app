@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
+import { ensureOutcomeTask } from "@/lib/db/mutations/tasks";
 import type { AuthSessionContext } from "@/types/auth";
 import type { LeadInput } from "@/types/entities";
 
@@ -143,6 +144,28 @@ export async function upsertLead(input: LeadInput, context: AuthSessionContext) 
   });
 
   if (leadActivityError) throw leadActivityError;
+
+  if (nextFollowUpAt) {
+    await ensureOutcomeTask({
+      context,
+      propertyId: input.propertyId,
+      leadId,
+      type: "call",
+      dueAt: nextFollowUpAt,
+      notes: "Auto-created from lead follow-up scheduling."
+    });
+  }
+
+  if (appointmentAt) {
+    await ensureOutcomeTask({
+      context,
+      propertyId: input.propertyId,
+      leadId,
+      type: "appointment_confirm",
+      dueAt: appointmentAt,
+      notes: "Auto-created from appointment scheduling."
+    });
+  }
 
   return {
     leadId,

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CalendarCheck2, Clock3, X } from "lucide-react";
-import type { LeadInput, PropertyDetail } from "@/types/entities";
+import type { LeadInput, PropertyDetail, TaskInput } from "@/types/entities";
 
 const quickOutcomes = [
   { label: "Not Home", value: "not_home" },
@@ -28,6 +28,7 @@ export function PropertyDrawer({
   savingVisit,
   onLogOutcome,
   onSaveLead,
+  onCreateTask,
   onDismiss,
   isOpen = false
 }: {
@@ -36,6 +37,7 @@ export function PropertyDrawer({
   savingVisit?: boolean;
   onLogOutcome: (outcome: string) => void;
   onSaveLead: (input: LeadInput) => Promise<void>;
+  onCreateTask: (input: TaskInput) => Promise<void>;
   onDismiss?: () => void;
   isOpen?: boolean;
 }) {
@@ -51,6 +53,10 @@ export function PropertyDrawer({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [postAction, setPostAction] = useState<string | null>(null);
   const [actionState, setActionState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [taskType, setTaskType] = useState<TaskInput["type"]>("custom");
+  const [taskDueAt, setTaskDueAt] = useState("");
+  const [taskNotes, setTaskNotes] = useState("");
+  const [taskState, setTaskState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   function toDateTimeLocal(value: string | null | undefined) {
     if (!value) return "";
@@ -72,6 +78,10 @@ export function PropertyDrawer({
     setSaveState("idle");
     setPostAction(null);
     setActionState("idle");
+    setTaskType("custom");
+    setTaskDueAt("");
+    setTaskNotes("");
+    setTaskState("idle");
   }, [property]);
 
   const content = loading ? (
@@ -420,6 +430,84 @@ export function PropertyDrawer({
               className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saveState === "saving" ? "Saving..." : property.leadId ? "Update Lead" : "Create Lead"}
+            </button>
+          </div>
+        </form>
+
+        <form
+          className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-4"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!property) return;
+            setTaskState("saving");
+            try {
+              await onCreateTask({
+                propertyId: property.propertyId,
+                leadId: property.leadId,
+                type: taskType,
+                dueAt: taskDueAt ? new Date(taskDueAt).toISOString() : null,
+                notes: taskNotes || null
+              });
+              setTaskState("saved");
+              setTaskDueAt("");
+              setTaskNotes("");
+              setTaskType("custom");
+            } catch {
+              setTaskState("error");
+            }
+          }}
+        >
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Quick Task</div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <label className="text-xs text-slate-500">
+              Task type
+              <select
+                value={taskType}
+                onChange={(event) => setTaskType(event.target.value as TaskInput["type"])}
+                className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              >
+                <option value="custom">Custom</option>
+                <option value="call">Call</option>
+                <option value="text">Text</option>
+                <option value="revisit">Revisit</option>
+                <option value="appointment_confirm">Appointment Confirm</option>
+                <option value="manager_review">Manager Review</option>
+              </select>
+            </label>
+            <label className="text-xs text-slate-500">
+              Due at
+              <input
+                type="datetime-local"
+                value={taskDueAt}
+                onChange={(event) => setTaskDueAt(event.target.value)}
+                className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              />
+            </label>
+            <label className="text-xs text-slate-500 md:col-span-2">
+              Notes
+              <textarea
+                value={taskNotes}
+                onChange={(event) => setTaskNotes(event.target.value)}
+                rows={3}
+                placeholder="What should happen next?"
+                className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              />
+            </label>
+          </div>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <div className="text-xs text-slate-500">
+              {taskState === "saved"
+                ? "Task created."
+                : taskState === "error"
+                  ? "Task save failed."
+                  : "Add a manual follow-up without leaving the map."}
+            </div>
+            <button
+              type="submit"
+              disabled={taskState === "saving"}
+              className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200"
+            >
+              {taskState === "saving" ? "Saving..." : "Add Task"}
             </button>
           </div>
         </form>

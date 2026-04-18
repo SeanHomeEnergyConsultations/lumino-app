@@ -15,13 +15,25 @@ export function LeadsPage() {
   const { session } = useAuth();
   const [items, setItems] = useState<LeadListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const [cityFilter, setCityFilter] = useState("all");
+  const [followUpFilter, setFollowUpFilter] = useState("all");
+  const [appointmentFilter, setAppointmentFilter] = useState("all");
 
   const loadLeads = useCallback(async () => {
     if (!session?.access_token) return null;
     setLoading(true);
     try {
-      const response = await authFetch(session.access_token, "/api/leads");
+      const params = new URLSearchParams();
+      if (searchQuery.trim()) params.set("q", searchQuery.trim());
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (ownerFilter !== "all") params.set("ownerId", ownerFilter);
+      if (cityFilter !== "all") params.set("city", cityFilter);
+      if (followUpFilter !== "all") params.set("followUp", followUpFilter);
+      if (appointmentFilter !== "all") params.set("appointment", appointmentFilter);
+      const response = await authFetch(session.access_token, `/api/leads?${params.toString()}`);
       if (!response.ok) return null;
       const json = (await response.json()) as LeadsResponse;
       setItems(json.items);
@@ -29,19 +41,28 @@ export function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [session?.access_token]);
+  }, [appointmentFilter, cityFilter, followUpFilter, ownerFilter, searchQuery, session?.access_token, statusFilter]);
 
   useEffect(() => {
     void loadLeads();
   }, [loadLeads]);
 
-  const visibleItems = useMemo(() => {
-    if (statusFilter === "all") return items;
-    return items.filter((item) => item.leadStatus === statusFilter);
-  }, [items, statusFilter]);
-
   const uniqueStatuses = useMemo(
     () => ["all", ...new Set(items.map((item) => item.leadStatus).filter(Boolean))],
+    [items]
+  );
+  const uniqueOwners = useMemo(
+    () =>
+      [
+        { value: "all", label: "All owners" },
+        ...Array.from(new Map(items.filter((item) => item.ownerId).map((item) => [item.ownerId as string, item.ownerName ?? "Unknown owner"]))).map(
+          ([value, label]) => ({ value, label })
+        )
+      ],
+    [items]
+  );
+  const uniqueCities = useMemo(
+    () => ["all", ...new Set(items.map((item) => item.city).filter(Boolean) as string[])],
     [items]
   );
 
@@ -57,19 +78,85 @@ export function LeadsPage() {
             </p>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-3">
-            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Filter by stage</div>
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-              className="mt-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
-            >
-              {uniqueStatuses.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
+          <div className="w-full rounded-3xl border border-slate-200 bg-slate-50 p-3 xl:max-w-4xl">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 xl:col-span-2">
+                Search leads
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Address, homeowner, phone, email, outcome"
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                />
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Stage
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                >
+                  {uniqueStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Owner
+                <select
+                  value={ownerFilter}
+                  onChange={(event) => setOwnerFilter(event.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                >
+                  {uniqueOwners.map((owner) => (
+                    <option key={owner.value} value={owner.value}>
+                      {owner.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                City
+                <select
+                  value={cityFilter}
+                  onChange={(event) => setCityFilter(event.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                >
+                  {uniqueCities.map((city) => (
+                    <option key={city} value={city}>
+                      {city === "all" ? "All cities" : city}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Follow-up
+                <select
+                  value={followUpFilter}
+                  onChange={(event) => setFollowUpFilter(event.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                >
+                  <option value="all">All</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Appointment
+                <select
+                  value={appointmentFilter}
+                  onChange={(event) => setAppointmentFilter(event.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                >
+                  <option value="all">All</option>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -81,6 +168,7 @@ export function LeadsPage() {
               <tr>
                 <th className="pb-3 pr-4 font-semibold">Lead</th>
                 <th className="pb-3 pr-4 font-semibold">Stage</th>
+                <th className="pb-3 pr-4 font-semibold">Last Outcome</th>
                 <th className="pb-3 pr-4 font-semibold">Next Follow-Up</th>
                 <th className="pb-3 pr-4 font-semibold">Appointment</th>
                 <th className="pb-3 pr-4 font-semibold">Owner</th>
@@ -88,14 +176,20 @@ export function LeadsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {visibleItems.map((item) => (
+              {items.map((item) => (
                 <tr key={item.leadId}>
                   <td className="py-3 pr-4">
                     <div className="font-semibold text-ink">{item.contactName ?? item.address}</div>
-                    <div className="mt-1 text-xs text-slate-500">{item.address}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {item.address}
+                      {[item.city, item.state, item.postalCode].filter(Boolean).length
+                        ? ` · ${[item.city, item.state, item.postalCode].filter(Boolean).join(", ")}`
+                        : ""}
+                    </div>
                     <div className="mt-1 text-xs text-slate-500">{item.phone ?? item.email ?? "No contact yet"}</div>
                   </td>
                   <td className="py-3 pr-4">{item.leadStatus}</td>
+                  <td className="py-3 pr-4">{item.lastActivityOutcome ?? "None"}</td>
                   <td className="py-3 pr-4">{formatDateTime(item.nextFollowUpAt)}</td>
                   <td className="py-3 pr-4">{formatDateTime(item.appointmentAt)}</td>
                   <td className="py-3 pr-4">{item.ownerName ?? "Unassigned"}</td>
@@ -119,9 +213,9 @@ export function LeadsPage() {
                   </td>
                 </tr>
               ))}
-              {!loading && !visibleItems.length ? (
+              {!loading && !items.length ? (
                 <tr>
-                  <td colSpan={6} className="py-6 text-center text-slate-500">
+                  <td colSpan={7} className="py-6 text-center text-slate-500">
                     No leads match this filter yet.
                   </td>
                 </tr>

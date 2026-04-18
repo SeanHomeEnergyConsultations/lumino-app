@@ -58,6 +58,14 @@ export interface LeadInput {
   appointmentAt?: string | null;
 }
 
+export interface TaskInput {
+  propertyId?: string | null;
+  leadId?: string | null;
+  type: "call" | "text" | "revisit" | "appointment_confirm" | "manager_review" | "custom";
+  dueAt?: string | null;
+  notes?: string | null;
+}
+
 export interface PropertyVisitHistoryItem {
   id: string;
   outcome: string;

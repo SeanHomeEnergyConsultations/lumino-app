@@ -162,6 +162,52 @@ export async function inviteTeamMember(
   };
 }
 
+export async function triggerTeamMemberAccessEmail(
+  memberId: string,
+  action: "resend_invite" | "send_password_reset",
+  context: AuthSessionContext,
+  redirectTo: string
+) {
+  const supabase = createServerSupabaseClient();
+  if (!context.organizationId) {
+    throw new Error("No active organization found for this user.");
+  }
+
+  const { data: membership, error: membershipError } = await supabase
+    .from("organization_members")
+    .select("id,user_id,organization_id")
+    .eq("organization_id", context.organizationId)
+    .eq("id", memberId)
+    .maybeSingle();
+
+  if (membershipError) throw membershipError;
+  if (!membership) throw new Error("Team member not found.");
+
+  const { data: user, error: userError } = await supabase
+    .from("app_users")
+    .select("id,email,full_name")
+    .eq("id", membership.user_id)
+    .maybeSingle();
+
+  if (userError) throw userError;
+  if (!user?.email) throw new Error("Team member is missing an email address.");
+
+  if (action === "resend_invite") {
+    const { error } = await supabase.auth.admin.inviteUserByEmail(user.email, {
+      data: { full_name: user.full_name ?? "" },
+      redirectTo
+    });
+    if (error) throw error;
+    return { ok: true as const };
+  }
+
+  const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+    redirectTo
+  });
+  if (error) throw error;
+  return { ok: true as const };
+}
+
 export async function updateTeamMember(
   memberId: string,
   input: { role?: "owner" | "admin" | "manager" | "rep" | "setter"; isActive?: boolean },

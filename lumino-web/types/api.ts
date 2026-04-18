@@ -298,12 +298,17 @@ export interface TasksResponse {
   needsAttention: TaskBoardItem[];
 }
 
+export interface TaskMutationResponse {
+  taskId: string;
+}
+
 export interface LeadListItem {
   leadId: string;
   propertyId: string | null;
   address: string;
   city: string | null;
   state: string | null;
+  postalCode: string | null;
   contactName: string | null;
   phone: string | null;
   email: string | null;
@@ -311,7 +316,9 @@ export interface LeadListItem {
   nextFollowUpAt: string | null;
   appointmentAt: string | null;
   lastActivityAt: string | null;
+  lastActivityOutcome: string | null;
   ownerName: string | null;
+  ownerId: string | null;
 }
 
 export interface LeadsResponse {
@@ -374,4 +381,8 @@ export interface TeamMemberItem {
 
 export interface TeamMembersResponse {
   items: TeamMemberItem[];
+}
+
+export interface TeamMemberActionResponse {
+  ok: true;
 }

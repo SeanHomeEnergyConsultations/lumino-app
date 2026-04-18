@@ -297,6 +297,23 @@ export function TerritoryAdminPage() {
     }
   }
 
+  async function handleMemberAction(memberId: string, action: "resend_invite" | "send_password_reset") {
+    if (!accessToken) return;
+
+    setSaveState("saving");
+    try {
+      const response = await authFetch(accessToken, `/api/team/members/${memberId}`, {
+        method: "POST",
+        body: JSON.stringify({ action })
+      });
+
+      if (!response.ok) throw new Error("Failed to send access email");
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  }
+
   return (
     <div className="p-4 md:p-6">
       <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
@@ -446,6 +463,22 @@ export function TerritoryAdminPage() {
                         }`}
                       >
                         {member.isActive ? "Deactivate" : "Reactivate"}
+                      </button>
+                      {member.onboardingStatus !== "active" ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleMemberAction(member.memberId, "resend_invite")}
+                          className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100"
+                        >
+                          Resend Invite
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void handleMemberAction(member.memberId, "send_password_reset")}
+                        className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
+                      >
+                        Send Reset
                       </button>
                     </div>
                   </div>

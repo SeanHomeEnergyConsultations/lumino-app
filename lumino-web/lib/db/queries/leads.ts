@@ -8,22 +8,36 @@ function mapLeadStatus(status: string | null) {
 
 export async function getLeads(
   context: AuthSessionContext,
-  requestedOwnerId?: string | null
+  filters?: {
+    ownerId?: string | null;
+    q?: string | null;
+    status?: string | null;
+    city?: string | null;
+    state?: string | null;
+    followUp?: "all" | "overdue" | "scheduled" | "none" | null;
+    appointment?: "all" | "scheduled" | "none" | null;
+  }
 ): Promise<LeadsResponse> {
   const supabase = createServerSupabaseClient();
   const isManager = context.memberships.some((membership) =>
     ["owner", "admin", "manager"].includes(membership.role)
   );
-  const ownerId = requestedOwnerId && isManager ? requestedOwnerId : null;
+  const ownerId = filters?.ownerId && isManager ? filters.ownerId : null;
+  const q = filters?.q?.trim().toLowerCase() ?? "";
+  const status = filters?.status?.trim() ?? "";
+  const city = filters?.city?.trim().toLowerCase() ?? "";
+  const state = filters?.state?.trim().toLowerCase() ?? "";
+  const followUp = filters?.followUp ?? "all";
+  const appointment = filters?.appointment ?? "all";
 
   let query = supabase
     .from("leads")
     .select(
-      "id,property_id,address,city,state,phone,email,lead_status,next_follow_up_at,appointment_at,last_activity_at,owner_id,first_name,last_name"
+      "id,property_id,address,city,state,zipcode,phone,email,lead_status,next_follow_up_at,appointment_at,last_activity_at,last_activity_outcome,owner_id,first_name,last_name"
     )
     .eq("organization_id", context.organizationId)
     .order("updated_at", { ascending: false })
-    .limit(250);
+    .limit(500);
 
   if (ownerId) {
     query = query.or(`owner_id.eq.${ownerId},assigned_to.eq.${ownerId}`);
@@ -40,8 +54,10 @@ export async function getLeads(
   if (ownersError) throw ownersError;
 
   const ownerMap = new Map((owners ?? []).map((row) => [row.id as string, row]));
+  const now = Date.now();
 
-  const items: LeadListItem[] = (leads ?? []).map((row) => {
+  const items: LeadListItem[] = (leads ?? [])
+    .map((row) => {
     const owner = ownerMap.get((row.owner_id as string | null) ?? "");
 
     return {
@@ -50,6 +66,7 @@ export async function getLeads(
       address: (row.address as string | null) ?? "Unknown address",
       city: (row.city as string | null) ?? null,
       state: (row.state as string | null) ?? null,
+      postalCode: (row.zipcode as string | null) ?? null,
       contactName:
         [row.first_name as string | null, row.last_name as string | null].filter(Boolean).join(" ") || null,
       phone: (row.phone as string | null) ?? null,
@@ -58,9 +75,47 @@ export async function getLeads(
       nextFollowUpAt: (row.next_follow_up_at as string | null) ?? null,
       appointmentAt: (row.appointment_at as string | null) ?? null,
       lastActivityAt: (row.last_activity_at as string | null) ?? null,
-      ownerName: (owner?.full_name as string | null | undefined) ?? (owner?.email as string | null | undefined) ?? null
+      lastActivityOutcome: (row.last_activity_outcome as string | null) ?? null,
+      ownerName: (owner?.full_name as string | null | undefined) ?? (owner?.email as string | null | undefined) ?? null,
+      ownerId: (row.owner_id as string | null) ?? null
     };
-  });
+  })
+    .filter((item) => {
+      if (status && status !== "all" && item.leadStatus !== status) return false;
+      if (city && (item.city ?? "").toLowerCase() !== city) return false;
+      if (state && (item.state ?? "").toLowerCase() !== state) return false;
+
+      if (followUp === "overdue" && !(item.nextFollowUpAt && new Date(item.nextFollowUpAt).getTime() < now)) {
+        return false;
+      }
+      if (followUp === "scheduled" && !item.nextFollowUpAt) return false;
+      if (followUp === "none" && item.nextFollowUpAt) return false;
+
+      if (appointment === "scheduled" && !item.appointmentAt) return false;
+      if (appointment === "none" && item.appointmentAt) return false;
+
+      if (q) {
+        const haystack = [
+          item.address,
+          item.city,
+          item.state,
+          item.postalCode,
+          item.contactName,
+          item.phone,
+          item.email,
+          item.ownerName,
+          item.leadStatus,
+          item.lastActivityOutcome
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        if (!haystack.includes(q)) return false;
+      }
+
+      return true;
+    });
 
   return { items };
 }

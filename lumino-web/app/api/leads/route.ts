@@ -13,7 +13,15 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const items = await getLeads(context, searchParams.get("ownerId"));
+  const items = await getLeads(context, {
+    ownerId: searchParams.get("ownerId"),
+    q: searchParams.get("q"),
+    status: searchParams.get("status"),
+    city: searchParams.get("city"),
+    state: searchParams.get("state"),
+    followUp: (searchParams.get("followUp") as "all" | "overdue" | "scheduled" | "none" | null) ?? "all",
+    appointment: (searchParams.get("appointment") as "all" | "scheduled" | "none" | null) ?? "all"
+  });
   return NextResponse.json(items);
 }
 
