@@ -1,9 +1,21 @@
 import { NextResponse } from "next/server";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { upsertLead } from "@/lib/db/mutations/leads";
+import { getLeads } from "@/lib/db/queries/leads";
 import { leadInputSchema } from "@/lib/validation/leads";
 
 export const dynamic = "force-dynamic";
+
+export async function GET(request: Request) {
+  const context = await getRequestSessionContext(request);
+  if (!context) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const items = await getLeads(context, searchParams.get("ownerId"));
+  return NextResponse.json(items);
+}
 
 export async function POST(request: Request) {
   const context = await getRequestSessionContext(request);

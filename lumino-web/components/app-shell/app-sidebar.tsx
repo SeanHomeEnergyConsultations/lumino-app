@@ -1,11 +1,13 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { Map, LayoutDashboard, ListTodo, CheckSquare2, Users } from "lucide-react";
+import { Map, LayoutDashboard, ListTodo, CheckSquare2, Users, CalendarCheck2, ContactRound } from "lucide-react";
 import { LogoMark } from "@/components/shared/logo-mark";
 
 const nav = [
   { href: "/map", label: "Map", icon: Map },
   { href: "/queue", label: "Queue", icon: ListTodo },
+  { href: "/leads", label: "Leads", icon: ContactRound },
+  { href: "/appointments", label: "Appointments", icon: CalendarCheck2 },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/tasks", label: "Tasks", icon: CheckSquare2 },
   { href: "/team", label: "Team", icon: Users }

@@ -230,3 +230,131 @@ export interface ManagerDailySummaryResponse {
   emailSubject: string;
   emailBody: string;
 }
+
+export interface AppointmentScheduleItem {
+  leadId: string;
+  propertyId: string;
+  address: string;
+  city: string | null;
+  state: string | null;
+  scheduledAt: string;
+  leadStatus: string | null;
+  contactName: string | null;
+  phone: string | null;
+  email: string | null;
+  ownerId: string | null;
+  ownerName: string | null;
+}
+
+export interface AppointmentsResponse {
+  summary: {
+    pastDue: number;
+    today: number;
+    upcoming: number;
+  };
+  pastDue: AppointmentScheduleItem[];
+  today: AppointmentScheduleItem[];
+  upcoming: AppointmentScheduleItem[];
+}
+
+export interface SearchResultItem {
+  id: string;
+  kind: "property" | "lead";
+  title: string;
+  subtitle: string;
+  href: string;
+  propertyId: string | null;
+  leadId: string | null;
+}
+
+export interface SearchResponse {
+  items: SearchResultItem[];
+}
+
+export interface TaskBoardItem {
+  id: string;
+  kind: "follow_up" | "appointment" | "manual" | "needs_attention";
+  title: string;
+  address: string;
+  city: string | null;
+  state: string | null;
+  dueAt: string | null;
+  leadStatus: string | null;
+  propertyId: string | null;
+  leadId: string | null;
+  notes: string | null;
+}
+
+export interface TasksResponse {
+  summary: {
+    overdue: number;
+    today: number;
+    upcoming: number;
+    needsAttention: number;
+  };
+  overdue: TaskBoardItem[];
+  today: TaskBoardItem[];
+  upcoming: TaskBoardItem[];
+  needsAttention: TaskBoardItem[];
+}
+
+export interface LeadListItem {
+  leadId: string;
+  propertyId: string | null;
+  address: string;
+  city: string | null;
+  state: string | null;
+  contactName: string | null;
+  phone: string | null;
+  email: string | null;
+  leadStatus: string;
+  nextFollowUpAt: string | null;
+  appointmentAt: string | null;
+  lastActivityAt: string | null;
+  ownerName: string | null;
+}
+
+export interface LeadsResponse {
+  items: LeadListItem[];
+}
+
+export interface LeadDetailActivityItem {
+  id: string;
+  type: string;
+  createdAt: string;
+  actorUserId: string | null;
+  data: Record<string, unknown>;
+}
+
+export interface LeadDetailItem {
+  leadId: string;
+  propertyId: string | null;
+  address: string;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  contactName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  email: string | null;
+  leadStatus: string;
+  interestLevel: string | null;
+  nextFollowUpAt: string | null;
+  appointmentAt: string | null;
+  lastActivityAt: string | null;
+  lastActivityType: string | null;
+  lastActivityOutcome: string | null;
+  notes: string | null;
+  ownerName: string | null;
+  propertySummary: {
+    lastVisitOutcome: string | null;
+    lastVisitedAt: string | null;
+    visitCount: number;
+  } | null;
+  activities: LeadDetailActivityItem[];
+}
+
+export interface LeadDetailResponse {
+  item: LeadDetailItem;
+}
