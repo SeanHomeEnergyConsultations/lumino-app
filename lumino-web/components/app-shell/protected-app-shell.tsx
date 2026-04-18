@@ -1,0 +1,46 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { AppShell } from "@/components/app-shell/app-shell";
+import { useAuth } from "@/lib/auth/client";
+
+export function ProtectedAppShell({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const { session, loading, envReady } = useAuth();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!loading && !session) {
+      router.replace("/login");
+    }
+  }, [loading, router, session]);
+
+  if (mounted && !envReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#f7f3ea_0%,#edf2f8_100%)] px-6">
+        <div className="max-w-md rounded-3xl border border-white/70 bg-white/80 p-6 text-sm text-slate-600 shadow-panel backdrop-blur">
+          Missing Supabase environment variables. Add them to <code>.env.local</code> to use the new app.
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#f7f3ea_0%,#edf2f8_100%)]">
+        <div className="rounded-3xl border border-white/70 bg-white/80 px-6 py-4 text-sm text-slate-600 shadow-panel backdrop-blur">
+          Loading Lumino…
+        </div>
+      </div>
+    );
+  }
+
+  if (!session) return null;
+
+  return <AppShell>{children}</AppShell>;
+}

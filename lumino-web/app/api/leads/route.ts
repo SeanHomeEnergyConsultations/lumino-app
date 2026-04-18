@@ -1,0 +1,29 @@
+import { NextResponse } from "next/server";
+import { getRequestSessionContext } from "@/lib/auth/server";
+import { upsertLead } from "@/lib/db/mutations/leads";
+import { leadInputSchema } from "@/lib/validation/leads";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(request: Request) {
+  const context = await getRequestSessionContext(request);
+  if (!context) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const json = await request.json();
+  const parsed = leadInputSchema.safeParse(json);
+
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        error: "Invalid lead payload",
+        issues: parsed.error.flatten()
+      },
+      { status: 400 }
+    );
+  }
+
+  const result = await upsertLead(parsed.data, context);
+  return NextResponse.json(result);
+}

@@ -1,0 +1,282 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { LeadInput, PropertyDetail } from "@/types/entities";
+
+const quickOutcomes = [
+  { label: "No Answer", value: "no_answer" },
+  { label: "Interested", value: "interested" },
+  { label: "Callback", value: "callback_requested" },
+  { label: "Not Interested", value: "not_interested" },
+  { label: "Do Not Knock", value: "do_not_knock" }
+];
+
+function EmptyPropertyState() {
+  return (
+    <div className="rounded-3xl border border-dashed border-slate-300 bg-white/60 p-6 text-sm text-slate-500">
+      Select a property to see memory, visit history, and quick actions.
+    </div>
+  );
+}
+
+export function PropertyDrawer({
+  property,
+  loading,
+  savingVisit,
+  onLogOutcome,
+  onSaveLead
+}: {
+  property: PropertyDetail | null;
+  loading: boolean;
+  savingVisit?: boolean;
+  onLogOutcome: (outcome: string) => void;
+  onSaveLead: (input: LeadInput) => Promise<void>;
+}) {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [notes, setNotes] = useState("");
+  const [leadStatus, setLeadStatus] = useState("New");
+  const [interestLevel, setInterestLevel] = useState<"low" | "medium" | "high">("medium");
+  const [nextFollowUpAt, setNextFollowUpAt] = useState("");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
+  function toDateTimeLocal(value: string | null | undefined) {
+    if (!value) return "";
+    const date = new Date(value);
+    const offset = date.getTimezoneOffset();
+    return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16);
+  }
+
+  useEffect(() => {
+    setFirstName(property?.firstName ?? "");
+    setLastName(property?.lastName ?? "");
+    setPhone(property?.phone ?? "");
+    setEmail(property?.email ?? "");
+    setNotes(property?.leadNotes ?? "");
+    setLeadStatus(property?.leadStatus ?? "New");
+    setInterestLevel("medium");
+    setNextFollowUpAt(toDateTimeLocal(property?.leadNextFollowUpAt));
+    setSaveState("idle");
+  }, [property]);
+
+  const content = loading ? (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-panel">
+      <div className="text-sm text-slate-500">Loading property memory…</div>
+    </div>
+  ) : !property ? (
+    <EmptyPropertyState />
+  ) : (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-panel">
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Property Memory</div>
+        <h2 className="mt-2 text-xl font-semibold text-ink">{property.address}</h2>
+        <div className="mt-2 text-sm text-slate-600">
+          {property.mapState} · {property.visitCount} visits · follow-up {property.followUpState}
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          {quickOutcomes.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => onLogOutcome(item.value)}
+              disabled={savingVisit}
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-950 hover:text-white"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+          <div>Lead status: {property.leadStatus ?? "No active lead"}</div>
+          <div className="mt-1">Last visit outcome: {property.lastVisitOutcome ?? "No field history yet"}</div>
+          <div className="mt-1">Last visited: {property.lastVisitedAt ? new Date(property.lastVisitedAt).toLocaleString() : "Never"}</div>
+        </div>
+
+        <div className="mt-6">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Contact</div>
+          <div className="mt-2 space-y-1 text-sm text-slate-600">
+            <div>{property.phone || "No phone yet"}</div>
+            <div>{property.email || "No email yet"}</div>
+          </div>
+        </div>
+
+        <form
+          className="mt-6 rounded-3xl border border-slate-200 bg-white p-4"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!property) return;
+            setSaveState("saving");
+            try {
+              await onSaveLead({
+                propertyId: property.propertyId,
+                firstName,
+                lastName,
+                phone,
+                email,
+                notes,
+                leadStatus,
+                interestLevel,
+                nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null
+              });
+              setSaveState("saved");
+            } catch {
+              setSaveState("error");
+            }
+          }}
+        >
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Lead Capture</div>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <label className="text-xs text-slate-500">
+              First name
+              <input
+                value={firstName}
+                onChange={(event) => setFirstName(event.target.value)}
+                className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              />
+            </label>
+            <label className="text-xs text-slate-500">
+              Last name
+              <input
+                value={lastName}
+                onChange={(event) => setLastName(event.target.value)}
+                className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              />
+            </label>
+            <label className="col-span-2 text-xs text-slate-500">
+              Phone
+              <input
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              />
+            </label>
+            <label className="col-span-2 text-xs text-slate-500">
+              Email
+              <input
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              />
+            </label>
+            <label className="text-xs text-slate-500">
+              Lead stage
+              <select
+                value={leadStatus}
+                onChange={(event) => setLeadStatus(event.target.value)}
+                className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              >
+                {["New", "Attempting Contact", "Connected", "Nurture", "Appointment Set", "Qualified"].map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-slate-500">
+              Interest
+              <select
+                value={interestLevel}
+                onChange={(event) => setInterestLevel(event.target.value as "low" | "medium" | "high")}
+                className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <label className="col-span-2 text-xs text-slate-500">
+              Next follow-up
+              <input
+                type="datetime-local"
+                value={nextFollowUpAt}
+                onChange={(event) => setNextFollowUpAt(event.target.value)}
+                className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              />
+            </label>
+            <label className="col-span-2 text-xs text-slate-500">
+              Notes
+              <textarea
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                rows={4}
+                className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <div className="text-xs text-slate-500">
+              {saveState === "saved"
+                ? "Lead saved."
+                : saveState === "error"
+                  ? "Save failed. Try again."
+                  : "Capture homeowner details right from the map."}
+            </div>
+            <button
+              type="submit"
+              disabled={saveState === "saving"}
+              className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saveState === "saving" ? "Saving..." : property.leadId ? "Update Lead" : "Create Lead"}
+            </button>
+          </div>
+        </form>
+
+        <div className="mt-6">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Recent Visits</div>
+          <div className="mt-3 space-y-3">
+            {property.recentVisits.length ? (
+              property.recentVisits.slice(0, 4).map((visit) => (
+                <div key={visit.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <div className="font-medium text-ink">{visit.outcome}</div>
+                  <div className="mt-1 text-xs text-slate-500">{new Date(visit.capturedAt).toLocaleString()}</div>
+                  {visit.notes ? <div className="mt-2 text-slate-600">{visit.notes}</div> : null}
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-200 p-3 text-sm text-slate-500">
+                No structured visits yet.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Timeline</div>
+          <div className="mt-3 space-y-3">
+            {property.recentActivities.length ? (
+              property.recentActivities.slice(0, 4).map((activity) => (
+                <div key={activity.id} className="rounded-2xl border border-slate-200 bg-white p-3 text-sm">
+                  <div className="font-medium text-ink">{activity.type}</div>
+                  <div className="mt-1 text-xs text-slate-500">{new Date(activity.createdAt).toLocaleString()}</div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-200 p-3 text-sm text-slate-500">
+                No property activity has been logged yet.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+  );
+
+  return (
+    <>
+      <aside className="relative z-20 hidden w-[28rem] shrink-0 border-l border-slate-200/80 bg-white/80 p-5 backdrop-blur xl:block">
+        {content}
+      </aside>
+
+      {loading || property ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 p-3 xl:hidden">
+          <div className="pointer-events-auto max-h-[55vh] overflow-y-auto rounded-[1.75rem] border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur">
+            {content}
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
