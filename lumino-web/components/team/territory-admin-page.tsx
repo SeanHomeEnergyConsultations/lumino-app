@@ -406,6 +406,19 @@ export function TerritoryAdminPage() {
                       <div className="mt-1 text-xs text-slate-500">
                         Joined {member.joinedAt ? new Date(member.joinedAt).toLocaleDateString() : "unknown"}
                       </div>
+                      <div className="mt-2 inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+                        {member.onboardingStatus}
+                      </div>
+                      {member.onboardingStatus === "pending" ? (
+                        <div className="mt-1 text-xs text-slate-500">
+                          Invited {member.invitedAt ? new Date(member.invitedAt).toLocaleDateString() : "recently"}
+                        </div>
+                      ) : null}
+                      {member.onboardingStatus === "active" && member.lastSignInAt ? (
+                        <div className="mt-1 text-xs text-slate-500">
+                          Last signed in {new Date(member.lastSignInAt).toLocaleDateString()}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <select

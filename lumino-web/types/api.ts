@@ -366,6 +366,9 @@ export interface TeamMemberItem {
   email: string | null;
   role: string;
   isActive: boolean;
+  onboardingStatus: "active" | "pending" | "inactive";
+  invitedAt: string | null;
+  lastSignInAt: string | null;
   joinedAt: string | null;
 }
 

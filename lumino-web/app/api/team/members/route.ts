@@ -31,6 +31,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid invite payload", issues: parsed.error.flatten() }, { status: 400 });
   }
 
-  const result = await inviteTeamMember(parsed.data, context);
+  const origin = new URL(request.url).origin;
+  const result = await inviteTeamMember(parsed.data, context, `${origin}/login`);
   return NextResponse.json(result);
 }

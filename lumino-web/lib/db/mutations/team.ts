@@ -1,53 +1,111 @@
-import { randomUUID } from "node:crypto";
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import type { AuthSessionContext } from "@/types/auth";
 
-function buildTempExternalAuthId() {
-  return randomUUID();
+function mapMembershipRoleToAppUserRole(role: "owner" | "admin" | "manager" | "rep" | "setter") {
+  if (role === "owner") return "admin";
+  if (role === "setter") return "rep";
+  return role;
 }
 
 export async function inviteTeamMember(
   input: { email: string; fullName: string; role: "owner" | "admin" | "manager" | "rep" | "setter" },
-  context: AuthSessionContext
+  context: AuthSessionContext,
+  redirectTo?: string
 ) {
   const supabase = createServerSupabaseClient();
   if (!context.organizationId) throw new Error("No active organization found for this user.");
 
   const normalizedEmail = input.email.trim().toLowerCase();
+  const appUserRole = mapMembershipRoleToAppUserRole(input.role);
+  const [{ data: authUsersData, error: authUsersError }, { data: existingUser, error: existingUserError }] =
+    await Promise.all([
+      supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+      supabase
+        .from("app_users")
+        .select("id,email,external_auth_id,default_organization_id")
+        .eq("email", normalizedEmail)
+        .maybeSingle()
+    ]);
 
-  const { data: existingUser, error: existingUserError } = await supabase
-    .from("app_users")
-    .select("id,email")
-    .eq("email", normalizedEmail)
-    .maybeSingle();
-
+  if (authUsersError) throw authUsersError;
   if (existingUserError) throw existingUserError;
+
+  const existingAuthUser = authUsersData.users.find(
+    (user) => user.email?.toLowerCase() === normalizedEmail
+  );
+
+  let authUserId = existingAuthUser?.id as string | undefined;
+
+  if (!authUserId) {
+    const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(
+      normalizedEmail,
+      {
+        data: { full_name: input.fullName.trim() },
+        redirectTo
+      }
+    );
+
+    if (inviteError) throw inviteError;
+    authUserId = inviteData.user?.id;
+  }
+
+  if (!authUserId) {
+    throw new Error("Could not create or resolve auth user for invite.");
+  }
 
   let userId = existingUser?.id as string | undefined;
 
   if (!userId) {
-    const { data: insertedUser, error: insertUserError } = await supabase
+    const { data: appUserFromTrigger, error: appUserLookupError } = await supabase
       .from("app_users")
-      .insert({
-        email: normalizedEmail,
-        full_name: input.fullName.trim(),
-        role: input.role,
-        is_active: true,
-        external_auth_id: buildTempExternalAuthId(),
-        default_organization_id: context.organizationId
-      })
       .select("id")
-      .single();
+      .eq("external_auth_id", authUserId)
+      .maybeSingle();
 
-    if (insertUserError) throw insertUserError;
-    userId = insertedUser.id as string;
+    if (appUserLookupError) throw appUserLookupError;
+
+    if (appUserFromTrigger?.id) {
+      userId = appUserFromTrigger.id as string;
+      const { error: updateUserError } = await supabase
+        .from("app_users")
+        .update({
+          email: normalizedEmail,
+          full_name: input.fullName.trim(),
+          role: appUserRole,
+          is_active: true,
+          default_organization_id: context.organizationId,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", userId);
+
+      if (updateUserError) throw updateUserError;
+    } else {
+      const { data: insertedUser, error: insertUserError } = await supabase
+        .from("app_users")
+        .insert({
+          email: normalizedEmail,
+          full_name: input.fullName.trim(),
+          role: appUserRole,
+          is_active: true,
+          external_auth_id: authUserId,
+          default_organization_id: context.organizationId
+        })
+        .select("id")
+        .single();
+
+      if (insertUserError) throw insertUserError;
+      userId = insertedUser.id as string;
+    }
   } else {
     const { error: updateUserError } = await supabase
       .from("app_users")
       .update({
+        email: normalizedEmail,
         full_name: input.fullName.trim(),
-        role: input.role,
+        role: appUserRole,
         is_active: true,
+        external_auth_id: authUserId,
+        default_organization_id: existingUser?.default_organization_id ?? context.organizationId,
         updated_at: new Date().toISOString()
       })
       .eq("id", userId);
