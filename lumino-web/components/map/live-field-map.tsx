@@ -22,6 +22,7 @@ import Map, {
 } from "react-map-gl/maplibre";
 import type { ResolvePropertyResponse } from "@/types/api";
 import type { LeadInput, MapProperty, PropertyDetail } from "@/types/entities";
+import { MapToolbar, type MapFilterKey } from "@/components/map/map-toolbar";
 import { PropertyResultsPanel } from "@/components/map/property-results-panel";
 import { PropertyDrawer } from "@/components/map/property-drawer";
 import { authFetch, useAuth } from "@/lib/auth/client";
@@ -63,6 +64,7 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
   const { session } = useAuth();
   const mapRef = useRef<MapRef | null>(null);
   const [items, setItems] = useState(initialItems);
+  const [activeFilters, setActiveFilters] = useState<MapFilterKey[]>(["all"]);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<PropertyDetail | null>(null);
   const [propertyLoading, setPropertyLoading] = useState(false);
@@ -74,6 +76,17 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
     () => items.find((item) => item.propertyId === selectedPropertyId) ?? null,
     [items, selectedPropertyId]
   );
+
+  const filteredItems = useMemo(() => {
+    if (activeFilters.includes("all")) return items;
+    return items.filter((item) => {
+      if (activeFilters.includes("follow_up_overdue") && item.followUpState === "overdue") return true;
+      if (item.mapState !== "canvassed_with_lead" && activeFilters.includes(item.mapState as MapFilterKey)) return true;
+      if (activeFilters.includes("canvassed") && item.mapState === "canvassed_with_lead") return true;
+      if (activeFilters.includes("canvassed") && item.mapState === "canvassed") return true;
+      return false;
+    });
+  }, [activeFilters, items]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -255,9 +268,25 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
     void loadPropertiesForViewport(event.target.getBounds());
   }
 
+  function handleToggleFilter(filter: MapFilterKey) {
+    setActiveFilters((current) => {
+      if (filter === "all") {
+        return ["all"];
+      }
+
+      const withoutAll = current.filter((item) => item !== "all");
+      const exists = withoutAll.includes(filter);
+      const next = exists ? withoutAll.filter((item) => item !== filter) : [...withoutAll, filter];
+      return next.length ? next : ["all"];
+    });
+  }
+
   return (
-    <div className="flex min-h-[calc(100vh-7.5rem)]">
-      <PropertyResultsPanel items={items} selectedPropertyId={selectedPropertyId} onSelect={setSelectedPropertyId} />
+    <div className="flex min-h-[calc(100vh-7.5rem)] flex-col">
+      <MapToolbar activeFilters={activeFilters} onToggle={handleToggleFilter} />
+
+      <div className="flex min-h-0 flex-1">
+      <PropertyResultsPanel items={filteredItems} selectedPropertyId={selectedPropertyId} onSelect={setSelectedPropertyId} />
 
       <div className="relative flex-1 overflow-hidden bg-[linear-gradient(135deg,#f8fafc_0%,#e7eef9_100%)]">
         <Map
@@ -271,7 +300,7 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
           attributionControl={false}
         >
           <NavigationControl position="top-right" showCompass={false} />
-          {items.map((item) => {
+          {filteredItems.map((item) => {
             const visual = markerVisual(item.mapState);
             const Icon = visual.icon;
 
@@ -328,6 +357,7 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
           setPropertyLoading(false);
         }}
       />
+      </div>
     </div>
   );
 }
