@@ -63,7 +63,7 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
   const { session } = useAuth();
   const mapRef = useRef<MapRef | null>(null);
   const [items, setItems] = useState(initialItems);
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(initialItems[0]?.propertyId ?? null);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<PropertyDetail | null>(null);
   const [propertyLoading, setPropertyLoading] = useState(false);
   const [viewState, setViewState] = useState(DEFAULT_CENTER);
@@ -115,9 +115,6 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
     if (!response.ok) return;
     const json = (await response.json()) as { items: MapProperty[] };
     setItems(json.items);
-    if (!selectedPropertyId && json.items[0]?.propertyId) {
-      setSelectedPropertyId(json.items[0].propertyId);
-    }
   }
 
   useEffect(() => {
@@ -170,6 +167,11 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
 
   async function handleMapTap(event: MapLayerMouseEvent) {
     if (!session?.access_token || isResolvingTap) return;
+    if (typeof window !== "undefined" && window.innerWidth < 1280 && selectedPropertyId) {
+      setSelectedPropertyId(null);
+      setSelectedProperty(null);
+      return;
+    }
 
     try {
       setIsResolvingTap(true);
@@ -318,6 +320,10 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
         savingVisit={isSavingVisit}
         onLogOutcome={handleLogOutcome}
         onSaveLead={handleSaveLead}
+        onDismiss={() => {
+          setSelectedPropertyId(null);
+          setSelectedProperty(null);
+        }}
       />
     </div>
   );

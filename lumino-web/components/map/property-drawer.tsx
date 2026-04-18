@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { X } from "lucide-react";
 import type { LeadInput, PropertyDetail } from "@/types/entities";
 
 const quickOutcomes = [
@@ -24,13 +25,15 @@ export function PropertyDrawer({
   loading,
   savingVisit,
   onLogOutcome,
-  onSaveLead
+  onSaveLead,
+  onDismiss
 }: {
   property: PropertyDetail | null;
   loading: boolean;
   savingVisit?: boolean;
   onLogOutcome: (outcome: string) => void;
   onSaveLead: (input: LeadInput) => Promise<void>;
+  onDismiss?: () => void;
 }) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -122,6 +125,7 @@ export function PropertyDrawer({
                 nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null
               });
               setSaveState("saved");
+              onDismiss?.();
             } catch {
               setSaveState("error");
             }
@@ -272,7 +276,20 @@ export function PropertyDrawer({
 
       {loading || property ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 p-3 xl:hidden">
-          <div className="pointer-events-auto max-h-[55vh] overflow-y-auto rounded-[1.75rem] border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur">
+          <div className="pointer-events-auto mx-auto max-h-[55vh] max-w-md overflow-y-auto rounded-[1.75rem] border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="mx-auto h-1.5 w-14 rounded-full bg-slate-300" />
+              {property && !loading ? (
+                <button
+                  type="button"
+                  onClick={() => onDismiss?.()}
+                  className="absolute right-6 top-5 flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600"
+                  aria-label="Hide property panel"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
             {content}
           </div>
         </div>
