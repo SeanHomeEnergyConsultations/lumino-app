@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { CalendarCheck2, Clock3, X } from "lucide-react";
 import type { LeadInput, PropertyDetail } from "@/types/entities";
 
 const quickOutcomes = [
@@ -46,7 +46,10 @@ export function PropertyDrawer({
   const [leadStatus, setLeadStatus] = useState("New");
   const [interestLevel, setInterestLevel] = useState<"low" | "medium" | "high">("medium");
   const [nextFollowUpAt, setNextFollowUpAt] = useState("");
+  const [appointmentAt, setAppointmentAt] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [postAction, setPostAction] = useState<string | null>(null);
+  const [actionState, setActionState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   function toDateTimeLocal(value: string | null | undefined) {
     if (!value) return "";
@@ -64,7 +67,10 @@ export function PropertyDrawer({
     setLeadStatus(property?.leadStatus ?? "New");
     setInterestLevel("medium");
     setNextFollowUpAt(toDateTimeLocal(property?.leadNextFollowUpAt));
+    setAppointmentAt(toDateTimeLocal(property?.appointmentAt));
     setSaveState("idle");
+    setPostAction(null);
+    setActionState("idle");
   }, [property]);
 
   const content = loading ? (
@@ -81,12 +87,44 @@ export function PropertyDrawer({
           {property.mapState} · {property.visitCount} visits · follow-up {property.followUpState}
         </div>
 
+        <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-3 text-xs text-slate-600">
+          <div>
+            <div className="font-semibold text-slate-800">Last outcome</div>
+            <div className="mt-1">{property.lastVisitOutcome ?? "No field history yet"}</div>
+          </div>
+          <div>
+            <div className="font-semibold text-slate-800">Last visited</div>
+            <div className="mt-1">{property.lastVisitedAt ? new Date(property.lastVisitedAt).toLocaleString() : "Never"}</div>
+          </div>
+          <div>
+            <div className="font-semibold text-slate-800">Not Home tries</div>
+            <div className="mt-1">{property.notHomeCount}</div>
+          </div>
+          <div>
+            <div className="font-semibold text-slate-800">Lead state</div>
+            <div className="mt-1">{property.leadStatus ?? "No active lead"}</div>
+          </div>
+        </div>
+
         <div className="mt-5 grid grid-cols-2 gap-2">
           {quickOutcomes.map((item) => (
             <button
               key={item.value}
               type="button"
-              onClick={() => onLogOutcome(item.value)}
+              onClick={() => {
+                setPostAction(item.value);
+                setActionState("idle");
+                if (item.value === "opportunity") {
+                  setLeadStatus("Connected");
+                }
+                if (item.value === "appointment_set") {
+                  setLeadStatus("Appointment Set");
+                }
+                if (item.value === "disqualified") {
+                  setLeadStatus("Closed Lost");
+                }
+                void onLogOutcome(item.value);
+              }}
               disabled={savingVisit}
               className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-950 hover:text-white"
             >
@@ -94,6 +132,151 @@ export function PropertyDrawer({
             </button>
           ))}
         </div>
+
+        {postAction === "not_home" || postAction === "left_doorhanger" ? (
+          <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <Clock3 className="h-4 w-4" />
+              Schedule revisit
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Set the next follow-up while the knock is still fresh.</p>
+            <input
+              type="datetime-local"
+              value={nextFollowUpAt}
+              onChange={(event) => setNextFollowUpAt(event.target.value)}
+              className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+            />
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="text-xs text-slate-500">
+                {actionState === "saved"
+                  ? "Revisit saved."
+                  : actionState === "error"
+                    ? "Could not save revisit."
+                    : "This keeps follow-up discipline tight."}
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!property) return;
+                  setActionState("saving");
+                  try {
+                    await onSaveLead({
+                      propertyId: property.propertyId,
+                      firstName,
+                      lastName,
+                      phone,
+                      email,
+                      notes,
+                      leadStatus: property.leadStatus ?? "Attempting Contact",
+                      interestLevel,
+                      nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null
+                    });
+                    setActionState("saved");
+                  } catch {
+                    setActionState("error");
+                  }
+                }}
+                className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200"
+              >
+                {actionState === "saving" ? "Saving..." : "Save Revisit"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {postAction === "appointment_set" ? (
+          <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <CalendarCheck2 className="h-4 w-4" />
+              Capture appointment
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Lock in the actual appointment time so the CRM stays trustworthy.</p>
+            <input
+              type="datetime-local"
+              value={appointmentAt}
+              onChange={(event) => setAppointmentAt(event.target.value)}
+              className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+            />
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="text-xs text-slate-500">
+                {actionState === "saved"
+                  ? "Appointment saved."
+                  : actionState === "error"
+                    ? "Could not save appointment."
+                    : "This also updates the property icon and lead stage."}
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!property) return;
+                  setActionState("saving");
+                  try {
+                    await onSaveLead({
+                      propertyId: property.propertyId,
+                      firstName,
+                      lastName,
+                      phone,
+                      email,
+                      notes,
+                      leadStatus: "Appointment Set",
+                      interestLevel,
+                      appointmentAt: appointmentAt ? new Date(appointmentAt).toISOString() : null,
+                      nextFollowUpAt: appointmentAt ? new Date(appointmentAt).toISOString() : null
+                    });
+                    setActionState("saved");
+                  } catch {
+                    setActionState("error");
+                  }
+                }}
+                className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200"
+              >
+                {actionState === "saving" ? "Saving..." : "Save Appointment"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {postAction === "disqualified" ? (
+          <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-sm font-semibold text-ink">Close this opportunity out?</div>
+            <p className="mt-1 text-xs text-slate-500">This marks the lead as closed lost while preserving the door timestamp for accountability.</p>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="text-xs text-slate-500">
+                {actionState === "saved"
+                  ? "Marked closed lost."
+                  : actionState === "error"
+                    ? "Could not update lead."
+                    : "Use this when the house is clearly not a fit."}
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!property) return;
+                  setActionState("saving");
+                  try {
+                    await onSaveLead({
+                      propertyId: property.propertyId,
+                      firstName,
+                      lastName,
+                      phone,
+                      email,
+                      notes,
+                      leadStatus: "Closed Lost",
+                      interestLevel,
+                      nextFollowUpAt: null
+                    });
+                    setActionState("saved");
+                  } catch {
+                    setActionState("error");
+                  }
+                }}
+                className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200"
+              >
+                {actionState === "saving" ? "Saving..." : "Mark Closed Lost"}
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
           <div>Lead status: {property.leadStatus ?? "No active lead"}</div>

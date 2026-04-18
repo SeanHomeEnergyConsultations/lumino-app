@@ -70,6 +70,8 @@ export async function getPropertyDetail(propertyId: string): Promise<PropertyDet
   if (visitsError) throw visitsError;
   if (activitiesError) throw activitiesError;
 
+  const notHomeCount = (visits ?? []).filter((visit) => visit.outcome === "not_home").length;
+
   return {
     propertyId: historyRow.property_id,
     address: historyRow.raw_address,
@@ -81,6 +83,7 @@ export async function getPropertyDetail(propertyId: string): Promise<PropertyDet
     mapState: deriveMapState(historyRow),
     followUpState: deriveFollowUpState(historyRow.lead_next_follow_up_at),
     visitCount: historyRow.visit_count ?? 0,
+    notHomeCount,
     lastVisitOutcome: historyRow.last_visit_outcome,
     lastVisitedAt: historyRow.last_visited_at,
     leadId: historyRow.lead_id,

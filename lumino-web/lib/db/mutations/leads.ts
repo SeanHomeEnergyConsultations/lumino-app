@@ -38,6 +38,7 @@ export async function upsertLead(input: LeadInput, context: AuthSessionContext) 
     lead_status: input.leadStatus ?? "New",
     interest_level: input.interestLevel ?? null,
     next_follow_up_at: input.nextFollowUpAt ?? null,
+    appointment_at: input.appointmentAt ?? null,
     last_activity_at: new Date().toISOString(),
     last_activity_type: "lead_capture",
     last_activity_outcome: input.leadStatus ?? "New",
@@ -99,7 +100,8 @@ export async function upsertLead(input: LeadInput, context: AuthSessionContext) 
     phone: input.phone?.trim() || null,
     email: input.email?.trim() || null,
     interest_level: input.interestLevel ?? null,
-    next_follow_up_at: input.nextFollowUpAt ?? null
+    next_follow_up_at: input.nextFollowUpAt ?? null,
+    appointment_at: input.appointmentAt ?? null
   };
 
   const { error: propertyActivityError } = await supabase.from("activities").insert({

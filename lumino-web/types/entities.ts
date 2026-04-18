@@ -55,6 +55,7 @@ export interface LeadInput {
   leadStatus?: string;
   interestLevel?: "low" | "medium" | "high" | null;
   nextFollowUpAt?: string | null;
+  appointmentAt?: string | null;
 }
 
 export interface PropertyVisitHistoryItem {
@@ -84,6 +85,7 @@ export interface PropertyDetail {
   mapState: MapState;
   followUpState: FollowUpState;
   visitCount: number;
+  notHomeCount: number;
   lastVisitOutcome: string | null;
   lastVisitedAt: string | null;
   leadId: string | null;
