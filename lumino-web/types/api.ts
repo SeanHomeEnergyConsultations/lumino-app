@@ -211,3 +211,22 @@ export interface TerritoriesResponse {
 export interface TerritoryPropertySearchResponse {
   items: TerritoryPropertyItem[];
 }
+
+export interface ManagerDailySummaryResponse {
+  generatedAt: string;
+  dateLabel: string;
+  headline: string;
+  summary: {
+    activeReps: number;
+    knocksToday: number;
+    opportunitiesToday: number;
+    appointmentsToday: number;
+    overdueFollowUps: number;
+    staleOpportunities: number;
+  };
+  highlights: string[];
+  risks: string[];
+  territoryNotes: string;
+  emailSubject: string;
+  emailBody: string;
+}

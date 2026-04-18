@@ -7,6 +7,7 @@ import { AlertTriangle, CalendarCheck2, Layers3, MapPinned, Target, Users } from
 import type { ManagerDashboardResponse } from "@/types/api";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { ManagerSupervisionMap } from "@/components/dashboard/manager-supervision-map";
+import { DailySummaryPanel } from "@/components/reporting/daily-summary-panel";
 
 function formatDateTime(value: string | null) {
   if (!value) return "Unknown";
@@ -43,7 +44,9 @@ export function ManagerDashboardPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
+      <DailySummaryPanel />
+
+      <div className="mt-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Manager Dashboard</div>
         <h1 className="mt-2 text-3xl font-semibold text-ink">Team operating view</h1>
         <p className="mt-3 max-w-3xl text-sm text-slate-600">
