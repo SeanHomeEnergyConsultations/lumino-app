@@ -78,12 +78,18 @@ const DEFAULT_CENTER = {
   zoom: 12
 };
 
-export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) {
+export function LiveFieldMap({
+  initialItems,
+  initialSelectedPropertyId = null
+}: {
+  initialItems: MapProperty[];
+  initialSelectedPropertyId?: string | null;
+}) {
   const { session } = useAuth();
   const mapRef = useRef<MapRef | null>(null);
   const [items, setItems] = useState(initialItems);
   const [activeFilters, setActiveFilters] = useState<MapFilterKey[]>(["all"]);
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(initialSelectedPropertyId);
   const [selectedProperty, setSelectedProperty] = useState<PropertyDetail | null>(null);
   const [propertyLoading, setPropertyLoading] = useState(false);
   const [viewState, setViewState] = useState(DEFAULT_CENTER);
@@ -102,6 +108,10 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
       return false;
     });
   }, [activeFilters, items]);
+
+  useEffect(() => {
+    setSelectedPropertyId(initialSelectedPropertyId);
+  }, [initialSelectedPropertyId]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -179,6 +189,17 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
       cancelled = true;
     };
   }, [selectedPropertyId, session?.access_token]);
+
+  useEffect(() => {
+    if (!selectedProperty?.lat || !selectedProperty?.lng) return;
+
+    setViewState((current) => ({
+      ...current,
+      latitude: selectedProperty.lat ?? current.latitude,
+      longitude: selectedProperty.lng ?? current.longitude,
+      zoom: Math.max(current.zoom, 16)
+    }));
+  }, [selectedProperty?.lat, selectedProperty?.lng]);
 
   async function refreshSelectedProperty(propertyId: string) {
     if (!session?.access_token) return;

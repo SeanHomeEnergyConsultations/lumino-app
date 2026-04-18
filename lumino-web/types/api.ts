@@ -17,3 +17,33 @@ export interface ResolvePropertyResponse {
   propertyId: string;
   created: boolean;
 }
+
+export interface RepQueueItem {
+  leadId: string;
+  propertyId: string;
+  address: string;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  leadStatus: string | null;
+  lastVisitOutcome: string | null;
+  lastVisitedAt: string | null;
+  nextFollowUpAt: string | null;
+  appointmentAt: string | null;
+  visitCount: number;
+  notHomeCount: number;
+  priority: "due_now" | "revisit" | "appointment" | "opportunity";
+}
+
+export interface RepQueueResponse {
+  summary: {
+    dueNow: number;
+    revisits: number;
+    appointments: number;
+    opportunities: number;
+  };
+  dueNow: RepQueueItem[];
+  revisits: RepQueueItem[];
+  appointments: RepQueueItem[];
+  opportunities: RepQueueItem[];
+}
