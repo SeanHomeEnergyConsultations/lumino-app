@@ -14,7 +14,9 @@ export async function upsertLead(input: LeadInput, context: AuthSessionContext) 
 
   const { data: propertyRow, error: propertyError } = await supabase
     .from("property_history_view")
-    .select("property_id,lead_id,normalized_address,raw_address,address_line_1,city,state,postal_code,lat,lng")
+    .select(
+      "property_id,lead_id,normalized_address,raw_address,address_line_1,city,state,postal_code,lat,lng,owner_id,first_name,last_name,phone,email,lead_notes,lead_status,lead_next_follow_up_at,appointment_at"
+    )
     .eq("property_id", input.propertyId)
     .maybeSingle();
 
@@ -23,8 +25,24 @@ export async function upsertLead(input: LeadInput, context: AuthSessionContext) 
     throw new Error("Property not found.");
   }
 
-  const firstName = input.firstName?.trim() || null;
-  const lastName = input.lastName?.trim() || null;
+  const firstName =
+    input.firstName !== undefined ? input.firstName.trim() || null : ((propertyRow.first_name as string | null) ?? null);
+  const lastName =
+    input.lastName !== undefined ? input.lastName.trim() || null : ((propertyRow.last_name as string | null) ?? null);
+  const phone =
+    input.phone !== undefined ? input.phone.trim() || null : ((propertyRow.phone as string | null) ?? null);
+  const email =
+    input.email !== undefined ? input.email.trim() || null : ((propertyRow.email as string | null) ?? null);
+  const notes =
+    input.notes !== undefined ? input.notes.trim() || null : ((propertyRow.lead_notes as string | null) ?? null);
+  const leadStatus =
+    input.leadStatus !== undefined ? input.leadStatus : ((propertyRow.lead_status as string | null) ?? "New");
+  const nextFollowUpAt =
+    input.nextFollowUpAt !== undefined
+      ? input.nextFollowUpAt
+      : ((propertyRow.lead_next_follow_up_at as string | null) ?? null);
+  const appointmentAt =
+    input.appointmentAt !== undefined ? input.appointmentAt : ((propertyRow.appointment_at as string | null) ?? null);
   const payload = {
     property_id: input.propertyId,
     owner_id: context.appUser.id,
@@ -32,16 +50,16 @@ export async function upsertLead(input: LeadInput, context: AuthSessionContext) 
     owner_name: combineName(firstName, lastName),
     first_name: firstName,
     last_name: lastName,
-    phone: input.phone?.trim() || null,
-    email: input.email?.trim() || null,
-    notes: input.notes?.trim() || null,
-    lead_status: input.leadStatus ?? "New",
+    phone,
+    email,
+    notes,
+    lead_status: leadStatus,
     interest_level: input.interestLevel ?? null,
-    next_follow_up_at: input.nextFollowUpAt ?? null,
-    appointment_at: input.appointmentAt ?? null,
+    next_follow_up_at: nextFollowUpAt,
+    appointment_at: appointmentAt,
     last_activity_at: new Date().toISOString(),
     last_activity_type: "lead_capture",
-    last_activity_outcome: input.leadStatus ?? "New",
+    last_activity_outcome: leadStatus,
     updated_at: new Date().toISOString()
   };
 
@@ -81,7 +99,7 @@ export async function upsertLead(input: LeadInput, context: AuthSessionContext) 
 
   const propertyUpdates: Record<string, unknown> = {
     current_lead_id: leadId,
-    next_follow_up_at: input.nextFollowUpAt ?? null,
+    next_follow_up_at: nextFollowUpAt,
     updated_at: new Date().toISOString()
   };
 
@@ -94,14 +112,14 @@ export async function upsertLead(input: LeadInput, context: AuthSessionContext) 
 
   const activityData = {
     lead_id: leadId,
-    lead_status: input.leadStatus ?? "New",
+    lead_status: leadStatus,
     first_name: firstName,
     last_name: lastName,
-    phone: input.phone?.trim() || null,
-    email: input.email?.trim() || null,
+    phone,
+    email,
     interest_level: input.interestLevel ?? null,
-    next_follow_up_at: input.nextFollowUpAt ?? null,
-    appointment_at: input.appointmentAt ?? null
+    next_follow_up_at: nextFollowUpAt,
+    appointment_at: appointmentAt
   };
 
   const { error: propertyActivityError } = await supabase.from("activities").insert({

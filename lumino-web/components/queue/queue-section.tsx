@@ -4,11 +4,15 @@ import { QueueCard } from "@/components/queue/queue-card";
 export function QueueSection({
   title,
   description,
-  items
+  items,
+  accessToken,
+  onUpdated
 }: {
   title: string;
   description: string;
   items: RepQueueItem[];
+  accessToken: string | null;
+  onUpdated: () => Promise<unknown>;
 }) {
   return (
     <section className="rounded-[2rem] border border-slate-200/80 bg-white/70 p-5 shadow-panel backdrop-blur">
@@ -24,7 +28,9 @@ export function QueueSection({
 
       <div className="mt-5 grid gap-4 xl:grid-cols-2">
         {items.length ? (
-          items.map((item) => <QueueCard key={`${title}-${item.leadId}`} item={item} />)
+          items.map((item) => (
+            <QueueCard key={`${title}-${item.leadId}`} item={item} accessToken={accessToken} onUpdated={onUpdated} />
+          ))
         ) : (
           <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
             Nothing in this queue right now.

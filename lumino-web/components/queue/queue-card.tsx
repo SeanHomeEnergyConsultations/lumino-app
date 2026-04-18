@@ -1,14 +1,108 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import type { RepQueueItem } from "@/types/api";
+import { authFetch } from "@/lib/auth/client";
 
 function formatDateTime(value: string | null) {
   if (!value) return null;
   return new Date(value).toLocaleString();
 }
 
-export function QueueCard({ item }: { item: RepQueueItem }) {
+function toDateTimeLocal(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16);
+}
+
+export function QueueCard({
+  item,
+  accessToken,
+  onUpdated
+}: {
+  item: RepQueueItem;
+  accessToken: string | null;
+  onUpdated: () => Promise<unknown>;
+}) {
+  const [nextFollowUpAt, setNextFollowUpAt] = useState(toDateTimeLocal(item.nextFollowUpAt));
+  const [appointmentAt, setAppointmentAt] = useState(toDateTimeLocal(item.appointmentAt));
+  const [actionState, setActionState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
+  useEffect(() => {
+    setNextFollowUpAt(toDateTimeLocal(item.nextFollowUpAt));
+    setAppointmentAt(toDateTimeLocal(item.appointmentAt));
+    setActionState("idle");
+  }, [item.appointmentAt, item.nextFollowUpAt, item.priority]);
+
+  const actionConfig = useMemo(() => {
+    if (item.priority === "appointment") {
+      return {
+        title: "Appointment time",
+        helper: "Update the scheduled appointment so the team can trust the calendar.",
+        value: appointmentAt,
+        setValue: setAppointmentAt,
+        buttonLabel: "Save Appointment",
+        payload: () => ({
+          propertyId: item.propertyId,
+          leadStatus: "Appointment Set",
+          appointmentAt: appointmentAt ? new Date(appointmentAt).toISOString() : null,
+          nextFollowUpAt: appointmentAt ? new Date(appointmentAt).toISOString() : null
+        })
+      };
+    }
+
+    if (item.priority === "revisit" || item.priority === "due_now") {
+      return {
+        title: "Next revisit",
+        helper: "Lock in the next attempt without losing the field history you already have.",
+        value: nextFollowUpAt,
+        setValue: setNextFollowUpAt,
+        buttonLabel: "Save Revisit",
+        payload: () => ({
+          propertyId: item.propertyId,
+          leadStatus: item.leadStatus ?? "Attempting Contact",
+          nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null
+        })
+      };
+    }
+
+    return {
+      title: "Next step",
+      helper: "Give this opportunity a concrete next step so it does not go stale.",
+      value: nextFollowUpAt,
+      setValue: setNextFollowUpAt,
+      buttonLabel: "Save Next Step",
+      payload: () => ({
+        propertyId: item.propertyId,
+        leadStatus: item.leadStatus ?? "Connected",
+        nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null
+      })
+    };
+  }, [appointmentAt, item.leadStatus, item.priority, item.propertyId, nextFollowUpAt]);
+
+  async function handleSaveAction() {
+    if (!accessToken) return;
+
+    setActionState("saving");
+    try {
+      const response = await authFetch(accessToken, "/api/leads", {
+        method: "POST",
+        body: JSON.stringify(actionConfig.payload())
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save queue action");
+      }
+
+      await onUpdated();
+      setActionState("saved");
+    } catch {
+      setActionState("error");
+    }
+  }
+
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
       <div className="flex items-start justify-between gap-3">
@@ -52,6 +146,36 @@ export function QueueCard({ item }: { item: RepQueueItem }) {
         >
           Open on Map
         </Link>
+      </div>
+
+      <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+        <div className="text-sm font-semibold text-ink">{actionConfig.title}</div>
+        <p className="mt-1 text-xs text-slate-500">{actionConfig.helper}</p>
+        <input
+          type="datetime-local"
+          value={actionConfig.value}
+          onChange={(event) => actionConfig.setValue(event.target.value)}
+          className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+        />
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="text-xs text-slate-500">
+            {actionState === "saved"
+              ? "Saved."
+              : actionState === "error"
+                ? "Could not save this update."
+                : item.priority === "needs_attention"
+                  ? "Best used the moment you know the next move."
+                  : "This updates the queue without leaving the page."}
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleSaveAction()}
+            disabled={!accessToken || actionState === "saving"}
+            className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {actionState === "saving" ? "Saving..." : actionConfig.buttonLabel}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -32,7 +32,7 @@ export interface RepQueueItem {
   appointmentAt: string | null;
   visitCount: number;
   notHomeCount: number;
-  priority: "due_now" | "revisit" | "appointment" | "opportunity";
+  priority: "due_now" | "revisit" | "appointment" | "opportunity" | "needs_attention";
 }
 
 export interface RepQueueResponse {
@@ -41,9 +41,11 @@ export interface RepQueueResponse {
     revisits: number;
     appointments: number;
     opportunities: number;
+    needsAttention: number;
   };
   dueNow: RepQueueItem[];
   revisits: RepQueueItem[];
   appointments: RepQueueItem[];
   opportunities: RepQueueItem[];
+  needsAttention: RepQueueItem[];
 }

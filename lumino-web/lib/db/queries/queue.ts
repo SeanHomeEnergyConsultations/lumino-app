@@ -6,11 +6,14 @@ function classifyQueueItem(item: Omit<RepQueueItem, "priority">): RepQueueItem["
   const now = Date.now();
   const appointmentTime = item.appointmentAt ? new Date(item.appointmentAt).getTime() : null;
   const followUpTime = item.nextFollowUpAt ? new Date(item.nextFollowUpAt).getTime() : null;
+  const isOpportunity =
+    item.lastVisitOutcome === "opportunity" || item.leadStatus === "Connected" || item.leadStatus === "Qualified";
 
   if (appointmentTime && appointmentTime >= now - 86_400_000) return "appointment";
   if (followUpTime && followUpTime < now) return "due_now";
   if (item.lastVisitOutcome === "not_home" || item.lastVisitOutcome === "left_doorhanger") return "revisit";
-  if (item.lastVisitOutcome === "opportunity" || item.leadStatus === "Connected" || item.leadStatus === "Qualified") {
+  if (isOpportunity && !item.nextFollowUpAt && !item.appointmentAt) return "needs_attention";
+  if (isOpportunity) {
     return "opportunity";
   }
   return null;
@@ -33,6 +36,10 @@ function sortQueueItems(items: RepQueueItem[], priority: RepQueueItem["priority"
 
     if (priority === "revisit") {
       if (b.notHomeCount !== a.notHomeCount) return b.notHomeCount - a.notHomeCount;
+      return getTimestamp(a.lastVisitedAt) - getTimestamp(b.lastVisitedAt);
+    }
+
+    if (priority === "needs_attention") {
       return getTimestamp(a.lastVisitedAt) - getTimestamp(b.lastVisitedAt);
     }
 
@@ -115,7 +122,8 @@ export async function getRepQueue(context: AuthSessionContext): Promise<RepQueue
       dueNow: items.filter((item) => item.priority === "due_now").length,
       revisits: items.filter((item) => item.priority === "revisit").length,
       appointments: items.filter((item) => item.priority === "appointment").length,
-      opportunities: items.filter((item) => item.priority === "opportunity").length
+      opportunities: items.filter((item) => item.priority === "opportunity").length,
+      needsAttention: items.filter((item) => item.priority === "needs_attention").length
     },
     dueNow: sortQueueItems(
       items.filter((item) => item.priority === "due_now"),
@@ -132,6 +140,10 @@ export async function getRepQueue(context: AuthSessionContext): Promise<RepQueue
     opportunities: sortQueueItems(
       items.filter((item) => item.priority === "opportunity"),
       "opportunity"
+    ),
+    needsAttention: sortQueueItems(
+      items.filter((item) => item.priority === "needs_attention"),
+      "needs_attention"
     )
   };
 
