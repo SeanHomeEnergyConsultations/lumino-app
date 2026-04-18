@@ -1,13 +1,12 @@
 const FILTER_OPTIONS = [
   { key: "all", label: "All" },
-  { key: "interested", label: "Interested" },
-  { key: "callback_requested", label: "Callbacks" },
-  { key: "do_not_knock", label: "Do Not Knock" },
+  { key: "not_home", label: "Not Home" },
+  { key: "left_doorhanger", label: "Left Doorhanger" },
+  { key: "opportunity", label: "Opportunity" },
+  { key: "not_interested", label: "Not Interested" },
+  { key: "disqualified", label: "Disqualified" },
   { key: "appointment_set", label: "Appointments" },
-  { key: "unworked_property", label: "Untouched" },
-  { key: "canvassed", label: "Canvassed" },
-  { key: "imported_target", label: "Imported Targets" },
-  { key: "follow_up_overdue", label: "Follow-Up Overdue" }
+  { key: "unworked_property", label: "Untouched" }
 ] as const;
 
 export type MapFilterKey = (typeof FILTER_OPTIONS)[number]["key"];

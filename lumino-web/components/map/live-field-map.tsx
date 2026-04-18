@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  BadgeHelp,
   Ban,
   CalendarCheck2,
   CircleDashed,
   Clock3,
+  DoorOpen,
+  FileBadge2,
   Handshake,
   HelpCircle,
   House,
@@ -29,12 +32,20 @@ import { authFetch, useAuth } from "@/lib/auth/client";
 
 function markerVisual(mapState: MapProperty["mapState"]) {
   switch (mapState) {
+    case "not_home":
+      return { className: "bg-slate-500 text-white", icon: DoorOpen };
+    case "left_doorhanger":
+      return { className: "bg-violet-600 text-white", icon: FileBadge2 };
+    case "opportunity":
+      return { className: "bg-field text-white", icon: Handshake };
     case "interested":
       return { className: "bg-field text-white", icon: Handshake };
     case "callback_requested":
       return { className: "bg-alert text-white", icon: PhoneCall };
     case "not_interested":
       return { className: "bg-orange-500 text-white", icon: XCircle };
+    case "disqualified":
+      return { className: "bg-zinc-700 text-white", icon: BadgeHelp };
     case "do_not_knock":
       return { className: "bg-danger text-white", icon: Ban };
     case "follow_up_overdue":
@@ -52,6 +63,13 @@ function markerVisual(mapState: MapProperty["mapState"]) {
     default:
       return { className: "bg-slate-400 text-white", icon: House };
   }
+}
+
+function markerBadge(item: MapProperty) {
+  if (item.mapState === "not_home" && item.notHomeCount > 1) {
+    return Math.min(item.notHomeCount, 9);
+  }
+  return null;
 }
 
 const DEFAULT_CENTER = {
@@ -80,10 +98,7 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
   const filteredItems = useMemo(() => {
     if (activeFilters.includes("all")) return items;
     return items.filter((item) => {
-      if (activeFilters.includes("follow_up_overdue") && item.followUpState === "overdue") return true;
       if (item.mapState !== "canvassed_with_lead" && activeFilters.includes(item.mapState as MapFilterKey)) return true;
-      if (activeFilters.includes("canvassed") && item.mapState === "canvassed_with_lead") return true;
-      if (activeFilters.includes("canvassed") && item.mapState === "canvassed") return true;
       return false;
     });
   }, [activeFilters, items]);
@@ -230,14 +245,20 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
                 visitCount: item.visitCount + 1,
                 lastVisitOutcome: outcome,
                 mapState:
-                  outcome === "interested"
+                  outcome === "opportunity"
+                    ? "opportunity"
+                    : outcome === "not_home"
+                      ? "not_home"
+                      : outcome === "left_doorhanger"
+                        ? "left_doorhanger"
+                        : outcome === "interested"
                     ? "interested"
-                    : outcome === "callback_requested"
-                      ? "callback_requested"
+                    : outcome === "disqualified"
+                      ? "disqualified"
                       : outcome === "not_interested"
                         ? "not_interested"
-                        : outcome === "do_not_knock"
-                          ? "do_not_knock"
+                        : outcome === "appointment_set"
+                          ? "appointment_set"
                           : "canvassed_with_lead"
               }
             : item
@@ -303,6 +324,7 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
           {filteredItems.map((item) => {
             const visual = markerVisual(item.mapState);
             const Icon = visual.icon;
+            const badge = markerBadge(item);
 
             return (
               <Marker key={item.propertyId} latitude={item.lat} longitude={item.lng} anchor="center">
@@ -320,6 +342,11 @@ export function LiveFieldMap({ initialItems }: { initialItems: MapProperty[] }) 
                   <span className={`flex h-6 w-6 items-center justify-center rounded-full ${visual.className}`}>
                     <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
                   </span>
+                  {badge ? (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-slate-700 shadow">
+                      {badge}
+                    </span>
+                  ) : null}
                 </button>
               </Marker>
             );

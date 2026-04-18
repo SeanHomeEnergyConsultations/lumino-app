@@ -3,9 +3,13 @@ export type MapState =
   | "imported_target"
   | "canvassed"
   | "canvassed_with_lead"
+  | "not_home"
+  | "left_doorhanger"
+  | "opportunity"
   | "interested"
   | "callback_requested"
   | "not_interested"
+  | "disqualified"
   | "follow_up_overdue"
   | "appointment_set"
   | "customer"
@@ -24,6 +28,7 @@ export interface MapProperty {
   mapState: MapState;
   followUpState: FollowUpState;
   visitCount: number;
+  notHomeCount: number;
   lastVisitOutcome: string | null;
   leadId: string | null;
   leadStatus: string | null;

@@ -24,9 +24,14 @@ function deriveMapState(row: Record<string, unknown>): PropertyDetail["mapState"
   if (leadStatus === "Closed Won") return "customer";
   if (appointmentAt) return "appointment_set";
   if (nextFollowUpAt && new Date(nextFollowUpAt).getTime() < Date.now()) return "follow_up_overdue";
+  if (lastVisitOutcome === "appointment_set") return "appointment_set";
+  if (lastVisitOutcome === "opportunity") return "opportunity";
+  if (lastVisitOutcome === "left_doorhanger") return "left_doorhanger";
+  if (lastVisitOutcome === "not_home") return "not_home";
   if (lastVisitOutcome === "interested") return "interested";
   if (lastVisitOutcome === "callback_requested") return "callback_requested";
   if (lastVisitOutcome === "not_interested") return "not_interested";
+  if (lastVisitOutcome === "disqualified") return "disqualified";
   if (visitCount > 0 && leadId) return "canvassed_with_lead";
   if (visitCount > 0) return "canvassed";
   if (leadId) return "imported_target";

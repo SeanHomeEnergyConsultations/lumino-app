@@ -5,11 +5,12 @@ import { X } from "lucide-react";
 import type { LeadInput, PropertyDetail } from "@/types/entities";
 
 const quickOutcomes = [
-  { label: "No Answer", value: "no_answer" },
-  { label: "Interested", value: "interested" },
-  { label: "Callback", value: "callback_requested" },
+  { label: "Not Home", value: "not_home" },
+  { label: "Left Doorhanger", value: "left_doorhanger" },
+  { label: "Opportunity", value: "opportunity" },
   { label: "Not Interested", value: "not_interested" },
-  { label: "Do Not Knock", value: "do_not_knock" }
+  { label: "Disqualified", value: "disqualified" },
+  { label: "Appointment", value: "appointment_set" }
 ];
 
 function EmptyPropertyState() {

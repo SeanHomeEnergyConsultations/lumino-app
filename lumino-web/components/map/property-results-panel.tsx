@@ -1,8 +1,11 @@
 import {
+  BadgeHelp,
   Ban,
   CalendarCheck2,
   CircleDashed,
   Clock3,
+  DoorOpen,
+  FileBadge2,
   Handshake,
   HelpCircle,
   House,
@@ -14,12 +17,20 @@ import type { MapProperty } from "@/types/entities";
 
 function mapStateVisual(mapState: MapProperty["mapState"]) {
   switch (mapState) {
+    case "not_home":
+      return { icon: DoorOpen, className: "bg-slate-100 text-slate-700" };
+    case "left_doorhanger":
+      return { icon: FileBadge2, className: "bg-violet-100 text-violet-700" };
+    case "opportunity":
+      return { icon: Handshake, className: "bg-field/15 text-field" };
     case "interested":
       return { icon: Handshake, className: "bg-field/15 text-field" };
     case "callback_requested":
       return { icon: PhoneCall, className: "bg-alert/15 text-alert" };
     case "not_interested":
       return { icon: XCircle, className: "bg-orange-100 text-orange-600" };
+    case "disqualified":
+      return { icon: BadgeHelp, className: "bg-zinc-200 text-zinc-700" };
     case "do_not_knock":
       return { icon: Ban, className: "bg-rose-100 text-rose-600" };
     case "follow_up_overdue":
@@ -82,6 +93,7 @@ export function PropertyResultsPanel({
                   <div className="text-sm font-semibold">{item.address}</div>
                   <div className={`mt-1 text-xs ${selectedPropertyId === item.propertyId ? "text-slate-200" : "text-slate-500"}`}>
                     {item.mapState} · {item.visitCount} visits
+                    {item.mapState === "not_home" && item.notHomeCount > 1 ? ` · ${item.notHomeCount} tries` : ""}
                   </div>
                 </div>
               </div>
