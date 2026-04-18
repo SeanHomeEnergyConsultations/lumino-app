@@ -95,6 +95,8 @@ export interface ManagerLeakageItem {
 
 export interface ManagerDashboardResponse {
   summary: ManagerKpiSummary;
+  alerts: ManagerAlertItem[];
+  coachingFlags: ManagerCoachingFlag[];
   repScorecards: ManagerRepScorecard[];
   recentActivity: ManagerRecentActivityItem[];
   neighborhoods: ManagerNeighborhoodPerformanceItem[];
@@ -157,4 +159,22 @@ export interface ManagerMapPoint {
   outcome: string | null;
   actorName: string | null;
   capturedAt: string;
+}
+
+export interface ManagerAlertItem {
+  id: string;
+  title: string;
+  body: string;
+  severity: "high" | "medium" | "low";
+  href: string | null;
+}
+
+export interface ManagerCoachingFlag {
+  id: string;
+  userId: string;
+  repName: string | null;
+  reason: string;
+  detail: string;
+  severity: "high" | "medium" | "low";
+  href: string;
 }

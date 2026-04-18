@@ -72,6 +72,94 @@ export function ManagerDashboardPage() {
         </div>
       </div>
 
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Manager Alerts</div>
+              <p className="mt-2 text-sm text-slate-500">Immediate issues that need manager attention today.</p>
+            </div>
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+              {dashboard?.alerts.length ?? 0}
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {(dashboard?.alerts ?? []).map((alert) => {
+              const content = (
+                <div
+                  className={`rounded-3xl border p-4 ${
+                    alert.severity === "high"
+                      ? "border-rose-200 bg-rose-50"
+                      : alert.severity === "medium"
+                        ? "border-amber-200 bg-amber-50"
+                        : "border-slate-200 bg-slate-50"
+                  }`}
+                >
+                  <div className="text-sm font-semibold text-ink">{alert.title}</div>
+                  <div className="mt-1 text-sm text-slate-600">{alert.body}</div>
+                </div>
+              );
+
+              return alert.href ? (
+                <Link key={alert.id} href={alert.href as Route} className="block">
+                  {content}
+                </Link>
+              ) : (
+                <div key={alert.id}>{content}</div>
+              );
+            })}
+            {!loading && !(dashboard?.alerts.length ?? 0) ? (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                No active alerts right now.
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Coaching Flags</div>
+              <p className="mt-2 text-sm text-slate-500">Rep-quality and process-discipline signals worth coaching on.</p>
+            </div>
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+              {dashboard?.coachingFlags.length ?? 0}
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {(dashboard?.coachingFlags ?? []).map((flag) => (
+              <Link key={flag.id} href={flag.href as Route} className="block rounded-3xl border border-slate-200 bg-slate-50 p-4 transition hover:border-slate-300 hover:bg-white">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-ink">{flag.repName ?? "Rep"}</div>
+                    <div className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{flag.reason}</div>
+                  </div>
+                  <div
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                      flag.severity === "high"
+                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                        : flag.severity === "medium"
+                          ? "border-amber-200 bg-amber-50 text-amber-700"
+                          : "border-slate-200 bg-white text-slate-700"
+                    }`}
+                  >
+                    {flag.severity}
+                  </div>
+                </div>
+                <div className="mt-2 text-sm text-slate-600">{flag.detail}</div>
+              </Link>
+            ))}
+            {!loading && !(dashboard?.coachingFlags.length ?? 0) ? (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                No coaching flags right now.
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </div>
+
       <div className="mt-6">
         <ManagerSupervisionMap points={dashboard?.supervisionMap ?? []} repPresence={dashboard?.repPresence ?? []} />
       </div>

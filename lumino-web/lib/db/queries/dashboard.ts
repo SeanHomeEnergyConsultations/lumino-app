@@ -1,5 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import type {
+  ManagerAlertItem,
+  ManagerCoachingFlag,
   ManagerDashboardResponse,
   ManagerLeakageItem,
   ManagerMapPoint,
@@ -35,6 +37,12 @@ function subtractDaysIso(days: number) {
   const date = new Date();
   date.setDate(date.getDate() - days);
   return date.toISOString();
+}
+
+function severityFromValue(value: number, mediumThreshold: number, highThreshold: number) {
+  if (value >= highThreshold) return "high" as const;
+  if (value >= mediumThreshold) return "medium" as const;
+  return "low" as const;
 }
 
 export async function getManagerDashboard(context: AuthSessionContext): Promise<ManagerDashboardResponse> {
@@ -446,8 +454,115 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
     .sort((a, b) => b.todayOpportunities - a.todayOpportunities || b.todayKnocks - a.todayKnocks)
     .slice(0, 8);
 
+  const coachingFlags: ManagerCoachingFlag[] = repScorecards
+    .flatMap((rep) => {
+      const flags: ManagerCoachingFlag[] = [];
+      const notHomeRate = rep.knocks ? rep.notHome / rep.knocks : 0;
+
+      if (rep.knocks >= 6 && notHomeRate >= 0.7) {
+        flags.push({
+          id: `${rep.userId}-not-home-rate`,
+          userId: rep.userId,
+          repName: rep.fullName ?? rep.email ?? "Rep",
+          reason: "High not-home rate",
+          detail: `${rep.notHome} of ${rep.knocks} knocks were not home.`,
+          severity: severityFromValue(notHomeRate * 100, 70, 80),
+          href: `/queue?ownerId=${rep.userId}&repName=${encodeURIComponent(rep.fullName ?? rep.email ?? "Rep")}`
+        });
+      }
+
+      if (rep.knocks >= 8 && rep.opportunities === 0) {
+        flags.push({
+          id: `${rep.userId}-zero-opps`,
+          userId: rep.userId,
+          repName: rep.fullName ?? rep.email ?? "Rep",
+          reason: "No opportunities created",
+          detail: `${rep.knocks} knocks today without an opportunity.`,
+          severity: "high",
+          href: `/map?ownerId=${rep.userId}`
+        });
+      }
+
+      if (rep.overdueFollowUps >= 3) {
+        flags.push({
+          id: `${rep.userId}-overdue-followups`,
+          userId: rep.userId,
+          repName: rep.fullName ?? rep.email ?? "Rep",
+          reason: "Follow-up ownership risk",
+          detail: `${rep.overdueFollowUps} overdue follow-ups are sitting with this rep.`,
+          severity: severityFromValue(rep.overdueFollowUps, 3, 5),
+          href: `/queue?ownerId=${rep.userId}&repName=${encodeURIComponent(rep.fullName ?? rep.email ?? "Rep")}`
+        });
+      }
+
+      if (rep.knocks >= 5 && rep.activeWindowMinutes > 0 && rep.activeWindowMinutes <= 20) {
+        flags.push({
+          id: `${rep.userId}-compressed-window`,
+          userId: rep.userId,
+          repName: rep.fullName ?? rep.email ?? "Rep",
+          reason: "Compressed activity window",
+          detail: `${rep.knocks} knocks were logged in about ${rep.activeWindowMinutes} minutes.`,
+          severity: "medium",
+          href: `/map?ownerId=${rep.userId}`
+        });
+      }
+
+      return flags;
+    })
+    .sort((a, b) => {
+      const severityRank = { high: 3, medium: 2, low: 1 };
+      return severityRank[b.severity] - severityRank[a.severity];
+    })
+    .slice(0, 10);
+
+  const alerts: ManagerAlertItem[] = [];
+  if (summary.overdueFollowUps > 0) {
+    alerts.push({
+      id: "overdue-followups",
+      title: "Overdue follow-ups need attention",
+      body: `${summary.overdueFollowUps} open leads are already overdue for follow-up.`,
+      severity: severityFromValue(summary.overdueFollowUps, 3, 6),
+      href: "/map?filters=follow_up_overdue"
+    });
+  }
+
+  if (stale.length > 0) {
+    alerts.push({
+      id: "stale-opportunities",
+      title: "Stale opportunities are leaking",
+      body: `${stale.length} connected or qualified leads still have no next step set.`,
+      severity: severityFromValue(stale.length, 2, 4),
+      href: "/queue"
+    });
+  }
+
+  const worstNeighborhood = neighborhoods
+    .filter((item) => item.notHome >= 4)
+    .sort((a, b) => b.notHome - a.notHome)[0];
+  if (worstNeighborhood) {
+    alerts.push({
+      id: "not-home-cluster",
+      title: "Repeated not-home cluster detected",
+      body: `${[worstNeighborhood.city, worstNeighborhood.state].filter(Boolean).join(", ") || "One area"} has ${worstNeighborhood.notHome} not-home outcomes today.`,
+      severity: severityFromValue(worstNeighborhood.notHome, 4, 7),
+      href: `/map?city=${encodeURIComponent(worstNeighborhood.city ?? "")}&state=${encodeURIComponent(worstNeighborhood.state ?? "")}&filters=not_home`
+    });
+  }
+
+  if (summary.activeReps === 0 && members.length > 0) {
+    alerts.push({
+      id: "no-active-reps",
+      title: "No reps are active right now",
+      body: "Nobody has logged field activity today yet.",
+      severity: "medium",
+      href: "/queue"
+    });
+  }
+
   return {
     summary,
+    alerts,
+    coachingFlags,
     repScorecards,
     recentActivity,
     neighborhoods,
