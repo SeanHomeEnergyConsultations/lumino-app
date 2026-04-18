@@ -80,15 +80,23 @@ const DEFAULT_CENTER = {
 
 export function LiveFieldMap({
   initialItems,
-  initialSelectedPropertyId = null
+  initialSelectedPropertyId = null,
+  initialFilters = ["all"],
+  ownerIdFilter = null,
+  cityFilter = null,
+  stateFilter = null
 }: {
   initialItems: MapProperty[];
   initialSelectedPropertyId?: string | null;
+  initialFilters?: MapFilterKey[];
+  ownerIdFilter?: string | null;
+  cityFilter?: string | null;
+  stateFilter?: string | null;
 }) {
   const { session } = useAuth();
   const mapRef = useRef<MapRef | null>(null);
   const [items, setItems] = useState(initialItems);
-  const [activeFilters, setActiveFilters] = useState<MapFilterKey[]>(["all"]);
+  const [activeFilters, setActiveFilters] = useState<MapFilterKey[]>(initialFilters);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(initialSelectedPropertyId);
   const [selectedProperty, setSelectedProperty] = useState<PropertyDetail | null>(null);
   const [propertyLoading, setPropertyLoading] = useState(false);
@@ -112,6 +120,10 @@ export function LiveFieldMap({
   useEffect(() => {
     setSelectedPropertyId(initialSelectedPropertyId);
   }, [initialSelectedPropertyId]);
+
+  useEffect(() => {
+    setActiveFilters(initialFilters.length ? initialFilters : ["all"]);
+  }, [initialFilters]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -148,7 +160,11 @@ export function LiveFieldMap({
 
     const response = await authFetch(
       session.access_token,
-      `/api/map/properties?minLat=${minLat}&maxLat=${maxLat}&minLng=${minLng}&maxLng=${maxLng}&limit=250`
+      `/api/map/properties?minLat=${minLat}&maxLat=${maxLat}&minLng=${minLng}&maxLng=${maxLng}&limit=250${
+        ownerIdFilter ? `&ownerId=${encodeURIComponent(ownerIdFilter)}` : ""
+      }${cityFilter ? `&city=${encodeURIComponent(cityFilter)}` : ""}${
+        stateFilter ? `&state=${encodeURIComponent(stateFilter)}` : ""
+      }`
     );
     if (!response.ok) return;
     const json = (await response.json()) as { items: MapProperty[] };
@@ -158,7 +174,7 @@ export function LiveFieldMap({
   useEffect(() => {
     void loadPropertiesForViewport(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token]);
+  }, [session?.access_token, ownerIdFilter, cityFilter, stateFilter]);
 
   useEffect(() => {
     if (!session?.access_token || !selectedPropertyId) {

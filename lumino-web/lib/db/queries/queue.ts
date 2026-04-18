@@ -47,9 +47,10 @@ function sortQueueItems(items: RepQueueItem[], priority: RepQueueItem["priority"
   });
 }
 
-export async function getRepQueue(context: AuthSessionContext): Promise<RepQueueResponse> {
+export async function getRepQueue(context: AuthSessionContext, requestedOwnerId?: string | null): Promise<RepQueueResponse> {
   const supabase = createServerSupabaseClient();
-  const ownerId = context.appUser.id;
+  const isManager = context.memberships.some((membership) => ["owner", "admin", "manager"].includes(membership.role));
+  const ownerId = requestedOwnerId && isManager ? requestedOwnerId : context.appUser.id;
 
   const { data: leadRows, error: leadsError } = await supabase
     .from("leads")

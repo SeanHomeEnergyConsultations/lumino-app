@@ -2,8 +2,10 @@ import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import type {
   ManagerDashboardResponse,
   ManagerLeakageItem,
+  ManagerNeighborhoodPerformanceItem,
   ManagerRecentActivityItem,
-  ManagerRepScorecard
+  ManagerRepScorecard,
+  ManagerTerritorySummaryItem
 } from "@/types/api";
 import type { AuthSessionContext } from "@/types/auth";
 
@@ -43,7 +45,9 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
     { data: staleRows, error: staleError },
     { data: overdueLeakageRows, error: overdueLeakageError },
     { data: recentVisits, error: recentVisitsError },
-    { data: recentLeadActivities, error: recentLeadActivitiesError }
+    { data: recentLeadActivities, error: recentLeadActivitiesError },
+    { data: territoryRows, error: territoryError },
+    { data: propertyTerritoryRows, error: propertyTerritoryError }
   ] = await Promise.all([
     supabase
       .from("organization_members")
@@ -90,7 +94,16 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
       .eq("organization_id", context.organizationId)
       .eq("entity_type", "lead")
       .order("created_at", { ascending: false })
-      .limit(8)
+      .limit(8),
+    supabase
+      .from("territories")
+      .select("id,name,status")
+      .eq("organization_id", context.organizationId)
+      .limit(8),
+    supabase
+      .from("property_territories")
+      .select("property_id,territory_id")
+      .eq("organization_id", context.organizationId)
   ]);
 
   if (membershipsError) throw membershipsError;
@@ -100,6 +113,8 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
   if (overdueLeakageError) throw overdueLeakageError;
   if (recentVisitsError) throw recentVisitsError;
   if (recentLeadActivitiesError) throw recentLeadActivitiesError;
+  if (territoryError) throw territoryError;
+  if (propertyTerritoryError) throw propertyTerritoryError;
 
   const members = membershipRows ?? [];
   const visits = visitRows ?? [];
@@ -108,6 +123,8 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
   const overdueLeakage = overdueLeakageRows ?? [];
   const recentVisitRows = recentVisits ?? [];
   const recentLeadRows = recentLeadActivities ?? [];
+  const territories = territoryRows ?? [];
+  const propertyTerritories = propertyTerritoryRows ?? [];
 
   const userIds = [
     ...new Set([
@@ -120,6 +137,7 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
   const propertyIds = [
     ...new Set([
       ...recentVisitRows.map((row) => row.property_id as string | null).filter(Boolean),
+      ...visits.map((row) => row.property_id as string | null).filter(Boolean),
       ...stale.map((row) => row.property_id as string | null).filter(Boolean),
       ...overdueLeakage.map((row) => row.property_id as string | null).filter(Boolean)
     ])
@@ -131,7 +149,10 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
         ? supabase.from("app_users").select("id,full_name,email").in("id", userIds)
         : Promise.resolve({ data: [], error: null }),
       propertyIds.length
-        ? supabase.from("property_history_view").select("property_id,raw_address").in("property_id", propertyIds)
+        ? supabase
+            .from("property_history_view")
+            .select("property_id,raw_address,city,state")
+            .in("property_id", propertyIds)
         : Promise.resolve({ data: [], error: null })
     ]);
 
@@ -139,7 +160,7 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
   if (propertyRowsError) throw propertyRowsError;
 
   const userMap = new Map((appUsers ?? []).map((row) => [row.id as string, row]));
-  const propertyMap = new Map((propertyRows ?? []).map((row) => [row.property_id as string, row.raw_address as string]));
+  const propertyMap = new Map((propertyRows ?? []).map((row) => [row.property_id as string, row]));
 
   const overdueByOwner = new Map<string, number>();
   for (const lead of overdue) {
@@ -199,7 +220,7 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
     ...recentVisitRows.map((visit) => ({
       id: `visit-${visit.id as string}`,
       type: "visit" as const,
-      address: propertyMap.get(visit.property_id as string) ?? "Unknown address",
+      address: (propertyMap.get(visit.property_id as string)?.raw_address as string | undefined) ?? "Unknown address",
       outcome: visit.outcome as string | null,
       leadStatus: null,
       actorName: (userMap.get(visit.user_id as string)?.full_name as string | null) ?? null,
@@ -226,7 +247,7 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
       leadId: lead.id as string,
       propertyId: (lead.property_id as string | null) ?? null,
       address:
-        ((lead.property_id as string | null) && propertyMap.get(lead.property_id as string)) ||
+        ((lead.property_id as string | null) && (propertyMap.get(lead.property_id as string)?.raw_address as string | undefined)) ||
         (lead.address as string) ||
         "Unknown address",
       leadStatus: (lead.lead_status as string | null) ?? null,
@@ -238,7 +259,7 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
       leadId: lead.id as string,
       propertyId: (lead.property_id as string | null) ?? null,
       address:
-        ((lead.property_id as string | null) && propertyMap.get(lead.property_id as string)) ||
+        ((lead.property_id as string | null) && (propertyMap.get(lead.property_id as string)?.raw_address as string | undefined)) ||
         (lead.address as string) ||
         "Unknown address",
       leadStatus: (lead.lead_status as string | null) ?? null,
@@ -256,10 +277,71 @@ export async function getManagerDashboard(context: AuthSessionContext): Promise<
     overdueFollowUps: overdue.length
   };
 
+  const neighborhoodMap = new Map<string, ManagerNeighborhoodPerformanceItem>();
+  for (const visit of visits) {
+    const property = propertyMap.get(visit.property_id as string);
+    const city = (property?.city as string | null) ?? null;
+    const state = (property?.state as string | null) ?? null;
+    const key = `${city ?? "Unknown"}|${state ?? ""}`;
+    const current = neighborhoodMap.get(key) ?? {
+      city,
+      state,
+      knocks: 0,
+      opportunities: 0,
+      appointments: 0,
+      notHome: 0,
+      opportunityRate: 0
+    };
+
+    current.knocks += 1;
+    if (visit.outcome === "opportunity") current.opportunities += 1;
+    if (visit.outcome === "appointment_set") current.appointments += 1;
+    if (visit.outcome === "not_home") current.notHome += 1;
+    current.opportunityRate = formatRate(current.opportunities, current.knocks);
+    neighborhoodMap.set(key, current);
+  }
+
+  const neighborhoods = [...neighborhoodMap.values()]
+    .sort((a, b) => {
+      if (b.opportunities !== a.opportunities) return b.opportunities - a.opportunities;
+      return b.knocks - a.knocks;
+    })
+    .slice(0, 8);
+
+  const territoryByProperty = new Map<string, string[]>();
+  for (const row of propertyTerritories) {
+    const propertyId = row.property_id as string;
+    const current = territoryByProperty.get(propertyId) ?? [];
+    current.push(row.territory_id as string);
+    territoryByProperty.set(propertyId, current);
+  }
+
+  const territorySummaries: ManagerTerritorySummaryItem[] = territories.map((territory) => {
+    const territoryId = territory.id as string;
+    const propertyIdsForTerritory = propertyTerritories
+      .filter((row) => row.territory_id === territoryId)
+      .map((row) => row.property_id as string);
+    const visitsForTerritory = visits.filter((visit) =>
+      (territoryByProperty.get(visit.property_id as string) ?? []).includes(territoryId)
+    );
+
+    return {
+      territoryId,
+      name: territory.name as string,
+      status: territory.status as string,
+      propertyCount: new Set(propertyIdsForTerritory).size,
+      knocksToday: visitsForTerritory.length,
+      opportunitiesToday: visitsForTerritory.filter((visit) => visit.outcome === "opportunity").length,
+      appointmentsToday: visitsForTerritory.filter((visit) => visit.outcome === "appointment_set").length
+    };
+  });
+
   return {
     summary,
     repScorecards,
     recentActivity,
+    neighborhoods,
+    territories: territorySummaries,
     leakage: {
       overdueCount: overdue.length,
       staleOpportunityCount: stale.length,

@@ -1,8 +1,9 @@
-const FILTER_OPTIONS = [
+export const FILTER_OPTIONS = [
   { key: "all", label: "All" },
   { key: "not_home", label: "Not Home" },
   { key: "left_doorhanger", label: "Left Doorhanger" },
   { key: "opportunity", label: "Opportunity" },
+  { key: "follow_up_overdue", label: "Follow-Up Overdue" },
   { key: "not_interested", label: "Not Interested" },
   { key: "disqualified", label: "Disqualified" },
   { key: "appointment_set", label: "Appointments" },

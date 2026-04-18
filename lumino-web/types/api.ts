@@ -97,9 +97,31 @@ export interface ManagerDashboardResponse {
   summary: ManagerKpiSummary;
   repScorecards: ManagerRepScorecard[];
   recentActivity: ManagerRecentActivityItem[];
+  neighborhoods: ManagerNeighborhoodPerformanceItem[];
+  territories: ManagerTerritorySummaryItem[];
   leakage: {
     overdueCount: number;
     staleOpportunityCount: number;
     items: ManagerLeakageItem[];
   };
+}
+
+export interface ManagerNeighborhoodPerformanceItem {
+  city: string | null;
+  state: string | null;
+  knocks: number;
+  opportunities: number;
+  appointments: number;
+  notHome: number;
+  opportunityRate: number;
+}
+
+export interface ManagerTerritorySummaryItem {
+  territoryId: string;
+  name: string;
+  status: string;
+  propertyCount: number;
+  knocksToday: number;
+  opportunitiesToday: number;
+  appointmentsToday: number;
 }

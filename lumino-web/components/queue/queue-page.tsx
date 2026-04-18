@@ -5,16 +5,26 @@ import type { RepQueueResponse } from "@/types/api";
 import { QueueSection } from "@/components/queue/queue-section";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
-export function QueuePage() {
+export function QueuePage({
+  initialOwnerId = null,
+  repName = null
+}: {
+  initialOwnerId?: string | null;
+  repName?: string | null;
+}) {
   const { session } = useAuth();
   const [queue, setQueue] = useState<RepQueueResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [ownerId] = useState<string | null>(initialOwnerId);
 
   const loadQueue = useCallback(async () => {
     if (!session?.access_token) return null;
     setLoading(true);
     try {
-      const response = await authFetch(session.access_token, "/api/queue/rep");
+      const response = await authFetch(
+        session.access_token,
+        `/api/queue/rep${ownerId ? `?ownerId=${encodeURIComponent(ownerId)}` : ""}`
+      );
       if (!response.ok) return null;
       const json = (await response.json()) as RepQueueResponse;
       setQueue(json);
@@ -22,7 +32,7 @@ export function QueuePage() {
     } finally {
       setLoading(false);
     }
-  }, [session?.access_token]);
+  }, [ownerId, session?.access_token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +52,11 @@ export function QueuePage() {
         <p className="mt-3 max-w-3xl text-sm text-slate-600">
           Work the day from here when you are not actively walking the map. Everything below is meant to get you back into the right property with the right next step quickly.
         </p>
+        {repName ? (
+          <div className="mt-3 inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">
+            Viewing {repName}&apos;s queue
+          </div>
+        ) : null}
 
         <div className="mt-6 grid gap-3 md:grid-cols-5">
           {[

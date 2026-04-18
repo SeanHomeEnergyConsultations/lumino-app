@@ -17,7 +17,10 @@ export async function GET(request: Request) {
     maxLat: searchParams.get("maxLat") ? Number(searchParams.get("maxLat")) : undefined,
     minLng: searchParams.get("minLng") ? Number(searchParams.get("minLng")) : undefined,
     maxLng: searchParams.get("maxLng") ? Number(searchParams.get("maxLng")) : undefined,
-    limit: searchParams.get("limit") ? Number(searchParams.get("limit")) : undefined
+    limit: searchParams.get("limit") ? Number(searchParams.get("limit")) : undefined,
+    ownerId: searchParams.get("ownerId") || undefined,
+    city: searchParams.get("city") || undefined,
+    state: searchParams.get("state") || undefined
   });
 
   return NextResponse.json(data);

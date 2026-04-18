@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
+import type { Route } from "next";
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CalendarCheck2, MapPinned, Target, Users } from "lucide-react";
+import { AlertTriangle, CalendarCheck2, Layers3, MapPinned, Target, Users } from "lucide-react";
 import type { ManagerDashboardResponse } from "@/types/api";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
@@ -49,21 +51,21 @@ export function ManagerDashboardPage() {
 
         <div className="mt-6 grid gap-3 md:grid-cols-5">
           {[
-            { label: "Active Reps", value: dashboard?.summary.activeReps ?? 0, icon: Users },
-            { label: "Knocks Today", value: dashboard?.summary.knocksToday ?? 0, icon: MapPinned },
-            { label: "Opportunities", value: dashboard?.summary.opportunitiesToday ?? 0, icon: Target },
-            { label: "Appointments", value: dashboard?.summary.appointmentsToday ?? 0, icon: CalendarCheck2 },
-            { label: "Overdue Follow-Up", value: dashboard?.summary.overdueFollowUps ?? 0, icon: AlertTriangle }
+            { label: "Active Reps", value: dashboard?.summary.activeReps ?? 0, icon: Users, href: "/queue" },
+            { label: "Knocks Today", value: dashboard?.summary.knocksToday ?? 0, icon: MapPinned, href: "/map" },
+            { label: "Opportunities", value: dashboard?.summary.opportunitiesToday ?? 0, icon: Target, href: "/map?filters=opportunity" },
+            { label: "Appointments", value: dashboard?.summary.appointmentsToday ?? 0, icon: CalendarCheck2, href: "/map?filters=appointment_set" },
+            { label: "Overdue Follow-Up", value: dashboard?.summary.overdueFollowUps ?? 0, icon: AlertTriangle, href: "/map?filters=follow_up_overdue" }
           ].map((item) => {
             const Icon = item.icon;
             return (
-              <div key={item.label} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <Link key={item.label} href={item.href as Route} className="rounded-3xl border border-slate-200 bg-slate-50 p-4 transition hover:border-slate-300 hover:bg-white">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">{item.label}</div>
                   <Icon className="h-4 w-4 text-slate-500" />
                 </div>
                 <div className="mt-2 text-3xl font-semibold text-ink">{loading ? "…" : item.value}</div>
-              </div>
+              </Link>
             );
           })}
         </div>
@@ -107,7 +109,23 @@ export function ManagerDashboardPage() {
                     <td className="py-3 pr-4">{rep.appointments}</td>
                     <td className="py-3 pr-4">{rep.opportunityRate}%</td>
                     <td className="py-3 pr-4">{rep.overdueFollowUps}</td>
-                    <td className="py-3">{rep.activeWindowMinutes ? `${rep.activeWindowMinutes} min` : "—"}</td>
+                    <td className="py-3">
+                      <div>{rep.activeWindowMinutes ? `${rep.activeWindowMinutes} min` : "—"}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Link
+                          href={`/queue?ownerId=${rep.userId}&repName=${encodeURIComponent(rep.fullName ?? rep.email ?? "Rep")}` as Route}
+                          className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition hover:border-slate-300"
+                        >
+                          Queue
+                        </Link>
+                        <Link
+                          href={`/map?ownerId=${rep.userId}` as Route}
+                          className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition hover:border-slate-300"
+                        >
+                          Map
+                        </Link>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {!loading && !(dashboard?.repScorecards.length ?? 0) ? (
@@ -123,6 +141,80 @@ export function ManagerDashboardPage() {
         </section>
 
         <div className="grid gap-6">
+          <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Neighborhood Performance</div>
+                <p className="mt-2 text-sm text-slate-500">Where today’s field effort is creating momentum or stalling out.</p>
+              </div>
+              <Layers3 className="h-4 w-4 text-slate-500" />
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {(dashboard?.neighborhoods ?? []).map((neighborhood) => (
+                <Link
+                  key={`${neighborhood.city ?? "Unknown"}-${neighborhood.state ?? ""}`}
+                  href={`/map?city=${encodeURIComponent(neighborhood.city ?? "")}&state=${encodeURIComponent(neighborhood.state ?? "")}` as Route}
+                  className="block rounded-3xl border border-slate-200 bg-slate-50 p-4 transition hover:border-slate-300 hover:bg-white"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-ink">
+                        {[neighborhood.city, neighborhood.state].filter(Boolean).join(", ") || "Unknown area"}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {neighborhood.knocks} knocks · {neighborhood.opportunities} opps · {neighborhood.appointments} appointments
+                      </div>
+                    </div>
+                    <div className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
+                      {neighborhood.opportunityRate}% opp rate
+                    </div>
+                  </div>
+                </Link>
+              ))}
+              {!loading && !(dashboard?.neighborhoods.length ?? 0) ? (
+                <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                  No neighborhood patterns yet for today.
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Territory Summary</div>
+                <p className="mt-2 text-sm text-slate-500">Territory-level coverage using the assignments already in the CRM.</p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              {(dashboard?.territories ?? []).map((territory) => (
+                <div key={territory.territoryId} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-ink">{territory.name}</div>
+                      <div className="mt-1 text-xs uppercase tracking-[0.12em] text-slate-500">{territory.status}</div>
+                    </div>
+                    <div className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
+                      {territory.propertyCount} props
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-600">
+                    <div>{territory.knocksToday} knocks</div>
+                    <div>{territory.opportunitiesToday} opps</div>
+                    <div>{territory.appointmentsToday} appts</div>
+                  </div>
+                </div>
+              ))}
+              {!loading && !(dashboard?.territories.length ?? 0) ? (
+                <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                  No territories configured yet.
+                </div>
+              ) : null}
+            </div>
+          </section>
+
           <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Live Activity Feed</div>
             <div className="mt-4 space-y-3">

@@ -8,6 +8,9 @@ export interface MapViewportFilters {
   minLng?: number;
   maxLng?: number;
   limit?: number;
+  ownerId?: string;
+  city?: string;
+  state?: string;
 }
 
 function deriveMapState(row: Record<string, unknown>): MapProperty["mapState"] {
@@ -52,6 +55,9 @@ export async function getMapPropertiesForViewport(
   if (filters.maxLat !== undefined) query = query.lte("lat", filters.maxLat);
   if (filters.minLng !== undefined) query = query.gte("lng", filters.minLng);
   if (filters.maxLng !== undefined) query = query.lte("lng", filters.maxLng);
+  if (filters.ownerId) query = query.eq("owner_id", filters.ownerId);
+  if (filters.city) query = query.ilike("city", filters.city);
+  if (filters.state) query = query.ilike("state", filters.state);
 
   const { data, error } = await query;
   if (error) throw error;

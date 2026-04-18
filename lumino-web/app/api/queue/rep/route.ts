@@ -10,6 +10,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const queue = await getRepQueue(context);
+  const { searchParams } = new URL(request.url);
+  const queue = await getRepQueue(context, searchParams.get("ownerId"));
   return NextResponse.json(queue);
 }
