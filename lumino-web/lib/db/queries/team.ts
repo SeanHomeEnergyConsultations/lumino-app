@@ -1,5 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
-import type { TeamMembersResponse, TeamMemberItem } from "@/types/api";
+import type { TeamCleanupIssue, TeamMembersResponse, TeamMemberItem } from "@/types/api";
 import type { AuthSessionContext } from "@/types/auth";
 
 export async function getTeamMembers(context: AuthSessionContext): Promise<TeamMembersResponse> {
@@ -24,8 +24,18 @@ export async function getTeamMembers(context: AuthSessionContext): Promise<TeamM
 
   if (usersError) throw usersError;
 
+  const { data: defaultOrgUsers, error: defaultOrgUsersError } = await supabase
+    .from("app_users")
+    .select("id,email,full_name,is_active,created_at,external_auth_id,default_organization_id")
+    .eq("default_organization_id", context.organizationId);
+
+  if (defaultOrgUsersError) throw defaultOrgUsersError;
+
   const userMap = new Map((users ?? []).map((item) => [item.id as string, item]));
-  const authUserIds = (users ?? [])
+  const scopedUsers = new Map<string, (typeof users)[number]>(
+    [...(users ?? []), ...(defaultOrgUsers ?? [])].map((item) => [item.id as string, item])
+  );
+  const authUserIds = [...scopedUsers.values()]
     .map((item) => item.external_auth_id as string | null)
     .filter(Boolean) as string[];
   const { data: authUsersData, error: authUsersError } = await supabase.auth.admin.listUsers({
@@ -68,5 +78,95 @@ export async function getTeamMembers(context: AuthSessionContext): Promise<TeamM
     };
   });
 
-  return { items };
+  const issues: TeamCleanupIssue[] = [];
+
+  (memberships ?? []).forEach((membership) => {
+    const user = userMap.get(membership.user_id as string);
+    if (!user) {
+      issues.push({
+        id: `membership-missing-user-${membership.id as string}`,
+        type: "membership_missing_user",
+        severity: "high",
+        title: "Membership points to a missing app user",
+        detail: "This team membership no longer has a matching app_users record. Clean up this user before reinviting them.",
+        email: null,
+        userId: membership.user_id as string,
+        memberId: membership.id as string,
+        cleanupAction: null
+      });
+      return;
+    }
+
+    if (!user.external_auth_id) {
+      issues.push({
+        id: `member-missing-auth-${membership.id as string}`,
+        type: "member_missing_auth",
+        severity: "medium",
+        title: "Member has no linked auth account",
+        detail: "This user exists in app_users but is missing external_auth_id, so invite and login flows may break until the record is repaired.",
+        email: (user.email as string | null | undefined) ?? null,
+        userId: user.id as string,
+        memberId: membership.id as string,
+        cleanupAction: null
+      });
+      return;
+    }
+
+    if (!authUsersById.get(user.external_auth_id as string)) {
+      issues.push({
+        id: `member-auth-missing-${membership.id as string}`,
+        type: "member_auth_missing",
+        severity: "high",
+        title: "Member is linked to a deleted auth account",
+        detail: "The app user still exists, but the Supabase auth user is gone. Reinvites may fail until the stale record is cleaned up or reconciled.",
+        email: (user.email as string | null | undefined) ?? null,
+        userId: user.id as string,
+        memberId: membership.id as string,
+        cleanupAction: null
+      });
+    }
+  });
+
+  [...scopedUsers.values()]
+    .filter((user) => !userIds.includes(user.id as string))
+    .forEach((user) => {
+      const authExists = user.external_auth_id ? authUsersById.has(user.external_auth_id as string) : false;
+      issues.push({
+        id: `orphan-app-user-${user.id as string}`,
+        type: "orphan_app_user",
+        severity: authExists ? "medium" : "high",
+        title: authExists ? "App user has no team membership" : "Stale app user has no auth account",
+        detail: authExists
+          ? "This user still exists in auth and app_users, but is not attached to this organization anymore."
+          : "This user exists only in app_users with no active membership and no matching auth account.",
+        email: (user.email as string | null | undefined) ?? null,
+        userId: user.id as string,
+        memberId: null,
+        cleanupAction: "delete_orphan_app_user"
+      });
+    });
+
+  const emailBuckets = new Map<string, string[]>();
+  [...scopedUsers.values()].forEach((user) => {
+    const email = ((user.email as string | null | undefined) ?? "").trim().toLowerCase();
+    if (!email) return;
+    emailBuckets.set(email, [...(emailBuckets.get(email) ?? []), user.id as string]);
+  });
+
+  emailBuckets.forEach((ids, email) => {
+    if (ids.length < 2) return;
+    issues.push({
+      id: `duplicate-email-${email}`,
+      type: "duplicate_email",
+      severity: "medium",
+      title: "Duplicate app user records share the same email",
+      detail: "This can cause reinvites to attach to the wrong row. Clean up the stale duplicate before onboarding this person again.",
+      email,
+      userId: ids[0] ?? null,
+      memberId: null,
+      cleanupAction: null
+    });
+  });
+
+  return { items, issues };
 }

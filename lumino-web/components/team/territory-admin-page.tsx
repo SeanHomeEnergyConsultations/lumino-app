@@ -5,6 +5,7 @@ import { authFetch, useAuth } from "@/lib/auth/client";
 import type {
   ManagerDashboardResponse,
   OrganizationBrandingResponse,
+  TeamCleanupIssue,
   TeamMembersResponse,
   TeamMemberItem,
   TerritoriesResponse,
@@ -39,6 +40,7 @@ export function TerritoryAdminPage() {
   const [searching, setSearching] = useState(false);
   const [dashboard, setDashboard] = useState<ManagerDashboardResponse | null>(null);
   const [members, setMembers] = useState<TeamMemberItem[]>([]);
+  const [issues, setIssues] = useState<TeamCleanupIssue[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteRole, setInviteRole] = useState<"owner" | "admin" | "manager" | "rep" | "setter">("rep");
@@ -56,6 +58,15 @@ export function TerritoryAdminPage() {
     [appContext?.memberships]
   );
   const canDeleteMembers = canEditBranding;
+
+  async function readErrorMessage(response: Response, fallback: string) {
+    try {
+      const json = (await response.json()) as { error?: string };
+      return json.error || fallback;
+    } catch {
+      return fallback;
+    }
+  }
 
   const loadTerritories = useCallback(async () => {
     if (!accessToken) return;
@@ -122,6 +133,7 @@ export function TerritoryAdminPage() {
     if (!response.ok) throw new Error("Failed to load team members");
     const json = (await response.json()) as TeamMembersResponse;
     setMembers(json.items);
+    setIssues(json.issues ?? []);
   }, [accessToken]);
 
   useEffect(() => {
@@ -283,7 +295,7 @@ export function TerritoryAdminPage() {
         })
       });
 
-      if (!response.ok) throw new Error("Failed to invite member");
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to invite member"));
       setInviteEmail("");
       setInviteName("");
       setInviteRole("rep");
@@ -307,10 +319,11 @@ export function TerritoryAdminPage() {
         body: JSON.stringify(payload)
       });
 
-      if (!response.ok) throw new Error("Failed to update member");
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update member"));
       await loadMembers();
       setSaveState("saved");
-    } catch {
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to update member.");
       setSaveState("error");
     }
   }
@@ -325,30 +338,60 @@ export function TerritoryAdminPage() {
         body: JSON.stringify({ action })
       });
 
-      if (!response.ok) throw new Error("Failed to send access email");
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to send access email"));
       setSaveState("saved");
-    } catch {
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to send access email.");
       setSaveState("error");
     }
   }
 
-  async function handleDeleteMember(memberId: string, memberName: string) {
+  async function handleDeleteMember(memberId: string, memberName: string, mode: "remove" | "account") {
     if (!accessToken || !canDeleteMembers) return;
     if (typeof window !== "undefined") {
-      const confirmed = window.confirm(`Delete ${memberName} from this organization? This removes their team access.`);
+      const message =
+        mode === "account"
+          ? `Delete ${memberName}'s account entirely? This removes them from Lumino, deletes their login, and should only be used if they are not attached anywhere else.`
+          : `Remove ${memberName} from this organization? They will lose access to this team's data, but their underlying account can still exist.`;
+      const confirmed = window.confirm(message);
       if (!confirmed) return;
     }
 
     setSaveState("saving");
     try {
-      const response = await authFetch(accessToken, `/api/team/members/${memberId}`, {
+      const response = await authFetch(accessToken, `/api/team/members/${memberId}?mode=${mode}`, {
         method: "DELETE"
       });
 
-      if (!response.ok) throw new Error("Failed to delete member");
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to delete member"));
       await loadMembers();
       setSaveState("saved");
-    } catch {
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to delete member.");
+      setSaveState("error");
+    }
+  }
+
+  async function handleCleanupIssue(issue: TeamCleanupIssue) {
+    if (!accessToken || !issue.cleanupAction || !issue.userId) return;
+    const confirmed = window.confirm(`Clean up ${issue.email ?? "this stale user record"}? This permanently deletes the orphaned app user.`);
+    if (!confirmed) return;
+
+    setSaveState("saving");
+    try {
+      const response = await authFetch(accessToken, "/api/team/cleanup", {
+        method: "POST",
+        body: JSON.stringify({
+          action: issue.cleanupAction,
+          userId: issue.userId
+        })
+      });
+
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to clean up team issue"));
+      await loadMembers();
+      setSaveState("saved");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to clean up team issue.");
       setSaveState("error");
     }
   }
@@ -650,12 +693,28 @@ export function TerritoryAdminPage() {
                           onClick={() =>
                             void handleDeleteMember(
                               member.memberId,
-                              member.fullName ?? member.email ?? "this team member"
+                              member.fullName ?? member.email ?? "this team member",
+                              "remove"
                             )
                           }
                           className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
                         >
-                          Delete
+                          Remove
+                        </button>
+                      ) : null}
+                      {canDeleteMembers && ["rep", "setter"].includes(member.role) ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleDeleteMember(
+                              member.memberId,
+                              member.fullName ?? member.email ?? "this team member",
+                              "account"
+                            )
+                          }
+                          className="rounded-2xl border border-rose-300 bg-rose-100 px-3 py-2 text-sm font-semibold text-rose-800 transition hover:bg-rose-200"
+                        >
+                          Delete Account
                         </button>
                       ) : null}
                     </div>
@@ -716,12 +775,59 @@ export function TerritoryAdminPage() {
               {saveState === "saved"
                 ? "Saved."
                 : saveState === "error"
-                  ? "Could not save the team update."
-                  : "This creates or reactivates the user record and membership. Email invite sending can come next."}
+                  ? "A team action failed. The exact error is shown in the alert dialog."
+                  : "This creates or reactivates the user record, membership, and access email in one step."}
             </div>
           </div>
         </section>
       </div>
+
+      {canDeleteMembers ? (
+        <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Team Cleanup</div>
+              <p className="mt-2 text-sm text-slate-500">
+                Find stale auth/app-user mismatches before they break reinvites or password resets.
+              </p>
+            </div>
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+              {issues.length}
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {issues.length ? (
+              issues.map((issue) => (
+                <div key={issue.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-ink">{issue.title}</div>
+                      <div className="mt-1 text-xs uppercase tracking-[0.12em] text-slate-500">
+                        {issue.severity} {issue.email ? `• ${issue.email}` : ""}
+                      </div>
+                      <div className="mt-2 text-sm text-slate-600">{issue.detail}</div>
+                    </div>
+                    {issue.cleanupAction ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleCleanupIssue(issue)}
+                        className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+                      >
+                        Clean Up
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                No stale team records detected right now.
+              </div>
+            )}
+          </div>
+        </section>
+      ) : null}
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[22rem_1fr]">
         <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">

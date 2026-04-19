@@ -14,3 +14,8 @@ export const teamMemberUpdateSchema = z.object({
 export const teamMemberActionSchema = z.object({
   action: z.enum(["resend_invite", "send_password_reset"])
 });
+
+export const teamCleanupSchema = z.object({
+  action: z.enum(["delete_orphan_app_user"]),
+  userId: z.string().uuid()
+});

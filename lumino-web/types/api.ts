@@ -385,10 +385,28 @@ export interface TeamMemberItem {
 
 export interface TeamMembersResponse {
   items: TeamMemberItem[];
+  issues: TeamCleanupIssue[];
 }
 
 export interface TeamMemberActionResponse {
   ok: true;
+}
+
+export interface TeamCleanupIssue {
+  id: string;
+  type:
+    | "member_missing_auth"
+    | "member_auth_missing"
+    | "membership_missing_user"
+    | "orphan_app_user"
+    | "duplicate_email";
+  severity: "high" | "medium" | "low";
+  title: string;
+  detail: string;
+  email: string | null;
+  userId: string | null;
+  memberId: string | null;
+  cleanupAction: "delete_orphan_app_user" | null;
 }
 
 export interface OrganizationBranding {

@@ -7,6 +7,10 @@ function mapMembershipRoleToAppUserRole(role: "owner" | "admin" | "manager" | "r
   return role;
 }
 
+function authUserIsActivated(user: { last_sign_in_at?: string | null; email_confirmed_at?: string | null }) {
+  return Boolean(user.last_sign_in_at || user.email_confirmed_at);
+}
+
 export async function inviteTeamMember(
   input: { email: string; fullName: string; role: "owner" | "admin" | "manager" | "rep" | "setter" },
   context: AuthSessionContext,
@@ -17,24 +21,25 @@ export async function inviteTeamMember(
 
   const normalizedEmail = input.email.trim().toLowerCase();
   const appUserRole = mapMembershipRoleToAppUserRole(input.role);
-  const [{ data: authUsersData, error: authUsersError }, { data: existingUser, error: existingUserError }] =
+  const [{ data: authUsersData, error: authUsersError }, { data: existingUsers, error: existingUsersError }] =
     await Promise.all([
       supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }),
       supabase
         .from("app_users")
-        .select("id,email,external_auth_id,default_organization_id")
+        .select("id,email,full_name,external_auth_id,default_organization_id,created_at")
         .eq("email", normalizedEmail)
-        .maybeSingle()
+        .order("created_at", { ascending: true })
     ]);
 
   if (authUsersError) throw authUsersError;
-  if (existingUserError) throw existingUserError;
+  if (existingUsersError) throw existingUsersError;
 
   const existingAuthUser = authUsersData.users.find(
     (user) => user.email?.toLowerCase() === normalizedEmail
   );
 
   let authUserId = existingAuthUser?.id as string | undefined;
+  let accessEmailType: "invite" | "reset" | null = null;
 
   if (!authUserId) {
     const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(
@@ -47,56 +52,47 @@ export async function inviteTeamMember(
 
     if (inviteError) throw inviteError;
     authUserId = inviteData.user?.id;
+    accessEmailType = "invite";
   }
 
   if (!authUserId) {
     throw new Error("Could not create or resolve auth user for invite.");
   }
 
-  let userId = existingUser?.id as string | undefined;
+  const { data: appUserFromAuth, error: appUserFromAuthError } = await supabase
+    .from("app_users")
+    .select("id,email,full_name,external_auth_id,default_organization_id,created_at")
+    .eq("external_auth_id", authUserId)
+    .maybeSingle();
 
-  if (!userId) {
-    const { data: appUserFromTrigger, error: appUserLookupError } = await supabase
-      .from("app_users")
-      .select("id")
-      .eq("external_auth_id", authUserId)
-      .maybeSingle();
+  if (appUserFromAuthError) throw appUserFromAuthError;
 
-    if (appUserLookupError) throw appUserLookupError;
+  let selectedUser = appUserFromAuth;
+  const emailCandidates = (existingUsers ?? []).filter(Boolean);
 
-    if (appUserFromTrigger?.id) {
-      userId = appUserFromTrigger.id as string;
-      const { error: updateUserError } = await supabase
-        .from("app_users")
-        .update({
-          email: normalizedEmail,
-          full_name: input.fullName.trim(),
-          role: appUserRole,
-          is_active: true,
-          default_organization_id: context.organizationId,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", userId);
+  if (!selectedUser) {
+    if (emailCandidates.length === 1) {
+      selectedUser = emailCandidates[0];
+    } else if (emailCandidates.length > 1) {
+      const { data: orgMemberships, error: orgMembershipsError } = await supabase
+        .from("organization_members")
+        .select("id,user_id")
+        .eq("organization_id", context.organizationId)
+        .in("user_id", emailCandidates.map((item) => item.id as string));
 
-      if (updateUserError) throw updateUserError;
-    } else {
-      const { data: insertedUser, error: insertUserError } = await supabase
-        .from("app_users")
-        .insert({
-          email: normalizedEmail,
-          full_name: input.fullName.trim(),
-          role: appUserRole,
-          is_active: true,
-          external_auth_id: authUserId,
-          default_organization_id: context.organizationId
-        })
-        .select("id")
-        .single();
+      if (orgMembershipsError) throw orgMembershipsError;
 
-      if (insertUserError) throw insertUserError;
-      userId = insertedUser.id as string;
+      const currentOrgUserId = orgMemberships?.[0]?.user_id as string | undefined;
+      if (currentOrgUserId) {
+        selectedUser = emailCandidates.find((item) => item.id === currentOrgUserId) ?? null;
+      } else {
+        throw new Error("Multiple stale user records exist for this email. Use Team cleanup before reinviting.");
+      }
     }
-  } else {
+  }
+
+  let userId: string;
+  if (selectedUser?.id) {
     const { error: updateUserError } = await supabase
       .from("app_users")
       .update({
@@ -105,12 +101,29 @@ export async function inviteTeamMember(
         role: appUserRole,
         is_active: true,
         external_auth_id: authUserId,
-        default_organization_id: existingUser?.default_organization_id ?? context.organizationId,
+        default_organization_id: selectedUser.default_organization_id ?? context.organizationId,
         updated_at: new Date().toISOString()
       })
-      .eq("id", userId);
+      .eq("id", selectedUser.id);
 
     if (updateUserError) throw updateUserError;
+    userId = selectedUser.id as string;
+  } else {
+    const { data: insertedUser, error: insertUserError } = await supabase
+      .from("app_users")
+      .insert({
+        email: normalizedEmail,
+        full_name: input.fullName.trim(),
+        role: appUserRole,
+        is_active: true,
+        external_auth_id: authUserId,
+        default_organization_id: context.organizationId
+      })
+      .select("id")
+      .single();
+
+    if (insertUserError) throw insertUserError;
+    userId = insertedUser.id as string;
   }
 
   const { data: existingMembership, error: membershipLookupError } = await supabase
@@ -134,10 +147,28 @@ export async function inviteTeamMember(
 
     if (updateMembershipError) throw updateMembershipError;
 
+    if (!accessEmailType) {
+      if (existingAuthUser && authUserIsActivated(existingAuthUser)) {
+        const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+          redirectTo: redirectTo?.replace("mode=invite", "mode=recovery")
+        });
+        if (error) throw error;
+        accessEmailType = "reset";
+      } else {
+        const { error } = await supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
+          data: { full_name: input.fullName.trim() },
+          redirectTo
+        });
+        if (error) throw error;
+        accessEmailType = "invite";
+      }
+    }
+
     return {
       memberId: existingMembership.id as string,
       userId,
-      invited: false
+      invited: accessEmailType === "invite",
+      accessEmailType
     };
   }
 
@@ -155,10 +186,28 @@ export async function inviteTeamMember(
 
   if (insertMembershipError) throw insertMembershipError;
 
+  if (!accessEmailType) {
+    if (existingAuthUser && authUserIsActivated(existingAuthUser)) {
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+        redirectTo: redirectTo?.replace("mode=invite", "mode=recovery")
+      });
+      if (error) throw error;
+      accessEmailType = "reset";
+    } else {
+      const { error } = await supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
+        data: { full_name: input.fullName.trim() },
+        redirectTo
+      });
+      if (error) throw error;
+      accessEmailType = "invite";
+    }
+  }
+
   return {
     memberId: insertedMembership.id as string,
     userId,
-    invited: true
+    invited: accessEmailType === "invite",
+    accessEmailType
   };
 }
 
@@ -233,7 +282,7 @@ export async function updateTeamMember(
   return { memberId };
 }
 
-export async function deleteTeamMember(memberId: string, context: AuthSessionContext) {
+export async function removeTeamMember(memberId: string, context: AuthSessionContext) {
   const supabase = createServerSupabaseClient();
   if (!context.organizationId) throw new Error("No active organization found for this user.");
 
@@ -258,4 +307,103 @@ export async function deleteTeamMember(memberId: string, context: AuthSessionCon
 
   if (error) throw error;
   return { memberId };
+}
+
+export async function deleteTeamMemberAccount(memberId: string, context: AuthSessionContext) {
+  const supabase = createServerSupabaseClient();
+  if (!context.organizationId) throw new Error("No active organization found for this user.");
+
+  const { data: membership, error: membershipError } = await supabase
+    .from("organization_members")
+    .select("id,user_id,role")
+    .eq("organization_id", context.organizationId)
+    .eq("id", memberId)
+    .maybeSingle();
+
+  if (membershipError) throw membershipError;
+  if (!membership) throw new Error("Team member not found.");
+  if (!["rep", "setter"].includes(membership.role as string)) {
+    throw new Error("Only reps and setters can be deleted.");
+  }
+
+  const { count: membershipCount, error: membershipCountError } = await supabase
+    .from("organization_members")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", membership.user_id);
+
+  if (membershipCountError) throw membershipCountError;
+  if ((membershipCount ?? 0) > 1) {
+    throw new Error("This user belongs to another organization too, so only removal from this organization is safe.");
+  }
+
+  const { data: user, error: userError } = await supabase
+    .from("app_users")
+    .select("id,external_auth_id")
+    .eq("id", membership.user_id)
+    .maybeSingle();
+
+  if (userError) throw userError;
+
+  const { error: deleteMembershipError } = await supabase
+    .from("organization_members")
+    .delete()
+    .eq("id", memberId)
+    .eq("organization_id", context.organizationId);
+
+  if (deleteMembershipError) throw deleteMembershipError;
+
+  if (user?.external_auth_id) {
+    const { error: deleteAuthError } = await supabase.auth.admin.deleteUser(user.external_auth_id as string);
+    if (deleteAuthError) throw deleteAuthError;
+  }
+
+  if (user?.id) {
+    const { error: deleteAppUserError } = await supabase
+      .from("app_users")
+      .delete()
+      .eq("id", user.id);
+
+    if (deleteAppUserError) throw deleteAppUserError;
+  }
+
+  return { memberId, deletedAccount: true as const };
+}
+
+export async function deleteOrphanAppUser(userId: string, context: AuthSessionContext) {
+  const supabase = createServerSupabaseClient();
+  if (!context.organizationId) throw new Error("No active organization found for this user.");
+
+  const { count: membershipCount, error: membershipCountError } = await supabase
+    .from("organization_members")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId);
+
+  if (membershipCountError) throw membershipCountError;
+  if ((membershipCount ?? 0) > 0) {
+    throw new Error("This user still has organization memberships and is not safe to clean up as an orphan.");
+  }
+
+  const { data: user, error: userError } = await supabase
+    .from("app_users")
+    .select("id,external_auth_id,default_organization_id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (userError) throw userError;
+  if (!user) throw new Error("App user not found.");
+  if (user.default_organization_id !== context.organizationId) {
+    throw new Error("This orphaned user does not belong to the active organization.");
+  }
+
+  if (user.external_auth_id) {
+    await supabase.auth.admin.deleteUser(user.external_auth_id as string).catch(() => null);
+  }
+
+  const { error: deleteAppUserError } = await supabase
+    .from("app_users")
+    .delete()
+    .eq("id", userId);
+
+  if (deleteAppUserError) throw deleteAppUserError;
+  return { userId };
 }
