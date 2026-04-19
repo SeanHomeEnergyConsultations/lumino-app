@@ -2,6 +2,23 @@ import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import type { SearchResponse, SearchResultItem } from "@/types/api";
 import type { AuthSessionContext } from "@/types/auth";
 
+function identityKey(input: {
+  addressLine1?: string | null;
+  rawAddress?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+}) {
+  const line1 = (input.addressLine1 ?? input.rawAddress ?? "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  const city = (input.city ?? "").trim().toLowerCase();
+  const state = (input.state ?? "").trim().toLowerCase();
+  const postal = (input.postalCode ?? "").trim().toLowerCase();
+  return [line1, city, state, postal].join("|");
+}
+
 export async function searchEntities(
   query: string,
   context: AuthSessionContext
@@ -18,7 +35,7 @@ export async function searchEntities(
     await Promise.all([
       supabase
         .from("properties")
-        .select("id,raw_address,address_line_1,city,state,postal_code,normalized_address")
+        .select("id,raw_address,address_line_1,city,state,postal_code,normalized_address,current_lead_id,data_completeness_score")
         .or(
           [
             `raw_address.ilike.%${trimmed}%`,
@@ -28,7 +45,7 @@ export async function searchEntities(
             `normalized_address.ilike.%${normalized}%`
           ].join(",")
         )
-        .limit(8),
+        .limit(20),
       supabase
         .from("leads")
         .select("id,property_id,first_name,last_name,phone,email,address")
@@ -48,8 +65,32 @@ export async function searchEntities(
   if (propertyError) throw propertyError;
   if (leadError) throw leadError;
 
+  const preferredPropertyRows = Array.from(
+    (propertyRows ?? []).reduce((map, row) => {
+      const key = identityKey({
+        addressLine1: row.address_line_1 as string | null,
+        rawAddress: row.raw_address as string | null,
+        city: row.city as string | null,
+        state: row.state as string | null,
+        postalCode: row.postal_code as string | null
+      });
+      const currentScore =
+        (row.current_lead_id ? 1000 : 0) + Number(row.data_completeness_score ?? 0);
+      const existing = map.get(key);
+      const existingScore = existing
+        ? ((existing.current_lead_id as string | null) ? 1000 : 0) +
+          Number(existing.data_completeness_score ?? 0)
+        : -1;
+
+      if (!existing || currentScore > existingScore) {
+        map.set(key, row);
+      }
+      return map;
+    }, new Map<string, Record<string, unknown>>()).values()
+  );
+
   const items: SearchResultItem[] = [
-    ...(propertyRows ?? []).map((row) => ({
+    ...preferredPropertyRows.map((row) => ({
       id: `property:${row.id as string}`,
       kind: "property" as const,
       title:

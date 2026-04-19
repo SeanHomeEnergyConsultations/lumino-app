@@ -63,7 +63,18 @@ type ResultItem = {
   mapState?: MapProperty["mapState"];
   visitCount?: number;
   notHomeCount?: number;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
 };
+
+function identityKey(item: ResultItem) {
+  const line1 = item.address.split(",")[0]?.trim().toLowerCase() ?? "";
+  const city = (item.city ?? "").trim().toLowerCase();
+  const state = (item.state ?? "").trim().toLowerCase();
+  const postal = (item.postalCode ?? "").trim().toLowerCase();
+  return [line1, city, state, postal].join("|");
+}
 
 export function PropertyResultsPanel({
   items,
@@ -128,7 +139,10 @@ export function PropertyResultsPanel({
           subtitle: `${item.visitCount} visits${item.mapState === "not_home" && item.notHomeCount > 1 ? ` · ${item.notHomeCount} tries` : ""}`,
           mapState: item.mapState,
           visitCount: item.visitCount,
-          notHomeCount: item.notHomeCount
+          notHomeCount: item.notHomeCount,
+          city: item.city,
+          state: item.state,
+          postalCode: item.postalCode
         }))
       : items
           .filter((item) =>
@@ -142,16 +156,35 @@ export function PropertyResultsPanel({
             subtitle: `${item.visitCount} visits${item.mapState === "not_home" && item.notHomeCount > 1 ? ` · ${item.notHomeCount} tries` : ""}`,
             mapState: item.mapState,
             visitCount: item.visitCount,
-            notHomeCount: item.notHomeCount
+            notHomeCount: item.notHomeCount,
+            city: item.city,
+            state: item.state,
+            postalCode: item.postalCode
           }));
 
-    if (!trimmed) return localMatches;
+    const dedupedLocalMatches = Array.from(
+      localMatches.reduce((map, item) => {
+        const key = identityKey(item);
+        const existing = map.get(key);
+        const currentScore = (item.visitCount ?? 0) + (item.mapState === "imported_target" ? 5 : 0);
+        const existingScore =
+          existing ? (existing.visitCount ?? 0) + (existing.mapState === "imported_target" ? 5 : 0) : -1;
+
+        if (!existing || currentScore >= existingScore) {
+          map.set(key, item);
+        }
+        return map;
+      }, new Map<string, ResultItem>()).values()
+    );
+
+    if (!trimmed) return dedupedLocalMatches;
 
     const merged = new Map<string, ResultItem>();
-    for (const item of localMatches) merged.set(item.propertyId, item);
+    for (const item of dedupedLocalMatches) merged.set(identityKey(item), item);
     for (const item of remoteResults) {
-      if (!merged.has(item.propertyId)) {
-        merged.set(item.propertyId, item);
+      const key = identityKey(item);
+      if (!merged.has(key)) {
+        merged.set(key, item);
       }
     }
     return Array.from(merged.values());

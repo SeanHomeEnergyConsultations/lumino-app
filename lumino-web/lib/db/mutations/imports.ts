@@ -35,6 +35,24 @@ function normalizeAddress(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function propertyIdentityKey(input: {
+  address?: string | null;
+  addressLine1?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zipcode?: string | null;
+  postalCode?: string | null;
+}) {
+  const line1 = (input.addressLine1 ?? input.address ?? "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  const city = (input.city ?? "").trim().toLowerCase();
+  const state = (input.state ?? "").trim().toLowerCase();
+  const postal = (input.zipcode ?? input.postalCode ?? "").trim().toLowerCase();
+  return [line1, city, state, postal].join("|");
+}
+
 function safeNumber(value: unknown) {
   const trimmed = String(value ?? "").trim().replace(/,/g, "");
   if (!trimmed) return null;
@@ -191,13 +209,26 @@ export async function ingestImportUpload(
   const { data: existingProperties, error: existingPropertiesError } = uniqueAddresses.length
     ? await supabase
         .from("properties")
-        .select("id,normalized_address")
+        .select("id,normalized_address,address_line_1,raw_address,city,state,postal_code,zipcode")
         .in("normalized_address", uniqueAddresses)
     : { data: [], error: null };
   if (existingPropertiesError) throw existingPropertiesError;
 
   const leadLookup = new Map((existingLeads ?? []).map((row) => [row.normalized_address as string, row]));
   const propertyLookup = new Map((existingProperties ?? []).map((row) => [row.normalized_address as string, row]));
+  const propertyIdentityLookup = new Map(
+    (existingProperties ?? []).map((row) => [
+      propertyIdentityKey({
+        addressLine1: (row.address_line_1 as string | null) ?? null,
+        address: (row.raw_address as string | null) ?? null,
+        city: (row.city as string | null) ?? null,
+        state: (row.state as string | null) ?? null,
+        zipcode: (row.zipcode as string | null) ?? null,
+        postalCode: (row.postal_code as string | null) ?? null
+      }),
+      row
+    ])
+  );
 
   let insertedCount = 0;
   let updatedCount = 0;
@@ -262,7 +293,47 @@ export async function ingestImportUpload(
       insertedCount += 1;
     }
 
-    let propertyId = propertyLookup.get(row.normalizedAddress)?.id as string | undefined;
+    let propertyId =
+      (propertyLookup.get(row.normalizedAddress)?.id as string | undefined) ??
+      (propertyIdentityLookup.get(
+        propertyIdentityKey({
+          address: row.address,
+          city: row.city,
+          state: row.state,
+          zipcode: row.zipcode
+        })
+      )?.id as string | undefined);
+
+    if (!propertyId) {
+      const { data: fallbackProperty, error: fallbackPropertyError } = await supabase
+        .from("properties")
+        .select("id,normalized_address,address_line_1,raw_address,city,state,postal_code,zipcode")
+        .eq("address_line_1", row.address.split(",")[0]?.trim() || row.address)
+        .eq("city", row.city)
+        .eq("state", row.state)
+        .or(`postal_code.eq.${row.zipcode ?? ""},zipcode.eq.${row.zipcode ?? ""}`)
+        .maybeSingle();
+
+      if (fallbackPropertyError) throw fallbackPropertyError;
+      if (fallbackProperty?.id) {
+        propertyId = fallbackProperty.id as string;
+        if (fallbackProperty.normalized_address) {
+          propertyLookup.set(fallbackProperty.normalized_address as string, fallbackProperty);
+        }
+        propertyIdentityLookup.set(
+          propertyIdentityKey({
+            addressLine1: (fallbackProperty.address_line_1 as string | null) ?? null,
+            address: (fallbackProperty.raw_address as string | null) ?? null,
+            city: (fallbackProperty.city as string | null) ?? null,
+            state: (fallbackProperty.state as string | null) ?? null,
+            zipcode: (fallbackProperty.zipcode as string | null) ?? null,
+            postalCode: (fallbackProperty.postal_code as string | null) ?? null
+          }),
+          fallbackProperty
+        );
+      }
+    }
+
     if (!propertyId) {
       const facts = extractPropertyFacts(row.payload);
       const dataCompletenessScore = propertyCompletenessScore(facts);
@@ -282,11 +353,20 @@ export async function ingestImportUpload(
           data_completeness_score: dataCompletenessScore,
           ...facts
         })
-        .select("id,normalized_address")
+        .select("id,normalized_address,address_line_1,raw_address,city,state,postal_code,zipcode")
         .single();
       if (propertyError) throw propertyError;
       propertyId = createdProperty.id as string;
       propertyLookup.set(row.normalizedAddress, createdProperty);
+      propertyIdentityLookup.set(
+        propertyIdentityKey({
+          address: row.address,
+          city: row.city,
+          state: row.state,
+          zipcode: row.zipcode
+        }),
+        createdProperty
+      );
     } else {
       const facts = extractPropertyFacts(row.payload);
       const dataCompletenessScore = propertyCompletenessScore(facts);
