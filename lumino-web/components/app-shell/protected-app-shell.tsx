@@ -5,9 +5,15 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell/app-shell";
 import { useAuth } from "@/lib/auth/client";
 
-export function ProtectedAppShell({ children }: { children: React.ReactNode }) {
+export function ProtectedAppShell({
+  children,
+  allowedRoles
+}: {
+  children: React.ReactNode;
+  allowedRoles?: string[];
+}) {
   const router = useRouter();
-  const { session, loading, envReady } = useAuth();
+  const { session, loading, envReady, appContext } = useAuth();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -19,6 +25,16 @@ export function ProtectedAppShell({ children }: { children: React.ReactNode }) {
       router.replace("/login");
     }
   }, [loading, router, session]);
+
+  useEffect(() => {
+    if (!loading && session && allowedRoles?.length) {
+      const roles = appContext?.memberships.map((item) => item.role) ?? [];
+      const allowed = roles.some((role) => allowedRoles.includes(role));
+      if (!allowed) {
+        router.replace("/map");
+      }
+    }
+  }, [allowedRoles, appContext?.memberships, loading, router, session]);
 
   if (mounted && !envReady) {
     return (
@@ -41,6 +57,11 @@ export function ProtectedAppShell({ children }: { children: React.ReactNode }) {
   }
 
   if (!session) return null;
+  if (allowedRoles?.length) {
+    const roles = appContext?.memberships.map((item) => item.role) ?? [];
+    const allowed = roles.some((role) => allowedRoles.includes(role));
+    if (!allowed) return null;
+  }
 
   return <AppShell>{children}</AppShell>;
 }

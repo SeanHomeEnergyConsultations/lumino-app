@@ -24,10 +24,18 @@ const nav = [
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { organizationBranding } = useAuth();
+  const { organizationBranding, appContext } = useAuth();
   const appName = organizationBranding?.appName ?? "Lumino";
   const primaryColor = organizationBranding?.primaryColor ?? "#0b1220";
   const accentColor = organizationBranding?.accentColor ?? "#94a3b8";
+  const roles = appContext?.memberships.map((item) => item.role) ?? [];
+  const canManage = roles.some((role) => ["owner", "admin", "manager"].includes(role));
+  const filteredNav = nav.filter((item) => {
+    if (["/imports", "/dashboard", "/team"].includes(item.href)) {
+      return canManage;
+    }
+    return true;
+  });
 
   return (
     <aside className="w-72 shrink-0 border-r border-slate-200/80 bg-white/70 px-5 py-6 backdrop-blur">
@@ -42,7 +50,7 @@ export function AppSidebar() {
       </div>
 
       <nav className="mt-10 space-y-2">
-        {nav.map(({ href, label, icon: Icon }) => (
+        {filteredNav.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}

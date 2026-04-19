@@ -3,7 +3,7 @@ import { ManagerDashboardPage } from "@/components/dashboard/manager-dashboard-p
 
 export default function DashboardPage() {
   return (
-    <ProtectedAppShell>
+    <ProtectedAppShell allowedRoles={["owner", "admin", "manager"]}>
       <ManagerDashboardPage />
     </ProtectedAppShell>
   );

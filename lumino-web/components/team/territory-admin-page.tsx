@@ -62,6 +62,7 @@ export function TerritoryAdminPage() {
     [appContext?.memberships]
   );
   const canDeleteMembers = canEditBranding;
+  const currentAppUserId = appContext?.appUser.id ?? null;
 
   async function readErrorMessage(response: Response, fallback: string) {
     try {
@@ -632,6 +633,11 @@ export function TerritoryAdminPage() {
             {members.length ? (
               members.map((member) => (
                 <div key={member.memberId} className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  {(() => {
+                    const isSelf = member.userId === currentAppUserId;
+                    const isProtectedOwner = member.role === "owner";
+                    const canMutateMember = !isSelf && !isProtectedOwner;
+                    return (
                   <div className="grid gap-3 xl:grid-cols-[minmax(0,1.5fr)_auto] xl:items-center">
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-ink">{member.fullName ?? member.email ?? "Team member"}</div>
@@ -652,12 +658,13 @@ export function TerritoryAdminPage() {
                     <div className="flex flex-wrap gap-2">
                       <select
                         value={member.role}
+                        disabled={!canMutateMember}
                         onChange={(event) =>
                           void handleUpdateMember(member.memberId, {
                             role: event.target.value as "owner" | "admin" | "manager" | "rep" | "setter"
                           })
                         }
-                        className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                        className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                       >
                         {["owner", "admin", "manager", "rep", "setter"].map((role) => (
                           <option key={role} value={role}>
@@ -667,12 +674,13 @@ export function TerritoryAdminPage() {
                       </select>
                       <button
                         type="button"
+                        disabled={!canMutateMember}
                         onClick={() => void handleUpdateMember(member.memberId, { isActive: !member.isActive })}
                         className={`rounded-2xl px-3 py-2 text-sm font-semibold transition ${
                           member.isActive
                             ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
                             : "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                        }`}
+                        } disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400`}
                       >
                         {member.isActive ? "Deactivate" : "Reactivate"}
                       </button>
@@ -692,7 +700,7 @@ export function TerritoryAdminPage() {
                       >
                         Send Reset
                       </button>
-                      {canDeleteMembers && ["rep", "setter"].includes(member.role) ? (
+                      {canDeleteMembers && canMutateMember && ["rep", "setter"].includes(member.role) ? (
                         <button
                           type="button"
                           onClick={() =>
@@ -707,7 +715,7 @@ export function TerritoryAdminPage() {
                           Remove
                         </button>
                       ) : null}
-                      {canDeleteMembers && ["rep", "setter"].includes(member.role) ? (
+                      {canDeleteMembers && canMutateMember && ["rep", "setter"].includes(member.role) ? (
                         <button
                           type="button"
                           onClick={() =>
@@ -724,6 +732,8 @@ export function TerritoryAdminPage() {
                       ) : null}
                     </div>
                   </div>
+                    );
+                  })()}
                 </div>
               ))
             ) : (

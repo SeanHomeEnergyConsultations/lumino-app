@@ -14,6 +14,9 @@ export async function GET(request: Request) {
   try {
     const context = await getRequestSessionContext(request);
     if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!canManageTeam(context.memberships.map((item) => item.role))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const items = await getTeamMembers(context);
     return NextResponse.json(items);
