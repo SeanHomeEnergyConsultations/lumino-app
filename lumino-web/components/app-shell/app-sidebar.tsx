@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Map, LayoutDashboard, ListTodo, CheckSquare2, Users, CalendarCheck2, ContactRound, Upload } from "lucide-react";
 import { LogoMark } from "@/components/shared/logo-mark";
 import { useAuth } from "@/lib/auth/client";
+import { hasManagerAccess } from "@/lib/auth/permissions";
 
 const nav = [
   { href: "/map", label: "Map", icon: Map },
@@ -28,8 +29,7 @@ export function AppSidebar() {
   const appName = organizationBranding?.appName ?? "Lumino";
   const primaryColor = organizationBranding?.primaryColor ?? "#0b1220";
   const accentColor = organizationBranding?.accentColor ?? "#94a3b8";
-  const roles = appContext?.memberships.map((item) => item.role) ?? [];
-  const canManage = roles.some((role) => ["owner", "admin", "manager"].includes(role));
+  const canManage = appContext ? hasManagerAccess(appContext) : false;
   const filteredNav = nav.filter((item) => {
     if (["/imports", "/dashboard", "/team"].includes(item.href)) {
       return canManage;

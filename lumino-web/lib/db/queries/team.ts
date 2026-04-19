@@ -18,7 +18,7 @@ export async function getTeamMembers(context: AuthSessionContext): Promise<TeamM
   const { data: users, error: usersError } = userIds.length
     ? await supabase
         .from("app_users")
-        .select("id,email,full_name,is_active,created_at,external_auth_id")
+        .select("id,email,full_name,is_active,created_at,external_auth_id,platform_role")
         .in("id", userIds)
     : { data: [], error: null };
 
@@ -26,14 +26,16 @@ export async function getTeamMembers(context: AuthSessionContext): Promise<TeamM
 
   const { data: defaultOrgUsers, error: defaultOrgUsersError } = await supabase
     .from("app_users")
-    .select("id,email,full_name,is_active,created_at,external_auth_id,default_organization_id")
+    .select("id,email,full_name,is_active,created_at,external_auth_id,default_organization_id,platform_role")
     .eq("default_organization_id", context.organizationId);
 
   if (defaultOrgUsersError) throw defaultOrgUsersError;
 
-  const userMap = new Map((users ?? []).map((item) => [item.id as string, item]));
+  const visibleUsers = (users ?? []).filter((item) => !item.platform_role);
+  const visibleDefaultOrgUsers = (defaultOrgUsers ?? []).filter((item) => !item.platform_role);
+  const userMap = new Map(visibleUsers.map((item) => [item.id as string, item]));
   const scopedUsers = new Map<string, (typeof users)[number]>(
-    [...(users ?? []), ...(defaultOrgUsers ?? [])].map((item) => [item.id as string, item])
+    [...visibleUsers, ...visibleDefaultOrgUsers].map((item) => [item.id as string, item])
   );
   const authUserIds = [...scopedUsers.values()]
     .map((item) => item.external_auth_id as string | null)
@@ -51,8 +53,9 @@ export async function getTeamMembers(context: AuthSessionContext): Promise<TeamM
       .map((user) => [user.id, user])
   );
 
-  const items: TeamMemberItem[] = (memberships ?? []).map((membership) => {
+  const items: TeamMemberItem[] = (memberships ?? []).flatMap((membership) => {
     const user = userMap.get(membership.user_id as string);
+    if (!user) return [];
     const authUser = user?.external_auth_id
       ? authUsersById.get(user.external_auth_id as string)
       : undefined;
@@ -64,7 +67,7 @@ export async function getTeamMembers(context: AuthSessionContext): Promise<TeamM
           ? "pending"
           : "inactive";
 
-    return {
+    return [{
       memberId: membership.id as string,
       userId: membership.user_id as string,
       fullName: (user?.full_name as string | null | undefined) ?? null,
@@ -75,7 +78,7 @@ export async function getTeamMembers(context: AuthSessionContext): Promise<TeamM
       invitedAt: (authUser?.invited_at as string | undefined) ?? null,
       lastSignInAt: (authUser?.last_sign_in_at as string | undefined) ?? null,
       joinedAt: (membership.created_at as string | null) ?? (user?.created_at as string | null | undefined) ?? null
-    };
+    }];
   });
 
   const issues: TeamCleanupIssue[] = [];
@@ -83,17 +86,6 @@ export async function getTeamMembers(context: AuthSessionContext): Promise<TeamM
   (memberships ?? []).forEach((membership) => {
     const user = userMap.get(membership.user_id as string);
     if (!user) {
-      issues.push({
-        id: `membership-missing-user-${membership.id as string}`,
-        type: "membership_missing_user",
-        severity: "high",
-        title: "Membership points to a missing app user",
-        detail: "This team membership no longer has a matching app_users record. Clean up this user before reinviting them.",
-        email: null,
-        userId: membership.user_id as string,
-        memberId: membership.id as string,
-        cleanupAction: null
-      });
       return;
     }
 

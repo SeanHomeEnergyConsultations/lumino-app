@@ -33,7 +33,7 @@ export async function getRequestSessionContext(
   const serviceClient = createServerSupabaseClient();
   const { data: appUser, error: appUserError } = await serviceClient
     .from("app_users")
-    .select("id,email,full_name,default_organization_id,role,is_active")
+    .select("id,email,full_name,default_organization_id,role,platform_role,is_active")
     .eq("external_auth_id", user.id)
     .maybeSingle();
 
@@ -64,6 +64,9 @@ export async function getRequestSessionContext(
       role: item.role
     })) ?? [];
 
+  const platformRole = (appUser.platform_role as AuthSessionContext["appUser"]["platformRole"]) ?? null;
+  const isPlatformOwner = platformRole === "platform_owner";
+  const isPlatformSupport = platformRole === "platform_support";
   const organizationId = appUser.default_organization_id ?? normalizedMemberships[0]?.organizationId ?? null;
   const { data: organization, error: organizationError } = organizationId
     ? await serviceClient.from("organizations").select("status").eq("id", organizationId).maybeSingle()
@@ -74,12 +77,12 @@ export async function getRequestSessionContext(
   const organizationStatus = (organization?.status as string | null) ?? null;
   const hasActiveMembership = normalizedMemberships.length > 0 && Boolean(organizationId);
   const organizationDisabled = organizationStatus === "suspended" || organizationStatus === "cancelled";
-  const hasActiveAccess = Boolean(appUser.is_active) && hasActiveMembership && !organizationDisabled;
+  const hasActiveAccess = Boolean(appUser.is_active) && ((hasActiveMembership && !organizationDisabled) || isPlatformOwner || isPlatformSupport);
   const accessBlockedReason: AuthSessionContext["accessBlockedReason"] = !appUser.is_active
     ? "user_disabled"
-    : !hasActiveMembership
+    : !hasActiveMembership && !isPlatformOwner && !isPlatformSupport
       ? "no_active_membership"
-      : organizationDisabled
+      : organizationDisabled && !isPlatformOwner && !isPlatformSupport
         ? "organization_disabled"
         : null;
 
@@ -92,6 +95,7 @@ export async function getRequestSessionContext(
       fullName: appUser.full_name,
       defaultOrganizationId: appUser.default_organization_id,
       role: appUser.role,
+      platformRole,
       isActive: Boolean(appUser.is_active)
     },
     organizationId,
@@ -99,6 +103,8 @@ export async function getRequestSessionContext(
     memberships: normalizedMemberships,
     accessBlockedReason,
     hasActiveAccess,
+    isPlatformOwner,
+    isPlatformSupport,
     agreementRequiredVersion: CURRENT_AGREEMENT_VERSION,
     agreementAcceptedVersion: (agreement?.version as string | null) ?? null,
     agreementAcceptedAt: (agreement?.accepted_at as string | null) ?? null,

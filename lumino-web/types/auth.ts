@@ -4,6 +4,7 @@ export interface AuthAppUser {
   fullName: string | null;
   defaultOrganizationId: string | null;
   role: string | null;
+  platformRole: "platform_owner" | "platform_support" | null;
   isActive: boolean;
 }
 
@@ -21,6 +22,8 @@ export interface AuthSessionContext {
   memberships: AuthMembership[];
   accessBlockedReason: "user_disabled" | "organization_disabled" | "no_active_membership" | null;
   hasActiveAccess: boolean;
+  isPlatformOwner: boolean;
+  isPlatformSupport: boolean;
   agreementRequiredVersion: string;
   agreementAcceptedVersion: string | null;
   agreementAcceptedAt: string | null;

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell/app-shell";
+import { hasAnyRole } from "@/lib/auth/permissions";
 import { useAuth } from "@/lib/auth/client";
 
 export function ProtectedAppShell({
@@ -34,8 +35,7 @@ export function ProtectedAppShell({
 
   useEffect(() => {
     if (!loading && session && allowedRoles?.length) {
-      const roles = appContext?.memberships.map((item) => item.role) ?? [];
-      const allowed = roles.some((role) => allowedRoles.includes(role));
+      const allowed = appContext ? hasAnyRole(appContext, allowedRoles) : false;
       if (!allowed) {
         router.replace("/map");
       }
@@ -90,8 +90,7 @@ export function ProtectedAppShell({
   }
   if (appContext && !appContext.hasAcceptedRequiredAgreement) return null;
   if (allowedRoles?.length) {
-    const roles = appContext?.memberships.map((item) => item.role) ?? [];
-    const allowed = roles.some((role) => allowedRoles.includes(role));
+    const allowed = appContext ? hasAnyRole(appContext, allowedRoles) : false;
     if (!allowed) return null;
   }
 

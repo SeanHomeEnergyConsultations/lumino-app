@@ -35,6 +35,7 @@ import type { LeadInput, MapProperty, PropertyDetail, TaskInput } from "@/types/
 import { MapToolbar, type MapFilterKey } from "@/components/map/map-toolbar";
 import { PropertyResultsPanel, mapStateVisual } from "@/components/map/property-results-panel";
 import { PropertyDrawer } from "@/components/map/property-drawer";
+import { hasManagerAccess } from "@/lib/auth/permissions";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
 function markerVisual(mapState: MapProperty["mapState"]) {
@@ -102,10 +103,7 @@ export function LiveFieldMap({
 }) {
   const { session, appContext } = useAuth();
   const isManager = useMemo(
-    () =>
-      appContext?.memberships.some((membership) =>
-        ["owner", "admin", "manager"].includes(membership.role)
-      ) ?? false,
+    () => (appContext ? hasManagerAccess(appContext) : false),
     [appContext]
   );
   const mapRef = useRef<MapRef | null>(null);

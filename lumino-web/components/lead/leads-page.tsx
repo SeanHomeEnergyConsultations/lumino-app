@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LeadListItem, LeadsResponse } from "@/types/api";
+import { hasManagerAccess } from "@/lib/auth/permissions";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
 function formatDateTime(value: string | null) {
@@ -14,10 +15,7 @@ function formatDateTime(value: string | null) {
 export function LeadsPage() {
   const { session, appContext } = useAuth();
   const isManager = useMemo(
-    () =>
-      appContext?.memberships.some((membership) =>
-        ["owner", "admin", "manager"].includes(membership.role)
-      ) ?? false,
+    () => (appContext ? hasManagerAccess(appContext) : false),
     [appContext]
   );
   const [items, setItems] = useState<LeadListItem[]>([]);

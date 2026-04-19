@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { authFetch, useAuth } from "@/lib/auth/client";
+import { hasAdminAccess } from "@/lib/auth/permissions";
 import type {
   ManagerDashboardResponse,
   OrganizationBrandingResponse,
@@ -58,8 +59,8 @@ export function TerritoryAdminPage() {
     [selectedTerritory?.properties]
   );
   const canEditBranding = useMemo(
-    () => (appContext?.memberships ?? []).some((item) => ["owner", "admin"].includes(item.role)),
-    [appContext?.memberships]
+    () => (appContext ? hasAdminAccess(appContext) : false),
+    [appContext]
   );
   const canDeleteMembers = canEditBranding;
   const currentAppUserId = appContext?.appUser.id ?? null;
