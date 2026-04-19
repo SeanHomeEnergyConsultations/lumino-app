@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
 import type { Route } from "next";
+import { usePathname } from "next/navigation";
 import { Map, LayoutDashboard, ListTodo, CheckSquare2, Users, CalendarCheck2, ContactRound, Upload } from "lucide-react";
 import { LogoMark } from "@/components/shared/logo-mark";
 
@@ -19,8 +22,10 @@ const nav = [
 }>;
 
 export function AppSidebar() {
+  const pathname = usePathname();
+
   return (
-    <aside className="hidden w-72 shrink-0 border-r border-slate-200/80 bg-white/70 px-5 py-6 backdrop-blur xl:block">
+    <aside className="w-72 shrink-0 border-r border-slate-200/80 bg-white/70 px-5 py-6 backdrop-blur">
       <div className="flex items-center gap-3">
         <LogoMark />
         <div>
@@ -34,7 +39,11 @@ export function AppSidebar() {
           <Link
             key={href}
             href={href}
-            className="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-950 hover:text-white"
+            className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition ${
+              pathname?.startsWith(href)
+                ? "bg-slate-950 text-white"
+                : "text-slate-700 hover:bg-slate-950 hover:text-white"
+            }`}
           >
             <Icon className="h-4 w-4" />
             {label}
