@@ -4,6 +4,16 @@ import { CURRENT_AGREEMENT_VERSION } from "@/lib/legal/clickwrap";
 import { getSupabasePublicEnv } from "@/lib/utils/env";
 import type { AuthSessionContext } from "@/types/auth";
 
+interface AppUserRow {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+  default_organization_id: string | null;
+  role: string | null;
+  platform_role?: string | null;
+  is_active: boolean | null;
+}
+
 function getBearerToken(request: Request) {
   const header = request.headers.get("authorization") || request.headers.get("Authorization");
   if (!header) return null;
@@ -31,11 +41,28 @@ export async function getRequestSessionContext(
   if (userError || !user) return null;
 
   const serviceClient = createServerSupabaseClient();
-  const { data: appUser, error: appUserError } = await serviceClient
+  let appUser: AppUserRow | null = null;
+  let appUserError: { message?: string } | null = null;
+
+  const appUserResult = await serviceClient
     .from("app_users")
     .select("id,email,full_name,default_organization_id,role,platform_role,is_active")
     .eq("external_auth_id", user.id)
     .maybeSingle();
+
+  appUser = appUserResult.data as AppUserRow | null;
+  appUserError = appUserResult.error;
+
+  if (appUserResult.error?.message?.includes("platform_role")) {
+    const fallbackResult = await serviceClient
+      .from("app_users")
+      .select("id,email,full_name,default_organization_id,role,is_active")
+      .eq("external_auth_id", user.id)
+      .maybeSingle();
+
+    appUser = fallbackResult.data as AppUserRow | null;
+    appUserError = fallbackResult.error;
+  }
 
   if (appUserError || !appUser) return null;
 
