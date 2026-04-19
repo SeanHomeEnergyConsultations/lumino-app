@@ -76,6 +76,7 @@ export function ImportsPage() {
   const [uploading, setUploading] = useState(false);
   const [processingBatchId, setProcessingBatchId] = useState<string | null>(null);
   const [uploadState, setUploadState] = useState<"idle" | "done" | "error">("idle");
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [listType, setListType] = useState<ImportBatchListItem["listType"]>("general_canvass_list");
   const [visibilityScope, setVisibilityScope] = useState<ImportBatchListItem["visibilityScope"]>("organization");
   const [assignedTeamId, setAssignedTeamId] = useState<string>("");
@@ -95,6 +96,7 @@ export function ImportsPage() {
       const json = (await response.json()) as ImportsResponse;
       setBatches(json.items);
       setAssignmentOptions(json.options);
+      return json.items;
     } finally {
       if (silent) {
         setRefreshing(false);
@@ -158,17 +160,21 @@ export function ImportsPage() {
     setHeaders(parsed.headers);
     setPreviewRows(parsed.rows);
     setUploadState("idle");
+    setUploadMessage(null);
   }
 
   async function handleUpload() {
     if (!accessToken || !filename || !previewRows.length) return;
+    const currentFilename = filename;
+    const existingBatchIds = new Set(batches.map((batch) => batch.batchId));
     setUploading(true);
     setUploadState("idle");
+    setUploadMessage(null);
     try {
       const response = await authFetch(accessToken, "/api/imports", {
         method: "POST",
         body: JSON.stringify({
-          filename,
+          filename: currentFilename,
           listType,
           visibilityScope,
           assignedTeamId: visibilityScope === "team" ? assignedTeamId || null : null,
@@ -176,9 +182,13 @@ export function ImportsPage() {
           rows: previewRows
         })
       });
-      if (!response.ok) throw new Error("Failed to upload import");
-      const result = (await response.json()) as ImportUploadResponse;
+      const json = await response.json().catch(() => ({} as { error?: string }));
+      if (!response.ok) {
+        throw new Error((json as { error?: string }).error || "Failed to upload import.");
+      }
+      const result = json as ImportUploadResponse;
       setUploadState("done");
+      setUploadMessage("Import created successfully. Open the batch when you’re ready to analyze it.");
       setFilename(null);
       setHeaders([]);
       setPreviewRows([]);
@@ -187,8 +197,39 @@ export function ImportsPage() {
       setAssignedTeamId("");
       setAssignedUserId("");
       await loadBatches({ silent: true });
-    } catch {
-      setUploadState("error");
+    } catch (error) {
+      let recovered = false;
+      try {
+        const refreshed = await loadBatches({ silent: true });
+        const recoveredBatch = refreshed?.find(
+          (batch) =>
+            !existingBatchIds.has(batch.batchId) ||
+            (batch.filename === currentFilename &&
+              Date.now() - new Date(batch.createdAt).getTime() < 15 * 60 * 1000)
+        );
+
+        if (recoveredBatch) {
+          recovered = true;
+          setUploadState("done");
+          setUploadMessage(
+            "The upload response timed out, but your batch was created successfully. You can continue from the batch list below."
+          );
+          setFilename(null);
+          setHeaders([]);
+          setPreviewRows([]);
+          setListType("general_canvass_list");
+          setVisibilityScope("organization");
+          setAssignedTeamId("");
+          setAssignedUserId("");
+        }
+      } catch {
+        // Keep the original upload error if the recovery refresh fails too.
+      }
+
+      if (!recovered) {
+        setUploadState("error");
+        setUploadMessage(error instanceof Error ? error.message : "Upload failed.");
+      }
     } finally {
       setUploading(false);
     }
@@ -363,12 +404,12 @@ export function ImportsPage() {
               </button>
               {uploadState === "done" ? (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
-                  Import created successfully. Open the batch when you’re ready to analyze it.
+                  {uploadMessage ?? "Import created successfully. Open the batch when you’re ready to analyze it."}
                 </div>
               ) : null}
               {uploadState === "error" ? (
                 <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700">
-                  Upload failed.
+                  {uploadMessage ?? "Upload failed."}
                 </div>
               ) : null}
             </div>

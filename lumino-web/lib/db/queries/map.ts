@@ -47,6 +47,17 @@ export async function getMapPropertiesForViewport(
   filters: MapViewportFilters = {}
 ): Promise<MapPropertiesResponse> {
   const supabase = createServerSupabaseClient();
+  if (!context.organizationId) {
+    return {
+      items: [],
+      features: {
+        enrichmentEnabled: false,
+        priorityScoringEnabled: false,
+        advancedImportsEnabled: false,
+        securityConsoleEnabled: false
+      }
+    };
+  }
   const featureResolution = context.organizationId
     ? await getOrganizationFeatureAccess(context.organizationId)
     : null;
@@ -77,10 +88,35 @@ export async function getMapPropertiesForViewport(
   if (filters.city) query = query.ilike("city", filters.city);
   if (filters.state) query = query.ilike("state", filters.state);
 
-  const { data, error } = await query;
+  const [{ data, error }, { data: leadPropertyRows, error: leadPropertyError }, { data: visitPropertyRows, error: visitPropertyError }] =
+    await Promise.all([
+      query,
+      supabase
+        .from("leads")
+        .select("property_id")
+        .eq("organization_id", context.organizationId)
+        .not("property_id", "is", null),
+      supabase
+        .from("visits")
+        .select("property_id")
+        .eq("organization_id", context.organizationId)
+    ]);
   if (error) throw error;
+  if (leadPropertyError) throw leadPropertyError;
+  if (visitPropertyError) throw visitPropertyError;
+
+  const organizationPropertyIds = new Set(
+    [...(leadPropertyRows ?? []), ...(visitPropertyRows ?? [])]
+      .map((row) => row.property_id as string | null)
+      .filter(Boolean) as string[]
+  );
 
   const rows = (data ?? []).filter((row) => {
+    const propertyId = row.property_id as string | null;
+    if (!propertyId || !organizationPropertyIds.has(propertyId)) {
+      return false;
+    }
+
     const visitCount = Number(row.visit_count ?? 0);
     const ownerId = (row.owner_id as string | null) ?? null;
     const lastVisitedBy = (row.last_visited_by as string | null) ?? null;

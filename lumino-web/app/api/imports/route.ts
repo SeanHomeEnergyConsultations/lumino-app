@@ -58,20 +58,24 @@ export async function POST(request: Request) {
   }
 
   const result = await ingestImportUpload(parsed.data, context);
-  await recordSecurityEvent({
-    request,
-    context,
-    eventType: "import_batch_created",
-    severity: "info",
-    metadata: {
-      batchId: result.batchId,
-      filename: parsed.data.filename,
-      listType: parsed.data.listType,
-      visibilityScope: parsed.data.visibilityScope,
-      assignedTeamId: parsed.data.assignedTeamId ?? null,
-      assignedUserId: parsed.data.assignedUserId ?? null,
-      rowCount: parsed.data.rows.length
-    }
-  });
+  try {
+    await recordSecurityEvent({
+      request,
+      context,
+      eventType: "import_batch_created",
+      severity: "info",
+      metadata: {
+        batchId: result.batchId,
+        filename: parsed.data.filename,
+        listType: parsed.data.listType,
+        visibilityScope: parsed.data.visibilityScope,
+        assignedTeamId: parsed.data.assignedTeamId ?? null,
+        assignedUserId: parsed.data.assignedUserId ?? null,
+        rowCount: parsed.data.rows.length
+      }
+    });
+  } catch (error) {
+    console.error("Failed to record import_batch_created security event", error);
+  }
   return NextResponse.json(result);
 }
