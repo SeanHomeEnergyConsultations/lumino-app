@@ -7,6 +7,8 @@ import {
   triggerTeamMemberAccessEmail,
   updateTeamMember
 } from "@/lib/db/mutations/team";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 import { teamMemberActionSchema, teamMemberUpdateSchema } from "@/lib/validation/team";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +24,21 @@ export async function PATCH(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const rateLimit = await enforceRateLimit({
+      request,
+      context,
+      bucket: "team_access_email",
+      limit: 6,
+      windowSeconds: 3600,
+      logEventType: "team_access_email_rate_limit_exceeded"
+    });
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many invite or reset emails sent recently. Please wait and try again." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+      );
+    }
+
     const json = await request.json();
     const parsed = teamMemberUpdateSchema.safeParse(json);
     if (!parsed.success) {
@@ -30,6 +47,17 @@ export async function PATCH(
 
     const { memberId } = await params;
     const result = await updateTeamMember(memberId, parsed.data, context);
+    await recordSecurityEvent({
+      request,
+      context,
+      eventType: "team_member_updated",
+      severity: "medium",
+      metadata: {
+        memberId,
+        role: parsed.data.role ?? null,
+        isActive: parsed.data.isActive ?? null
+      }
+    });
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
@@ -64,6 +92,16 @@ export async function POST(
         : `${origin}/set-password?mode=recovery`;
 
     const result = await triggerTeamMemberAccessEmail(memberId, parsed.data.action, context, redirectTo);
+    await recordSecurityEvent({
+      request,
+      context,
+      eventType: parsed.data.action === "resend_invite" ? "team_invite_resent" : "team_password_reset_sent",
+      severity: "medium",
+      metadata: {
+        memberId,
+        action: parsed.data.action
+      }
+    });
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
@@ -90,6 +128,16 @@ export async function DELETE(
       mode === "account"
         ? await deleteTeamMemberAccount(memberId, context)
         : await removeTeamMember(memberId, context);
+    await recordSecurityEvent({
+      request,
+      context,
+      eventType: mode === "account" ? "team_member_account_deleted" : "team_member_removed",
+      severity: "high",
+      metadata: {
+        memberId,
+        mode
+      }
+    });
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

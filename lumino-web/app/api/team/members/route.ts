@@ -3,6 +3,7 @@ import { hasManagerAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { inviteTeamMember } from "@/lib/db/mutations/team";
 import { getTeamMembers } from "@/lib/db/queries/team";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 import { teamInviteSchema } from "@/lib/validation/team";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +42,19 @@ export async function POST(request: Request) {
 
     const origin = new URL(request.url).origin;
     const result = await inviteTeamMember(parsed.data, context, `${origin}/set-password?mode=invite`);
+    await recordSecurityEvent({
+      request,
+      context,
+      eventType: "team_member_invited",
+      severity: "medium",
+      targetUserId: result.userId,
+      metadata: {
+        memberId: result.memberId,
+        role: parsed.data.role,
+        email: parsed.data.email,
+        accessEmailType: result.accessEmailType
+      }
+    });
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

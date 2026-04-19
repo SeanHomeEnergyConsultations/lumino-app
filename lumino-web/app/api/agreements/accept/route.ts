@@ -6,14 +6,10 @@ import {
   CURRENT_AGREEMENT_HASH,
   CURRENT_AGREEMENT_VERSION
 } from "@/lib/legal/clickwrap";
+import { getRequestIpAddress } from "@/lib/security/request-meta";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const dynamic = "force-dynamic";
-
-function getIpAddress(request: Request) {
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  if (!forwardedFor) return null;
-  return forwardedFor.split(",")[0]?.trim() ?? null;
-}
 
 export async function POST(request: Request) {
   const context = await getRequestSessionContext(request);
@@ -34,7 +30,7 @@ export async function POST(request: Request) {
       user_id: context.appUser.id,
       version: CURRENT_AGREEMENT_VERSION,
       accepted_at: acceptedAt,
-      ip_address: getIpAddress(request),
+      ip_address: getRequestIpAddress(request),
       user_agent: request.headers.get("user-agent"),
       agreement_hash: CURRENT_AGREEMENT_HASH
     },
@@ -44,6 +40,18 @@ export async function POST(request: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  await recordSecurityEvent({
+    request,
+    context,
+    eventType: "agreement_accepted",
+    severity: "info",
+    targetUserId: context.appUser.id,
+    metadata: {
+      version: CURRENT_AGREEMENT_VERSION,
+      agreementHash: CURRENT_AGREEMENT_HASH
+    }
+  });
 
   const response = NextResponse.json({
     acceptedAt,

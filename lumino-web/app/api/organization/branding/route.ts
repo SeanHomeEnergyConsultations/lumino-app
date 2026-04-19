@@ -3,6 +3,7 @@ import { hasAdminAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { updateOrganizationBranding } from "@/lib/db/mutations/organization";
 import { getOrganizationBranding } from "@/lib/db/queries/organization";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 import { organizationBrandingSchema } from "@/lib/validation/organization";
 
 export const dynamic = "force-dynamic";
@@ -40,5 +41,17 @@ export async function PATCH(request: Request) {
     },
     context
   );
+  await recordSecurityEvent({
+    request,
+    context,
+    eventType: "organization_branding_updated",
+    severity: "medium",
+    metadata: {
+      appName: parsed.data.appName,
+      hasLogoUrl: Boolean(parsed.data.logoUrl),
+      primaryColor: parsed.data.primaryColor || null,
+      accentColor: parsed.data.accentColor || null
+    }
+  });
   return NextResponse.json({ item });
 }

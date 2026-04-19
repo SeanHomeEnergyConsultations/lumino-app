@@ -3,6 +3,8 @@ import { z } from "zod";
 import { hasManagerAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { runImportBatchAnalysis } from "@/lib/db/mutations/imports";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 const schema = z.object({
   action: z.enum(["run", "retry_failed"]).default("run")
@@ -30,6 +32,21 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const rateLimit = await enforceRateLimit({
+      request,
+      context,
+      bucket: "imports_analysis",
+      limit: 12,
+      windowSeconds: 600,
+      logEventType: "import_analysis_rate_limit_exceeded"
+    });
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many analysis runs. Please wait before retrying this batch." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+      );
+    }
+
     const body = await request.json().catch(() => ({}));
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
@@ -39,6 +56,16 @@ export async function POST(
     const { batchId } = await params;
     const result = await runImportBatchAnalysis(batchId, context, {
       retryFailed: parsed.data.action === "retry_failed"
+    });
+    await recordSecurityEvent({
+      request,
+      context,
+      eventType: parsed.data.action === "retry_failed" ? "import_analysis_retry_started" : "import_analysis_started",
+      severity: "info",
+      metadata: {
+        batchId,
+        action: parsed.data.action
+      }
     });
     return NextResponse.json(result);
   } catch (error) {

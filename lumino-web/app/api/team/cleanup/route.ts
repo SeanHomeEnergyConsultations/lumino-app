@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { hasAdminAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { deleteOrphanAppUser } from "@/lib/db/mutations/team";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 import { teamCleanupSchema } from "@/lib/validation/team";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,15 @@ export async function POST(request: Request) {
 
     if (parsed.data.action === "delete_orphan_app_user") {
       const result = await deleteOrphanAppUser(parsed.data.userId, context);
+      await recordSecurityEvent({
+        request,
+        context,
+        eventType: "team_cleanup_orphan_user",
+        severity: "high",
+        metadata: {
+          userId: parsed.data.userId
+        }
+      });
       return NextResponse.json(result);
     }
 
