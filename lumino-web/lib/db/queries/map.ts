@@ -71,12 +71,16 @@ export async function getMapPropertiesForViewport(
   if (error) throw error;
 
   const rows = (data ?? []).filter((row) => {
-    if (isManager) return true;
-
     const visitCount = Number(row.visit_count ?? 0);
     const ownerId = (row.owner_id as string | null) ?? null;
     const lastVisitedBy = (row.last_visited_by as string | null) ?? null;
     const leadId = (row.lead_id as string | null) ?? null;
+
+    if (visitCount === 0 && leadId === null) {
+      return false;
+    }
+
+    if (isManager) return true;
 
     if (ownerId === context.appUser.id) return true;
 

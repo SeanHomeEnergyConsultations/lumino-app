@@ -310,15 +310,15 @@ export function LiveFieldMap({
   }
 
   async function handleLogOutcome(outcome: string) {
-    if (!selectedMapItem || !session?.access_token) return;
+    if (!selectedProperty || !session?.access_token) return;
     try {
       setIsSavingVisit(true);
       const response = await authFetch(session.access_token, "/api/visits", {
         method: "POST",
         body: JSON.stringify({
-          propertyId: selectedMapItem.propertyId,
-          lat: selectedMapItem.lat,
-          lng: selectedMapItem.lng,
+          propertyId: selectedProperty.propertyId,
+          lat: selectedProperty.lat,
+          lng: selectedProperty.lng,
           outcome
         })
       });
@@ -327,7 +327,7 @@ export function LiveFieldMap({
 
       setItems((current) =>
         current.map((item) =>
-          item.propertyId === selectedMapItem.propertyId
+          item.propertyId === selectedProperty.propertyId
             ? {
                 ...item,
                 visitCount: item.visitCount + 1,
@@ -356,7 +356,7 @@ export function LiveFieldMap({
             : item
         )
       );
-      await refreshSelectedProperty(selectedMapItem.propertyId);
+      await refreshSelectedProperty(selectedProperty.propertyId);
     } finally {
       setIsSavingVisit(false);
     }
