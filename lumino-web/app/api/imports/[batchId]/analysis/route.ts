@@ -11,6 +11,15 @@ function canManageImports(roles: string[]) {
   return roles.some((role) => ["owner", "admin", "manager"].includes(role));
 }
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  return "Failed to analyze import batch.";
+}
+
 export const dynamic = "force-dynamic";
 
 export async function POST(
@@ -37,7 +46,7 @@ export async function POST(
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to analyze import batch." },
+      { error: errorMessage(error) },
       { status: 500 }
     );
   }

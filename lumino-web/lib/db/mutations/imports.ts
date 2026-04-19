@@ -479,6 +479,15 @@ type LeadRow = {
   analysis_attempt_count: number | null;
 };
 
+function importAnalysisErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  return "Analysis failed.";
+}
+
 async function refreshImportBatchProgress(batchId: string) {
   const supabase = createServerSupabaseClient();
   const [{ count: pending }, { count: analyzing }, { count: analyzed }, { count: failed }] =
@@ -865,7 +874,7 @@ export async function runImportBatchAnalysis(
       );
       succeededCount += 1;
     } catch (error) {
-      lastError = error instanceof Error ? error.message : "Analysis failed.";
+      lastError = importAnalysisErrorMessage(error);
       await completeItemAnalysis(
         batchId,
         item,
