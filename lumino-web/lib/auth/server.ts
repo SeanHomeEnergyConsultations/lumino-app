@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
+import { CURRENT_AGREEMENT_VERSION } from "@/lib/legal/clickwrap";
 import { getSupabasePublicEnv } from "@/lib/utils/env";
 import type { AuthSessionContext } from "@/types/auth";
 
@@ -43,6 +44,17 @@ export async function getRequestSessionContext(request: Request): Promise<AuthSe
 
   if (membershipError) return null;
 
+  const { data: agreement, error: agreementError } = await serviceClient
+    .from("agreements")
+    .select("version,accepted_at")
+    .eq("user_id", appUser.id)
+    .eq("version", CURRENT_AGREEMENT_VERSION)
+    .order("accepted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (agreementError) return null;
+
   const normalizedMemberships =
     memberships?.map((item) => ({
       organizationId: item.organization_id,
@@ -60,6 +72,10 @@ export async function getRequestSessionContext(request: Request): Promise<AuthSe
       role: appUser.role
     },
     organizationId: appUser.default_organization_id ?? normalizedMemberships[0]?.organizationId ?? null,
-    memberships: normalizedMemberships
+    memberships: normalizedMemberships,
+    agreementRequiredVersion: CURRENT_AGREEMENT_VERSION,
+    agreementAcceptedVersion: (agreement?.version as string | null) ?? null,
+    agreementAcceptedAt: (agreement?.accepted_at as string | null) ?? null,
+    hasAcceptedRequiredAgreement: (agreement?.version as string | null) === CURRENT_AGREEMENT_VERSION
   };
 }

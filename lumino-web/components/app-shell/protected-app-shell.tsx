@@ -27,6 +27,12 @@ export function ProtectedAppShell({
   }, [loading, router, session]);
 
   useEffect(() => {
+    if (!loading && session && appContext && !appContext.hasAcceptedRequiredAgreement) {
+      router.replace("/accept-agreement");
+    }
+  }, [appContext, loading, router, session]);
+
+  useEffect(() => {
     if (!loading && session && allowedRoles?.length) {
       const roles = appContext?.memberships.map((item) => item.role) ?? [];
       const allowed = roles.some((role) => allowedRoles.includes(role));
@@ -57,6 +63,7 @@ export function ProtectedAppShell({
   }
 
   if (!session) return null;
+  if (appContext && !appContext.hasAcceptedRequiredAgreement) return null;
   if (allowedRoles?.length) {
     const roles = appContext?.memberships.map((item) => item.role) ?? [];
     const allowed = roles.some((role) => allowedRoles.includes(role));

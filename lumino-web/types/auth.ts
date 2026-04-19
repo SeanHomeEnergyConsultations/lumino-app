@@ -17,4 +17,8 @@ export interface AuthSessionContext {
   appUser: AuthAppUser;
   organizationId: string | null;
   memberships: AuthMembership[];
+  agreementRequiredVersion: string;
+  agreementAcceptedVersion: string | null;
+  agreementAcceptedAt: string | null;
+  hasAcceptedRequiredAgreement: boolean;
 }
