@@ -12,7 +12,14 @@ function formatDateTime(value: string | null) {
 }
 
 export function LeadsPage() {
-  const { session } = useAuth();
+  const { session, appContext } = useAuth();
+  const isManager = useMemo(
+    () =>
+      appContext?.memberships.some((membership) =>
+        ["owner", "admin", "manager"].includes(membership.role)
+      ) ?? false,
+    [appContext]
+  );
   const [items, setItems] = useState<LeadListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -103,20 +110,22 @@ export function LeadsPage() {
                   ))}
                 </select>
               </label>
-              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                Owner
-                <select
-                  value={ownerFilter}
-                  onChange={(event) => setOwnerFilter(event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
-                >
-                  {uniqueOwners.map((owner) => (
-                    <option key={owner.value} value={owner.value}>
-                      {owner.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {isManager ? (
+                <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  Owner
+                  <select
+                    value={ownerFilter}
+                    onChange={(event) => setOwnerFilter(event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                  >
+                    {uniqueOwners.map((owner) => (
+                      <option key={owner.value} value={owner.value}>
+                        {owner.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
                 City
                 <select
@@ -171,7 +180,7 @@ export function LeadsPage() {
                 <th className="pb-3 pr-4 font-semibold">Last Outcome</th>
                 <th className="pb-3 pr-4 font-semibold">Next Follow-Up</th>
                 <th className="pb-3 pr-4 font-semibold">Appointment</th>
-                <th className="pb-3 pr-4 font-semibold">Owner</th>
+                {isManager ? <th className="pb-3 pr-4 font-semibold">Owner</th> : null}
                 <th className="pb-3 font-semibold">Actions</th>
               </tr>
             </thead>
@@ -192,7 +201,7 @@ export function LeadsPage() {
                   <td className="py-3 pr-4">{item.lastActivityOutcome ?? "None"}</td>
                   <td className="py-3 pr-4">{formatDateTime(item.nextFollowUpAt)}</td>
                   <td className="py-3 pr-4">{formatDateTime(item.appointmentAt)}</td>
-                  <td className="py-3 pr-4">{item.ownerName ?? "Unassigned"}</td>
+                  {isManager ? <td className="py-3 pr-4">{item.ownerName ?? "Unassigned"}</td> : null}
                   <td className="py-3">
                     <div className="flex flex-wrap gap-2">
                       <Link
@@ -215,7 +224,7 @@ export function LeadsPage() {
               ))}
               {!loading && !items.length ? (
                 <tr>
-                  <td colSpan={7} className="py-6 text-center text-slate-500">
+                  <td colSpan={isManager ? 7 : 6} className="py-6 text-center text-slate-500">
                     No leads match this filter yet.
                   </td>
                 </tr>

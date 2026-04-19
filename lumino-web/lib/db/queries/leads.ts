@@ -22,6 +22,7 @@ export async function getLeads(
   const isManager = context.memberships.some((membership) =>
     ["owner", "admin", "manager"].includes(membership.role)
   );
+  const appUserId = context.appUser.id;
   const ownerId = filters?.ownerId && isManager ? filters.ownerId : null;
   const q = filters?.q?.trim().toLowerCase() ?? "";
   const status = filters?.status?.trim() ?? "";
@@ -39,7 +40,9 @@ export async function getLeads(
     .order("updated_at", { ascending: false })
     .limit(500);
 
-  if (ownerId) {
+  if (!isManager) {
+    query = query.or(`owner_id.eq.${appUserId},assigned_to.eq.${appUserId}`);
+  } else if (ownerId) {
     query = query.or(`owner_id.eq.${ownerId},assigned_to.eq.${ownerId}`);
   }
 
@@ -125,12 +128,21 @@ export async function getLeadDetail(
   context: AuthSessionContext
 ): Promise<LeadDetailResponse["item"] | null> {
   const supabase = createServerSupabaseClient();
-  const { data: lead, error } = await supabase
+  const isManager = context.memberships.some((membership) =>
+    ["owner", "admin", "manager"].includes(membership.role)
+  );
+
+  let leadQuery = supabase
     .from("leads")
     .select("*")
     .eq("organization_id", context.organizationId)
-    .eq("id", leadId)
-    .maybeSingle();
+    .eq("id", leadId);
+
+  if (!isManager) {
+    leadQuery = leadQuery.or(`owner_id.eq.${context.appUser.id},assigned_to.eq.${context.appUser.id}`);
+  }
+
+  const { data: lead, error } = await leadQuery.maybeSingle();
 
   if (error) throw error;
   if (!lead) return null;
