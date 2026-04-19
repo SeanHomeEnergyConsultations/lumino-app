@@ -5,7 +5,7 @@ import { CURRENT_AGREEMENT_COOKIE } from "@/lib/legal/clickwrap";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const context = await getRequestSessionContext(request);
+  const context = await getRequestSessionContext(request, { allowBlocked: true });
   if (!context) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

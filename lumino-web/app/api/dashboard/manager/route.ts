@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasManagerAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { getManagerDashboard } from "@/lib/db/queries/dashboard";
 
@@ -10,8 +11,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const activeRoles = new Set(context.memberships.map((membership) => membership.role));
-  if (![...activeRoles].some((role) => ["owner", "admin", "manager"].includes(role))) {
+  if (!hasManagerAccess(context)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

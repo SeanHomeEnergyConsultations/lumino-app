@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { hasManagerAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { runImportBatchAnalysis } from "@/lib/db/mutations/imports";
 
 const schema = z.object({
   action: z.enum(["run", "retry_failed"]).default("run")
 });
-
-function canManageImports(roles: string[]) {
-  return roles.some((role) => ["owner", "admin", "manager"].includes(role));
-}
 
 function errorMessage(error: unknown) {
   if (error instanceof Error && error.message) return error.message;
@@ -29,7 +26,7 @@ export async function POST(
   try {
     const context = await getRequestSessionContext(request);
     if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (!canManageImports(context.memberships.map((item) => item.role))) {
+    if (!hasManagerAccess(context)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

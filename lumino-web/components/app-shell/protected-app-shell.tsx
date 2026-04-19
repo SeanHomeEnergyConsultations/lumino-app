@@ -63,6 +63,31 @@ export function ProtectedAppShell({
   }
 
   if (!session) return null;
+  if (!appContext) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#f7f3ea_0%,#edf2f8_100%)] px-6">
+        <div className="max-w-md rounded-3xl border border-white/70 bg-white/80 p-6 text-sm text-slate-600 shadow-panel backdrop-blur">
+          Your session could not be verified for this organization. Sign out and back in, or ask an admin to confirm your access.
+        </div>
+      </div>
+    );
+  }
+  if (!appContext.hasActiveAccess) {
+    const message =
+      appContext.accessBlockedReason === "user_disabled"
+        ? "Your account is currently disabled. Contact your organization admin for access."
+        : appContext.accessBlockedReason === "organization_disabled"
+          ? "This organization is currently suspended. Contact Sean Dotts for account help."
+          : "You no longer have an active organization membership. Ask an admin to restore your access.";
+
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#f7f3ea_0%,#edf2f8_100%)] px-6">
+        <div className="max-w-md rounded-3xl border border-white/70 bg-white/80 p-6 text-sm text-slate-600 shadow-panel backdrop-blur">
+          {message}
+        </div>
+      </div>
+    );
+  }
   if (appContext && !appContext.hasAcceptedRequiredAgreement) return null;
   if (allowedRoles?.length) {
     const roles = appContext?.memberships.map((item) => item.role) ?? [];

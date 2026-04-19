@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
+import { hasAdminAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { updateOrganizationBranding } from "@/lib/db/mutations/organization";
 import { getOrganizationBranding } from "@/lib/db/queries/organization";
 import { organizationBrandingSchema } from "@/lib/validation/organization";
-
-function canManageOrganization(roles: string[]) {
-  return roles.some((role) => ["owner", "admin"].includes(role));
-}
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +18,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const context = await getRequestSessionContext(request);
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!canManageOrganization(context.memberships.map((item) => item.role))) {
+  if (!hasAdminAccess(context)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

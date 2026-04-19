@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasAdminAccess, hasManagerAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import {
   deleteTeamMemberAccount,
@@ -7,14 +8,6 @@ import {
   updateTeamMember
 } from "@/lib/db/mutations/team";
 import { teamMemberActionSchema, teamMemberUpdateSchema } from "@/lib/validation/team";
-
-function canManageTeam(roles: string[]) {
-  return roles.some((role) => ["owner", "admin", "manager"].includes(role));
-}
-
-function canDeleteTeamMembers(roles: string[]) {
-  return roles.some((role) => ["owner", "admin"].includes(role));
-}
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +18,7 @@ export async function PATCH(
   try {
     const context = await getRequestSessionContext(request);
     if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (!canManageTeam(context.memberships.map((item) => item.role))) {
+    if (!hasManagerAccess(context)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -53,7 +46,7 @@ export async function POST(
   try {
     const context = await getRequestSessionContext(request);
     if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (!canManageTeam(context.memberships.map((item) => item.role))) {
+    if (!hasManagerAccess(context)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -87,7 +80,7 @@ export async function DELETE(
   try {
     const context = await getRequestSessionContext(request);
     if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (!canDeleteTeamMembers(context.memberships.map((item) => item.role))) {
+    if (!hasAdminAccess(context)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

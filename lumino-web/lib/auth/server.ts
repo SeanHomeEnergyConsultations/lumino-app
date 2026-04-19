@@ -12,7 +12,10 @@ function getBearerToken(request: Request) {
   return token;
 }
 
-export async function getRequestSessionContext(request: Request): Promise<AuthSessionContext | null> {
+export async function getRequestSessionContext(
+  request: Request,
+  options?: { allowBlocked?: boolean }
+): Promise<AuthSessionContext | null> {
   const accessToken = getBearerToken(request);
   if (!accessToken) return null;
 
@@ -30,7 +33,7 @@ export async function getRequestSessionContext(request: Request): Promise<AuthSe
   const serviceClient = createServerSupabaseClient();
   const { data: appUser, error: appUserError } = await serviceClient
     .from("app_users")
-    .select("id,email,full_name,default_organization_id,role")
+    .select("id,email,full_name,default_organization_id,role,is_active")
     .eq("external_auth_id", user.id)
     .maybeSingle();
 
@@ -61,7 +64,26 @@ export async function getRequestSessionContext(request: Request): Promise<AuthSe
       role: item.role
     })) ?? [];
 
-  return {
+  const organizationId = appUser.default_organization_id ?? normalizedMemberships[0]?.organizationId ?? null;
+  const { data: organization, error: organizationError } = organizationId
+    ? await serviceClient.from("organizations").select("status").eq("id", organizationId).maybeSingle()
+    : { data: null, error: null };
+
+  if (organizationError) return null;
+
+  const organizationStatus = (organization?.status as string | null) ?? null;
+  const hasActiveMembership = normalizedMemberships.length > 0 && Boolean(organizationId);
+  const organizationDisabled = organizationStatus === "suspended" || organizationStatus === "cancelled";
+  const hasActiveAccess = Boolean(appUser.is_active) && hasActiveMembership && !organizationDisabled;
+  const accessBlockedReason: AuthSessionContext["accessBlockedReason"] = !appUser.is_active
+    ? "user_disabled"
+    : !hasActiveMembership
+      ? "no_active_membership"
+      : organizationDisabled
+        ? "organization_disabled"
+        : null;
+
+  const context = {
     authUserId: user.id,
     accessToken,
     appUser: {
@@ -69,13 +91,23 @@ export async function getRequestSessionContext(request: Request): Promise<AuthSe
       email: appUser.email,
       fullName: appUser.full_name,
       defaultOrganizationId: appUser.default_organization_id,
-      role: appUser.role
+      role: appUser.role,
+      isActive: Boolean(appUser.is_active)
     },
-    organizationId: appUser.default_organization_id ?? normalizedMemberships[0]?.organizationId ?? null,
+    organizationId,
+    organizationStatus,
     memberships: normalizedMemberships,
+    accessBlockedReason,
+    hasActiveAccess,
     agreementRequiredVersion: CURRENT_AGREEMENT_VERSION,
     agreementAcceptedVersion: (agreement?.version as string | null) ?? null,
     agreementAcceptedAt: (agreement?.accepted_at as string | null) ?? null,
     hasAcceptedRequiredAgreement: (agreement?.version as string | null) === CURRENT_AGREEMENT_VERSION
   };
+
+  if (!options?.allowBlocked && !context.hasActiveAccess) {
+    return null;
+  }
+
+  return context;
 }

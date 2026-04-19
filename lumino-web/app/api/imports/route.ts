@@ -1,19 +1,16 @@
 import { NextResponse } from "next/server";
+import { hasManagerAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { ingestImportUpload } from "@/lib/db/mutations/imports";
 import { getRecentImportBatches } from "@/lib/db/queries/imports";
 import { importUploadSchema } from "@/lib/validation/imports";
-
-function canManageImports(roles: string[]) {
-  return roles.some((role) => ["owner", "admin", "manager"].includes(role));
-}
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const context = await getRequestSessionContext(request);
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!canManageImports(context.memberships.map((item) => item.role))) {
+  if (!hasManagerAccess(context)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -24,7 +21,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const context = await getRequestSessionContext(request);
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!canManageImports(context.memberships.map((item) => item.role))) {
+  if (!hasManagerAccess(context)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
