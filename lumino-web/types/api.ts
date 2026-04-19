@@ -580,3 +580,32 @@ export interface ImportBatchAnalysisResponse {
   failedItemCount: number;
   lastError: string | null;
 }
+
+export interface PlatformDatasetOrganizationGrant {
+  organizationId: string;
+  organizationName: string;
+  status: string;
+  visibilityScope: "organization" | "team" | "assigned_user";
+  assignedTeamName: string | null;
+  assignedUserName: string | null;
+  lastReleasedBatchId: string | null;
+  grantedAt: string;
+}
+
+export interface PlatformDatasetItem {
+  datasetId: string;
+  name: string;
+  description: string | null;
+  sourceBatchId: string;
+  sourceOrganizationId: string;
+  sourceOrganizationName: string;
+  listType: "general_canvass_list" | "homeowner_leads" | "sold_properties" | "solar_permits" | "roofing_permits" | "custom";
+  rowCount: number;
+  status: "active" | "archived";
+  createdAt: string;
+  grants: PlatformDatasetOrganizationGrant[];
+}
+
+export interface PlatformDatasetsResponse {
+  items: PlatformDatasetItem[];
+}

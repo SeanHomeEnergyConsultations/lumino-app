@@ -5,6 +5,8 @@ import { Building2, CheckCircle2, ExternalLink, RefreshCw, ShieldAlert, ShieldCh
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { ORGANIZATION_BILLING_PLANS } from "@/lib/platform/features";
 import type {
+  PlatformDatasetItem,
+  PlatformDatasetsResponse,
   PlatformOrganizationOverviewItem,
   PlatformOverviewResponse,
   PlatformSecurityEventItem,
@@ -45,6 +47,7 @@ export function PlatformControlCenterPage() {
   const [items, setItems] = useState<PlatformOrganizationOverviewItem[]>([]);
   const [drafts, setDrafts] = useState<Record<string, FeatureDraft>>({});
   const [events, setEvents] = useState<PlatformSecurityEventItem[]>([]);
+  const [datasets, setDatasets] = useState<PlatformDatasetItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +56,8 @@ export function PlatformControlCenterPage() {
   const [selectedEventType, setSelectedEventType] = useState<string>("all");
   const [savingOrgId, setSavingOrgId] = useState<string | null>(null);
   const [navigatingOrgId, setNavigatingOrgId] = useState<string | null>(null);
+  const [releasingDatasetId, setReleasingDatasetId] = useState<string | null>(null);
+  const [datasetTargets, setDatasetTargets] = useState<Record<string, string>>({});
 
   async function loadOverview(showSpinner = false) {
     if (!session?.access_token) return;
@@ -90,6 +95,29 @@ export function PlatformControlCenterPage() {
     setEvents(json.items);
   }
 
+  async function loadDatasets() {
+    if (!session?.access_token) return;
+    const response = await authFetch(session.access_token, "/api/platform/datasets", {
+      cache: "no-store"
+    });
+    const json = (await response.json()) as PlatformDatasetsResponse | { error?: string };
+    if (!response.ok || !("items" in json)) {
+      throw new Error(("error" in json && json.error) || "Failed to load platform datasets.");
+    }
+
+    setDatasets(json.items);
+    setDatasetTargets((current) => {
+      const next = { ...current };
+      for (const dataset of json.items) {
+        if (!next[dataset.datasetId]) {
+          next[dataset.datasetId] =
+            items.find((organization) => organization.organizationId !== dataset.sourceOrganizationId)?.organizationId ?? "";
+        }
+      }
+      return next;
+    });
+  }
+
   useEffect(() => {
     if (!session?.access_token) return;
 
@@ -97,7 +125,7 @@ export function PlatformControlCenterPage() {
     setLoading(true);
     setError(null);
 
-    Promise.all([loadOverview(), loadSecurityEvents()])
+    Promise.all([loadOverview(), loadSecurityEvents(), loadDatasets()])
       .catch((loadError) => {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load platform controls.");
@@ -118,6 +146,24 @@ export function PlatformControlCenterPage() {
       setError(loadError instanceof Error ? loadError.message : "Failed to refresh security events.");
     });
   }, [selectedOrganizationId, selectedSeverity, selectedEventType, session?.access_token]);
+
+  useEffect(() => {
+    if (!items.length || !datasets.length) return;
+    setDatasetTargets((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const dataset of datasets) {
+        if (!next[dataset.datasetId]) {
+          const fallbackTarget = items.find((organization) => organization.organizationId !== dataset.sourceOrganizationId)?.organizationId;
+          if (fallbackTarget) {
+            next[dataset.datasetId] = fallbackTarget;
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [datasets, items]);
 
   const eventTypes = useMemo(
     () => [...new Set(events.map((item) => item.eventType))].sort((a, b) => a.localeCompare(b)),
@@ -192,6 +238,36 @@ export function PlatformControlCenterPage() {
     }
   }
 
+  async function releaseDataset(datasetId: string) {
+    if (!session?.access_token) return;
+    const organizationId = datasetTargets[datasetId];
+    if (!organizationId) return;
+    setReleasingDatasetId(datasetId);
+    setMessage(null);
+    setError(null);
+
+    try {
+      const response = await authFetch(session.access_token, `/api/platform/datasets/${datasetId}/grants`, {
+        method: "POST",
+        body: JSON.stringify({
+          organizationId,
+          visibilityScope: "organization"
+        })
+      });
+      const json = await response.json().catch(() => ({ error: "Failed to release dataset." }));
+      if (!response.ok) {
+        throw new Error(json.error || "Failed to release dataset.");
+      }
+
+      await Promise.all([loadOverview(), loadDatasets()]);
+      setMessage("Released dataset into the selected organization imports queue.");
+    } catch (releaseError) {
+      setError(releaseError instanceof Error ? releaseError.message : "Failed to release dataset.");
+    } finally {
+      setReleasingDatasetId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-6 shadow-panel backdrop-blur">
@@ -208,7 +284,7 @@ export function PlatformControlCenterPage() {
             onClick={() => {
               setMessage(null);
               setError(null);
-              Promise.all([loadOverview(true), loadSecurityEvents()]).catch((refreshError) => {
+              Promise.all([loadOverview(true), loadSecurityEvents(), loadDatasets()]).catch((refreshError) => {
                 setError(refreshError instanceof Error ? refreshError.message : "Failed to refresh platform data.");
               }).finally(() => setLoading(false));
             }}
@@ -517,6 +593,113 @@ export function PlatformControlCenterPage() {
           ) : (
             <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
               No organizations found yet.
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-6 shadow-panel backdrop-blur">
+        <div className="flex items-center gap-3">
+          <Sparkles className="h-5 w-5 text-slate-500" />
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Shared Datasets</div>
+            <p className="mt-1 text-sm text-slate-500">
+              Publish a master import once, then release it into paying organizations without reuploading the CSV.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          {datasets.length ? (
+            datasets.map((dataset) => {
+              const availableTargets = items.filter((item) => item.organizationId !== dataset.sourceOrganizationId);
+              const targetOrganizationId =
+                datasetTargets[dataset.datasetId] ?? availableTargets[0]?.organizationId ?? "";
+
+              return (
+                <div key={dataset.datasetId} className="rounded-[1.75rem] border border-slate-200 bg-slate-50/90 p-5">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="text-lg font-semibold text-ink">{dataset.name}</div>
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                          dataset.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700"
+                        }`}>
+                          {dataset.status}
+                        </span>
+                        <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-700">
+                          {dataset.listType.replaceAll("_", " ")}
+                        </span>
+                      </div>
+                      <div className="mt-2 text-sm text-slate-500">
+                        Source org: {dataset.sourceOrganizationName} · {dataset.rowCount} rows
+                      </div>
+                      {dataset.description ? (
+                        <div className="mt-2 text-sm text-slate-600">{dataset.description}</div>
+                      ) : null}
+                    </div>
+
+                    <div className="min-w-[18rem] rounded-3xl border border-slate-200 bg-white p-4">
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Release To Org</div>
+                      <div className="mt-3 flex flex-col gap-3">
+                        <select
+                          value={targetOrganizationId}
+                          disabled={!canMutate || !availableTargets.length}
+                          onChange={(event) =>
+                            setDatasetTargets((current) => ({
+                              ...current,
+                              [dataset.datasetId]: event.target.value
+                            }))
+                          }
+                          className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+                        >
+                          {availableTargets.length ? null : <option value="">No target orgs available</option>}
+                          {availableTargets.map((item) => (
+                            <option key={item.organizationId} value={item.organizationId}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => void releaseDataset(dataset.datasetId)}
+                          disabled={!canMutate || !targetOrganizationId || releasingDatasetId === dataset.datasetId}
+                          className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                        >
+                          {releasingDatasetId === dataset.datasetId ? "Releasing…" : "Release To Org"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Current Grants</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {dataset.grants.length ? (
+                        dataset.grants.map((grant) => (
+                          <span
+                            key={grant.organizationId}
+                            className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700"
+                          >
+                            {grant.organizationName} ·{" "}
+                            {grant.visibilityScope === "organization"
+                              ? "manager/admin pool"
+                              : grant.visibilityScope === "team"
+                                ? grant.assignedTeamName ?? "team"
+                                : grant.assignedUserName ?? "assigned user"}
+                          </span>
+                        ))
+                      ) : (
+                        <div className="text-sm text-slate-500">No orgs have access yet.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+              No shared datasets published yet. Publish a batch from the import detail screen to make it available here.
             </div>
           )}
         </div>

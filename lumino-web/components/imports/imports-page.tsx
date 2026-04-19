@@ -17,7 +17,7 @@ const LIST_TYPE_OPTIONS = [
 ] as const;
 
 const VISIBILITY_OPTIONS = [
-  { value: "organization", label: "Organization-Wide" },
+  { value: "organization", label: "Manager/Admin Pool" },
   { value: "team", label: "Assigned Team" },
   { value: "assigned_user", label: "Assigned User" }
 ] as const;
@@ -38,7 +38,7 @@ function formatVisibility(batch: Pick<ImportBatchListItem, "visibilityScope" | "
   if (batch.visibilityScope === "assigned_user") {
     return batch.assignedUserName ? `User · ${batch.assignedUserName}` : "Assigned User";
   }
-  return "Organization-Wide";
+  return "Manager/Admin Pool";
 }
 
 function statusTone(status: string) {
@@ -187,7 +187,6 @@ export function ImportsPage() {
       setAssignedTeamId("");
       setAssignedUserId("");
       await loadBatches({ silent: true });
-      await runAnalysis(result.batchId, "run");
     } catch {
       setUploadState("error");
     } finally {
@@ -364,7 +363,7 @@ export function ImportsPage() {
               </button>
               {uploadState === "done" ? (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
-                  Import created successfully.
+                  Import created successfully. Open the batch when you’re ready to analyze it.
                 </div>
               ) : null}
               {uploadState === "error" ? (

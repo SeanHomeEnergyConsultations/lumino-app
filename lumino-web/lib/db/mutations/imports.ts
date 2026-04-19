@@ -468,6 +468,69 @@ export async function ingestImportUpload(
   };
 }
 
+export async function updateImportBatchScope(
+  batchId: string,
+  input: {
+    listType: "general_canvass_list" | "homeowner_leads" | "sold_properties" | "solar_permits" | "roofing_permits" | "custom";
+    visibilityScope: "organization" | "team" | "assigned_user";
+    assignedTeamId?: string | null;
+    assignedUserId?: string | null;
+  },
+  context: AuthSessionContext
+) {
+  if (!context.organizationId) throw new Error("No active organization found.");
+  const supabase = createServerSupabaseClient();
+
+  const assignedTeamId = input.visibilityScope === "team" ? input.assignedTeamId ?? null : null;
+  const assignedUserId = input.visibilityScope === "assigned_user" ? input.assignedUserId ?? null : null;
+
+  const { data: batch, error: batchError } = await supabase
+    .from("import_batches")
+    .update({
+      list_type: input.listType,
+      visibility_scope: input.visibilityScope,
+      assigned_team_id: assignedTeamId,
+      assigned_user_id: assignedUserId,
+      updated_at: new Date().toISOString()
+    })
+    .eq("organization_id", context.organizationId)
+    .eq("id", batchId)
+    .select("id")
+    .maybeSingle();
+
+  if (batchError) throw batchError;
+  if (!batch) throw new Error("Import batch not found.");
+
+  const leadUpdate = {
+    list_type: input.listType,
+    visibility_scope: input.visibilityScope,
+    team_id: assignedTeamId,
+    assigned_to: assignedUserId,
+    owner_id: assignedUserId,
+    updated_at: new Date().toISOString()
+  };
+
+  const { error: leadsError } = await supabase
+    .from("leads")
+    .update(leadUpdate)
+    .eq("organization_id", context.organizationId)
+    .eq("import_batch_id", batchId);
+  if (leadsError) throw leadsError;
+
+  const { error: sourcesError } = await supabase
+    .from("property_source_records")
+    .update({
+      list_type: input.listType,
+      visibility_scope: input.visibilityScope,
+      assigned_team_id: assignedTeamId,
+      assigned_user_id: assignedUserId,
+      updated_at: new Date().toISOString()
+    })
+    .eq("organization_id", context.organizationId)
+    .eq("source_batch_id", batchId);
+  if (sourcesError) throw sourcesError;
+}
+
 type ImportBatchItemRow = {
   id: string;
   lead_id: string | null;

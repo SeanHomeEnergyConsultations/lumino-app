@@ -41,3 +41,26 @@ export const importUploadSchema = z.object({
     });
   }
 });
+
+export const importBatchScopeUpdateSchema = z.object({
+  listType: importListTypeSchema,
+  visibilityScope: importVisibilityScopeSchema,
+  assignedTeamId: z.string().uuid().nullable().optional(),
+  assignedUserId: z.string().uuid().nullable().optional()
+}).superRefine((value, ctx) => {
+  if (value.visibilityScope === "team" && !value.assignedTeamId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["assignedTeamId"],
+      message: "Choose a team when visibility is team-scoped."
+    });
+  }
+
+  if (value.visibilityScope === "assigned_user" && !value.assignedUserId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["assignedUserId"],
+      message: "Choose a user when visibility is assigned-user scoped."
+    });
+  }
+});

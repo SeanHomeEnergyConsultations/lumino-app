@@ -2,8 +2,28 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { ImportBatchAnalysisResponse, ImportBatchDetailResponse } from "@/types/api";
+import type {
+  ImportAssignmentOption,
+  ImportBatchAnalysisResponse,
+  ImportBatchDetailResponse,
+  ImportsResponse
+} from "@/types/api";
 import { authFetch, useAuth } from "@/lib/auth/client";
+
+const LIST_TYPE_OPTIONS = [
+  { value: "general_canvass_list", label: "General Canvass List" },
+  { value: "homeowner_leads", label: "Homeowner Leads" },
+  { value: "sold_properties", label: "Sold Properties" },
+  { value: "solar_permits", label: "Solar Permits" },
+  { value: "roofing_permits", label: "Roofing Permits" },
+  { value: "custom", label: "Custom List" }
+] as const;
+
+const VISIBILITY_OPTIONS = [
+  { value: "organization", label: "Manager/Admin Pool" },
+  { value: "team", label: "Assigned Team" },
+  { value: "assigned_user", label: "Assigned User" }
+] as const;
 
 function formatDateTime(value: string | null) {
   if (!value) return "Not available";
@@ -25,7 +45,7 @@ function formatVisibility(batch: {
   if (batch.visibilityScope === "assigned_user") {
     return batch.assignedUserName ? `User · ${batch.assignedUserName}` : "Assigned User";
   }
-  return "Organization-Wide";
+  return "Manager/Admin Pool";
 }
 
 function statusTone(status: string) {
@@ -45,13 +65,23 @@ function statusTone(status: string) {
 }
 
 export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
-  const { session } = useAuth();
+  const { session, appContext } = useAuth();
   const accessToken = session?.access_token ?? null;
   const [batch, setBatch] = useState<ImportBatchDetailResponse["item"] | null>(null);
+  const [assignmentOptions, setAssignmentOptions] = useState<{ teams: ImportAssignmentOption[]; users: ImportAssignmentOption[] }>({
+    teams: [],
+    users: []
+  });
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [running, setRunning] = useState<"idle" | "running" | "retrying">("idle");
+  const [savingScope, setSavingScope] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [listType, setListType] = useState<string>("general_canvass_list");
+  const [visibilityScope, setVisibilityScope] = useState<string>("organization");
+  const [assignedTeamId, setAssignedTeamId] = useState<string>("");
+  const [assignedUserId, setAssignedUserId] = useState<string>("");
 
   const loadBatch = useCallback(async (options?: { silent?: boolean }) => {
     if (!accessToken) return;
@@ -66,6 +96,10 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
       if (!response.ok) throw new Error("Failed to load import batch.");
       const json = (await response.json()) as ImportBatchDetailResponse;
       setBatch(json.item);
+      setListType(json.item.listType);
+      setVisibilityScope(json.item.visibilityScope);
+      setAssignedTeamId(json.item.assignedTeamId ?? "");
+      setAssignedUserId(json.item.assignedUserId ?? "");
     } finally {
       if (silent) {
         setRefreshing(false);
@@ -78,6 +112,20 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
   useEffect(() => {
     void loadBatch();
   }, [loadBatch]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    authFetch(accessToken, "/api/imports")
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as ImportsResponse;
+      })
+      .then((json) => {
+        if (json?.options) {
+          setAssignmentOptions(json.options);
+        }
+      });
+  }, [accessToken]);
 
   useEffect(() => {
     if (!batch || running !== "idle") return;
@@ -112,6 +160,55 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
       window.alert(error instanceof Error ? error.message : "Failed to analyze import batch.");
     } finally {
       setRunning("idle");
+    }
+  }
+
+  async function saveScope() {
+    if (!accessToken || !batch) return;
+    setSavingScope(true);
+    try {
+      const response = await authFetch(accessToken, `/api/imports/${batchId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          listType,
+          visibilityScope,
+          assignedTeamId: visibilityScope === "team" ? assignedTeamId || null : null,
+          assignedUserId: visibilityScope === "assigned_user" ? assignedUserId || null : null
+        })
+      });
+      if (!response.ok) {
+        const json = await response.json().catch(() => ({ error: "Failed to save batch scope." }));
+        throw new Error(json.error || "Failed to save batch scope.");
+      }
+      const json = (await response.json()) as ImportBatchDetailResponse;
+      setBatch(json.item);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to save batch scope.");
+    } finally {
+      setSavingScope(false);
+    }
+  }
+
+  async function publishDataset() {
+    if (!accessToken || !batch) return;
+    setPublishing(true);
+    try {
+      const response = await authFetch(accessToken, "/api/platform/datasets", {
+        method: "POST",
+        body: JSON.stringify({
+          batchId,
+          name: batch.filename
+        })
+      });
+      const json = await response.json().catch(() => ({ error: "Failed to publish platform dataset." }));
+      if (!response.ok) {
+        throw new Error(json.error || "Failed to publish platform dataset.");
+      }
+      window.alert("Published this batch as a platform dataset.");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to publish platform dataset.");
+    } finally {
+      setPublishing(false);
     }
   }
 
@@ -159,6 +256,16 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
             >
               {running === "retrying" ? "Retrying..." : "Retry Failed Rows"}
             </button>
+            {appContext?.isPlatformOwner ? (
+              <button
+                type="button"
+                onClick={() => void publishDataset()}
+                disabled={publishing}
+                className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 disabled:opacity-60"
+              >
+                {publishing ? "Publishing..." : "Publish Dataset"}
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -200,6 +307,97 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
                 {batch.lastError}
               </div>
             ) : null}
+
+            <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Batch Scope</div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <label className="space-y-2 text-sm">
+                  <span className="font-semibold text-ink">List Type</span>
+                  <select
+                    value={listType}
+                    onChange={(event) => setListType(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
+                  >
+                    {LIST_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-2 text-sm">
+                  <span className="font-semibold text-ink">Visibility</span>
+                  <select
+                    value={visibilityScope}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setVisibilityScope(next);
+                      if (next !== "team") setAssignedTeamId("");
+                      if (next !== "assigned_user") setAssignedUserId("");
+                    }}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
+                  >
+                    {VISIBILITY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {visibilityScope === "team" ? (
+                  <label className="space-y-2 text-sm">
+                    <span className="font-semibold text-ink">Assigned Team</span>
+                    <select
+                      value={assignedTeamId}
+                      onChange={(event) => setAssignedTeamId(event.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
+                    >
+                      <option value="">Choose a team</option>
+                      {assignmentOptions.teams.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {team.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+
+                {visibilityScope === "assigned_user" ? (
+                  <label className="space-y-2 text-sm">
+                    <span className="font-semibold text-ink">Assigned User</span>
+                    <select
+                      value={assignedUserId}
+                      onChange={(event) => setAssignedUserId(event.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
+                    >
+                      <option value="">Choose a user</option>
+                      {assignmentOptions.users.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => void saveScope()}
+                  disabled={
+                    savingScope ||
+                    (visibilityScope === "team" && !assignedTeamId) ||
+                    (visibilityScope === "assigned_user" && !assignedUserId)
+                  }
+                  className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                >
+                  {savingScope ? "Saving..." : "Save Scope"}
+                </button>
+              </div>
+            </div>
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
               <div>
