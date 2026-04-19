@@ -752,7 +752,7 @@ async function persistAnalysisResult(
       property_id: lead.property_id,
       provider: "google_solar",
       enrichment_type: "solar",
-      status: "success",
+      status: "complete",
       fetched_at: new Date().toISOString(),
       payload: solarPayload
     };
