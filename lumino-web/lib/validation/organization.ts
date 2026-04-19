@@ -8,3 +8,9 @@ export const organizationBrandingSchema = z.object({
   primaryColor: z.string().trim().regex(hexColor).nullable().optional().or(z.literal("")),
   accentColor: z.string().trim().regex(hexColor).nullable().optional().or(z.literal(""))
 });
+
+export const organizationCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  slug: z.string().trim().min(2).max(80).regex(/^[a-z0-9-]+$/).nullable().optional().or(z.literal("")),
+  appName: z.string().trim().min(1).max(120).nullable().optional().or(z.literal(""))
+});

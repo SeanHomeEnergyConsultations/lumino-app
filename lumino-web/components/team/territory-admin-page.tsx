@@ -5,7 +5,9 @@ import { authFetch, useAuth } from "@/lib/auth/client";
 import { hasAdminAccess } from "@/lib/auth/permissions";
 import type {
   ManagerDashboardResponse,
+  OrganizationCreateResponse,
   OrganizationBrandingResponse,
+  OrganizationsResponse,
   TeamCleanupIssue,
   TeamMembersResponse,
   TeamMemberItem,
@@ -26,6 +28,7 @@ export function TerritoryAdminPage() {
   const { session, appContext, organizationBranding, refreshOrganizationBranding } = useAuth();
   const accessToken = session?.access_token ?? null;
 
+  const [organizations, setOrganizations] = useState<OrganizationsResponse["items"]>([]);
   const [territories, setTerritories] = useState<TerritoryListItem[]>([]);
   const [selectedTerritoryId, setSelectedTerritoryId] = useState<string | null>(null);
   const [selectedTerritory, setSelectedTerritory] = useState<TerritoryDetailResponse["item"] | null>(null);
@@ -36,6 +39,7 @@ export function TerritoryAdminPage() {
   const [territoryState, setTerritoryState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [inviteState, setInviteState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [brandingState, setBrandingState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [organizationState, setOrganizationState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [memberState, setMemberState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [cleanupState, setCleanupState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [detailName, setDetailName] = useState("");
@@ -53,6 +57,9 @@ export function TerritoryAdminPage() {
   const [logoUrl, setLogoUrl] = useState("");
   const [primaryColor, setPrimaryColor] = useState("#0b1220");
   const [accentColor, setAccentColor] = useState("#94a3b8");
+  const [organizationName, setOrganizationName] = useState("");
+  const [organizationSlug, setOrganizationSlug] = useState("");
+  const [organizationAppName, setOrganizationAppName] = useState("");
 
   const assignedPropertyIds = useMemo(
     () => new Set((selectedTerritory?.properties ?? []).map((item) => item.propertyId)),
@@ -64,6 +71,7 @@ export function TerritoryAdminPage() {
   );
   const canDeleteMembers = canEditBranding;
   const currentAppUserId = appContext?.appUser.id ?? null;
+  const isPlatformOwner = appContext?.isPlatformOwner ?? false;
 
   async function readErrorMessage(response: Response, fallback: string) {
     try {
@@ -115,6 +123,22 @@ export function TerritoryAdminPage() {
   useEffect(() => {
     void loadTerritories();
   }, [loadTerritories]);
+
+  useEffect(() => {
+    if (!accessToken || !isPlatformOwner) return;
+
+    authFetch(accessToken, "/api/organizations")
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as OrganizationsResponse;
+      })
+      .then((json) => {
+        if (json) setOrganizations(json.items);
+      })
+      .catch(() => {
+        setOrganizations([]);
+      });
+  }, [accessToken, isPlatformOwner]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -427,6 +451,33 @@ export function TerritoryAdminPage() {
     }
   }
 
+  async function handleCreateOrganization() {
+    if (!accessToken || !isPlatformOwner || !organizationName.trim()) return;
+
+    setOrganizationState("saving");
+    try {
+      const response = await authFetch(accessToken, "/api/organizations", {
+        method: "POST",
+        body: JSON.stringify({
+          name: organizationName.trim(),
+          slug: organizationSlug.trim() || null,
+          appName: organizationAppName.trim() || null
+        })
+      });
+
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to create organization"));
+      const json = (await response.json()) as OrganizationCreateResponse;
+      setOrganizationName("");
+      setOrganizationSlug("");
+      setOrganizationAppName("");
+      setOrganizations((current) => [json.item, ...current]);
+      setOrganizationState("saved");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to create organization.");
+      setOrganizationState("error");
+    }
+  }
+
   return (
     <div className="p-4 md:p-6">
       <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
@@ -436,6 +487,85 @@ export function TerritoryAdminPage() {
           Keep reps visible, surface coaching risk quickly, and ground manager reporting in real territory assignments.
         </p>
       </div>
+
+      {isPlatformOwner ? (
+        <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Organizations</div>
+              <p className="mt-2 text-sm text-slate-500">
+                Create new customer organizations without adding your platform account to their visible roster.
+              </p>
+            </div>
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+              {organizations.length}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 xl:grid-cols-[1.1fr_0.8fr_0.8fr_auto]">
+            <input
+              type="text"
+              value={organizationName}
+              onChange={(event) => setOrganizationName(event.target.value)}
+              placeholder="Organization name"
+              className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+            />
+            <input
+              type="text"
+              value={organizationSlug}
+              onChange={(event) => setOrganizationSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
+              placeholder="slug"
+              className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+            />
+            <input
+              type="text"
+              value={organizationAppName}
+              onChange={(event) => setOrganizationAppName(event.target.value)}
+              placeholder="App name (optional)"
+              className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+            />
+            <button
+              type="button"
+              onClick={() => void handleCreateOrganization()}
+              disabled={organizationState === "saving" || !organizationName.trim()}
+              className="rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {organizationState === "saving" ? "Creating..." : "Create"}
+            </button>
+          </div>
+
+          <div className="mt-3 text-sm text-slate-500">
+            {organizationState === "saved"
+              ? "Organization created."
+              : organizationState === "error"
+                ? "Could not create organization."
+                : "New organizations start active on the starter plan. You can invite their first admin afterward."}
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {organizations.length ? (
+              organizations.slice(0, 8).map((organization) => (
+                <div key={organization.organizationId} className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-ink">{organization.appName || organization.name}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {organization.slug ? `${organization.slug} · ` : ""}
+                      {organization.status} · {organization.billingPlan}
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    Created {new Date(organization.createdAt).toLocaleDateString()}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                No organizations created from the app yet.
+              </div>
+            )}
+          </div>
+        </section>
+      ) : null}
 
       {canEditBranding ? (
         <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">

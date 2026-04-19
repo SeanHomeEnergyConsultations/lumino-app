@@ -421,6 +421,24 @@ export interface OrganizationBrandingResponse {
   item: OrganizationBranding;
 }
 
+export interface OrganizationListItem {
+  organizationId: string;
+  name: string;
+  slug: string | null;
+  status: string;
+  billingPlan: string;
+  appName: string | null;
+  createdAt: string;
+}
+
+export interface OrganizationsResponse {
+  items: OrganizationListItem[];
+}
+
+export interface OrganizationCreateResponse {
+  item: OrganizationListItem;
+}
+
 export interface ImportBatchListItem {
   batchId: string;
   filename: string;
