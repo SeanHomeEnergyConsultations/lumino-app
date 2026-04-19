@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { hasManagerAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { ingestImportUpload } from "@/lib/db/mutations/imports";
-import { getRecentImportBatches } from "@/lib/db/queries/imports";
+import { getImportAssignmentOptions, getRecentImportBatches } from "@/lib/db/queries/imports";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { recordSecurityEvent } from "@/lib/security/security-events";
 import { importUploadSchema } from "@/lib/validation/imports";
@@ -16,8 +16,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const items = await getRecentImportBatches(context);
-  return NextResponse.json({ items });
+  const [items, options] = await Promise.all([
+    getRecentImportBatches(context),
+    getImportAssignmentOptions(context)
+  ]);
+  return NextResponse.json({ items, options });
 }
 
 export async function POST(request: Request) {
@@ -63,6 +66,10 @@ export async function POST(request: Request) {
     metadata: {
       batchId: result.batchId,
       filename: parsed.data.filename,
+      listType: parsed.data.listType,
+      visibilityScope: parsed.data.visibilityScope,
+      assignedTeamId: parsed.data.assignedTeamId ?? null,
+      assignedUserId: parsed.data.assignedUserId ?? null,
       rowCount: parsed.data.rows.length
     }
   });

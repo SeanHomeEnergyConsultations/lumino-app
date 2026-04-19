@@ -499,6 +499,12 @@ export interface OrganizationCreateResponse {
 export interface ImportBatchListItem {
   batchId: string;
   filename: string;
+  listType: "general_canvass_list" | "homeowner_leads" | "sold_properties" | "solar_permits" | "roofing_permits" | "custom";
+  visibilityScope: "organization" | "team" | "assigned_user";
+  assignedTeamId: string | null;
+  assignedTeamName: string | null;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
   status: string;
   totalRows: number;
   detectedRows: number;
@@ -515,8 +521,17 @@ export interface ImportBatchListItem {
   lastError: string | null;
 }
 
+export interface ImportAssignmentOption {
+  id: string;
+  label: string;
+}
+
 export interface ImportsResponse {
   items: ImportBatchListItem[];
+  options: {
+    teams: ImportAssignmentOption[];
+    users: ImportAssignmentOption[];
+  };
 }
 
 export interface ImportUploadResponse {

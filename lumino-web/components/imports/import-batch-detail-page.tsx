@@ -10,6 +10,24 @@ function formatDateTime(value: string | null) {
   return new Date(value).toLocaleString();
 }
 
+function formatListType(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+function formatVisibility(batch: {
+  visibilityScope: string;
+  assignedTeamName: string | null;
+  assignedUserName: string | null;
+}) {
+  if (batch.visibilityScope === "team") {
+    return batch.assignedTeamName ? `Team · ${batch.assignedTeamName}` : "Team";
+  }
+  if (batch.visibilityScope === "assigned_user") {
+    return batch.assignedUserName ? `User · ${batch.assignedUserName}` : "Assigned User";
+  }
+  return "Organization-Wide";
+}
+
 function statusTone(status: string) {
   switch (status) {
     case "ready_for_analysis":
@@ -149,6 +167,12 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <div className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${statusTone(batch.status)}`}>
                 {batch.status.replaceAll("_", " ")}
+              </div>
+              <div className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-700">
+                {formatListType(batch.listType)}
+              </div>
+              <div className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-700">
+                {formatVisibility(batch)}
               </div>
               <div className="text-sm text-slate-500">Created {formatDateTime(batch.createdAt)}</div>
               <div className="text-sm text-slate-500">Started {formatDateTime(batch.startedAt)}</div>

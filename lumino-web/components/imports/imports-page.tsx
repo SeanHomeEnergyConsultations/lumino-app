@@ -7,9 +7,38 @@ import { authFetch, useAuth } from "@/lib/auth/client";
 import { parseCsvText } from "@/lib/imports/csv";
 import type { ImportBatchAnalysisResponse, ImportBatchListItem, ImportsResponse, ImportUploadResponse } from "@/types/api";
 
+const LIST_TYPE_OPTIONS = [
+  { value: "general_canvass_list", label: "General Canvass List" },
+  { value: "homeowner_leads", label: "Homeowner Leads" },
+  { value: "sold_properties", label: "Sold Properties" },
+  { value: "solar_permits", label: "Solar Permits" },
+  { value: "roofing_permits", label: "Roofing Permits" },
+  { value: "custom", label: "Custom List" }
+] as const;
+
+const VISIBILITY_OPTIONS = [
+  { value: "organization", label: "Organization-Wide" },
+  { value: "team", label: "Assigned Team" },
+  { value: "assigned_user", label: "Assigned User" }
+] as const;
+
 function formatDateTime(value: string | null) {
   if (!value) return "Not started";
   return new Date(value).toLocaleString();
+}
+
+function formatListType(value: ImportBatchListItem["listType"]) {
+  return LIST_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? value.replaceAll("_", " ");
+}
+
+function formatVisibility(batch: Pick<ImportBatchListItem, "visibilityScope" | "assignedTeamName" | "assignedUserName">) {
+  if (batch.visibilityScope === "team") {
+    return batch.assignedTeamName ? `Team · ${batch.assignedTeamName}` : "Team";
+  }
+  if (batch.visibilityScope === "assigned_user") {
+    return batch.assignedUserName ? `User · ${batch.assignedUserName}` : "Assigned User";
+  }
+  return "Organization-Wide";
 }
 
 function statusTone(status: string) {
@@ -38,11 +67,19 @@ export function ImportsPage() {
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [batches, setBatches] = useState<ImportBatchListItem[]>([]);
+  const [assignmentOptions, setAssignmentOptions] = useState<ImportsResponse["options"]>({
+    teams: [],
+    users: []
+  });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [processingBatchId, setProcessingBatchId] = useState<string | null>(null);
   const [uploadState, setUploadState] = useState<"idle" | "done" | "error">("idle");
+  const [listType, setListType] = useState<ImportBatchListItem["listType"]>("general_canvass_list");
+  const [visibilityScope, setVisibilityScope] = useState<ImportBatchListItem["visibilityScope"]>("organization");
+  const [assignedTeamId, setAssignedTeamId] = useState<string>("");
+  const [assignedUserId, setAssignedUserId] = useState<string>("");
 
   const loadBatches = useCallback(async (options?: { silent?: boolean }) => {
     if (!accessToken) return;
@@ -57,6 +94,7 @@ export function ImportsPage() {
       if (!response.ok) throw new Error("Failed to load imports");
       const json = (await response.json()) as ImportsResponse;
       setBatches(json.items);
+      setAssignmentOptions(json.options);
     } finally {
       if (silent) {
         setRefreshing(false);
@@ -131,6 +169,10 @@ export function ImportsPage() {
         method: "POST",
         body: JSON.stringify({
           filename,
+          listType,
+          visibilityScope,
+          assignedTeamId: visibilityScope === "team" ? assignedTeamId || null : null,
+          assignedUserId: visibilityScope === "assigned_user" ? assignedUserId || null : null,
           rows: previewRows
         })
       });
@@ -140,6 +182,10 @@ export function ImportsPage() {
       setFilename(null);
       setHeaders([]);
       setPreviewRows([]);
+      setListType("general_canvass_list");
+      setVisibilityScope("organization");
+      setAssignedTeamId("");
+      setAssignedUserId("");
       await loadBatches({ silent: true });
       await runAnalysis(result.batchId, "run");
     } catch {
@@ -228,11 +274,90 @@ export function ImportsPage() {
               </div>
             ) : null}
 
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <label className="space-y-2 text-sm">
+                <span className="font-semibold text-ink">List Type</span>
+                <select
+                  value={listType}
+                  onChange={(event) => setListType(event.target.value as ImportBatchListItem["listType"])}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
+                >
+                  {LIST_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-2 text-sm">
+                <span className="font-semibold text-ink">Visibility</span>
+                <select
+                  value={visibilityScope}
+                  onChange={(event) => {
+                    const nextValue = event.target.value as ImportBatchListItem["visibilityScope"];
+                    setVisibilityScope(nextValue);
+                    if (nextValue !== "team") setAssignedTeamId("");
+                    if (nextValue !== "assigned_user") setAssignedUserId("");
+                  }}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
+                >
+                  {VISIBILITY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {visibilityScope === "team" ? (
+              <label className="mt-4 block space-y-2 text-sm">
+                <span className="font-semibold text-ink">Assigned Team</span>
+                <select
+                  value={assignedTeamId}
+                  onChange={(event) => setAssignedTeamId(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
+                >
+                  <option value="">Choose a team</option>
+                  {assignmentOptions.teams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            {visibilityScope === "assigned_user" ? (
+              <label className="mt-4 block space-y-2 text-sm">
+                <span className="font-semibold text-ink">Assigned User</span>
+                <select
+                  value={assignedUserId}
+                  onChange={(event) => setAssignedUserId(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
+                >
+                  <option value="">Choose a user</option>
+                  {assignmentOptions.users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
             <div className="mt-4 flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={() => void handleUpload()}
-                disabled={!filename || !previewRows.length || uploading}
+                disabled={
+                  !filename ||
+                  !previewRows.length ||
+                  uploading ||
+                  (visibilityScope === "team" && !assignedTeamId) ||
+                  (visibilityScope === "assigned_user" && !assignedUserId)
+                }
                 className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {uploading ? "Uploading..." : "Import Rows"}
@@ -302,6 +427,9 @@ export function ImportsPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold text-ink">{batch.filename}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {formatListType(batch.listType)} · {formatVisibility(batch)}
+                    </div>
                     <div className="mt-1 text-xs text-slate-500">Created {formatDateTime(batch.createdAt)}</div>
                   </div>
                   <div className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${statusTone(batch.status)}`}>

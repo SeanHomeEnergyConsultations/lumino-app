@@ -163,7 +163,14 @@ function propertyCompletenessScore(facts: Record<string, unknown>) {
 }
 
 export async function ingestImportUpload(
-  input: { filename: string; rows: RawImportRow[] },
+  input: {
+    filename: string;
+    listType: "general_canvass_list" | "homeowner_leads" | "sold_properties" | "solar_permits" | "roofing_permits" | "custom";
+    visibilityScope: "organization" | "team" | "assigned_user";
+    assignedTeamId?: string | null;
+    assignedUserId?: string | null;
+    rows: RawImportRow[];
+  },
   context: AuthSessionContext
 ) {
   if (!context.organizationId) throw new Error("No active organization found.");
@@ -180,11 +187,15 @@ export async function ingestImportUpload(
     .insert({
       organization_id: context.organizationId,
       created_by: context.appUser.id,
-      source_name: input.filename,
-      filename: input.filename,
-      original_filename: input.filename,
-      source_type: "csv",
-      status: "ready_for_analysis",
+        source_name: input.filename,
+        filename: input.filename,
+        original_filename: input.filename,
+        source_type: "csv",
+        list_type: input.listType,
+        visibility_scope: input.visibilityScope,
+        assigned_team_id: input.assignedTeamId ?? null,
+        assigned_user_id: input.assignedUserId ?? null,
+        status: "ready_for_analysis",
       row_count: input.rows.length,
       valid_row_count: canonicalRows.length,
       skipped_row_count: skippedRows,
@@ -262,6 +273,11 @@ export async function ingestImportUpload(
       status: "open",
       lead_status: "New",
       assignment_status: "unassigned",
+      assigned_to: input.visibilityScope === "assigned_user" ? input.assignedUserId ?? null : null,
+      owner_id: input.visibilityScope === "assigned_user" ? input.assignedUserId ?? null : null,
+      team_id: input.visibilityScope === "team" ? input.assignedTeamId ?? null : null,
+      list_type: input.listType,
+      visibility_scope: input.visibilityScope,
       analysis_status: "pending",
       last_analysis_requested_at: new Date().toISOString(),
       last_analysis_error: null,
@@ -400,6 +416,10 @@ export async function ingestImportUpload(
       source_name: input.filename,
       source_batch_id: batch.id,
       source_record_id: String(row.sourceRowNumber),
+      list_type: input.listType,
+      visibility_scope: input.visibilityScope,
+      assigned_team_id: input.assignedTeamId ?? null,
+      assigned_user_id: input.assignedUserId ?? null,
       record_date: safeIsoDate(
         getValue(row.payload, ["Sale Date", "SOLD DATE", "sale_date", "sold_date"])
       ),
