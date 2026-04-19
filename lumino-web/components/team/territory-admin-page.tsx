@@ -32,7 +32,11 @@ export function TerritoryAdminPage() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createStatus, setCreateStatus] = useState<"active" | "archived">("active");
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [territoryState, setTerritoryState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [inviteState, setInviteState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [brandingState, setBrandingState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [memberState, setMemberState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [cleanupState, setCleanupState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [detailName, setDetailName] = useState("");
   const [detailStatus, setDetailStatus] = useState<"active" | "archived">("active");
   const [searchTerm, setSearchTerm] = useState("");
@@ -190,7 +194,7 @@ export function TerritoryAdminPage() {
   async function handleCreateTerritory() {
     if (!accessToken || !createName.trim()) return;
 
-    setSaveState("saving");
+    setTerritoryState("saving");
     try {
       const response = await authFetch(accessToken, "/api/territories", {
         method: "POST",
@@ -207,16 +211,16 @@ export function TerritoryAdminPage() {
       setCreateStatus("active");
       await loadTerritories();
       setSelectedTerritoryId(json.territoryId);
-      setSaveState("saved");
+      setTerritoryState("saved");
     } catch {
-      setSaveState("error");
+      setTerritoryState("error");
     }
   }
 
   async function handleUpdateTerritory() {
     if (!accessToken || !selectedTerritoryId || !detailName.trim()) return;
 
-    setSaveState("saving");
+    setTerritoryState("saving");
     try {
       const response = await authFetch(accessToken, `/api/territories/${selectedTerritoryId}`, {
         method: "PATCH",
@@ -229,16 +233,16 @@ export function TerritoryAdminPage() {
       if (!response.ok) throw new Error("Failed to update territory");
 
       await Promise.all([loadTerritories(), loadTerritoryDetail(selectedTerritoryId)]);
-      setSaveState("saved");
+      setTerritoryState("saved");
     } catch {
-      setSaveState("error");
+      setTerritoryState("error");
     }
   }
 
   async function handleAssignProperty(propertyId: string) {
     if (!accessToken || !selectedTerritoryId) return;
 
-    setSaveState("saving");
+    setTerritoryState("saving");
     try {
       const response = await authFetch(
         accessToken,
@@ -253,16 +257,16 @@ export function TerritoryAdminPage() {
       await Promise.all([loadTerritories(), loadTerritoryDetail(selectedTerritoryId)]);
       setSearchTerm("");
       setSearchResults([]);
-      setSaveState("saved");
+      setTerritoryState("saved");
     } catch {
-      setSaveState("error");
+      setTerritoryState("error");
     }
   }
 
   async function handleRemoveProperty(propertyId: string) {
     if (!accessToken || !selectedTerritoryId) return;
 
-    setSaveState("saving");
+    setTerritoryState("saving");
     try {
       const response = await authFetch(
         accessToken,
@@ -275,16 +279,16 @@ export function TerritoryAdminPage() {
 
       if (!response.ok) throw new Error("Failed to remove property");
       await Promise.all([loadTerritories(), loadTerritoryDetail(selectedTerritoryId)]);
-      setSaveState("saved");
+      setTerritoryState("saved");
     } catch {
-      setSaveState("error");
+      setTerritoryState("error");
     }
   }
 
   async function handleInviteMember() {
     if (!accessToken || !inviteEmail.trim() || !inviteName.trim()) return;
 
-    setSaveState("saving");
+    setInviteState("saving");
     try {
       const response = await authFetch(accessToken, "/api/team/members", {
         method: "POST",
@@ -300,9 +304,10 @@ export function TerritoryAdminPage() {
       setInviteName("");
       setInviteRole("rep");
       await loadMembers();
-      setSaveState("saved");
-    } catch {
-      setSaveState("error");
+      setInviteState("saved");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to invite member.");
+      setInviteState("error");
     }
   }
 
@@ -312,7 +317,7 @@ export function TerritoryAdminPage() {
   ) {
     if (!accessToken) return;
 
-    setSaveState("saving");
+    setMemberState("saving");
     try {
       const response = await authFetch(accessToken, `/api/team/members/${memberId}`, {
         method: "PATCH",
@@ -321,17 +326,17 @@ export function TerritoryAdminPage() {
 
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update member"));
       await loadMembers();
-      setSaveState("saved");
+      setMemberState("saved");
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Failed to update member.");
-      setSaveState("error");
+      setMemberState("error");
     }
   }
 
   async function handleMemberAction(memberId: string, action: "resend_invite" | "send_password_reset") {
     if (!accessToken) return;
 
-    setSaveState("saving");
+    setMemberState("saving");
     try {
       const response = await authFetch(accessToken, `/api/team/members/${memberId}`, {
         method: "POST",
@@ -339,10 +344,10 @@ export function TerritoryAdminPage() {
       });
 
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to send access email"));
-      setSaveState("saved");
+      setMemberState("saved");
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Failed to send access email.");
-      setSaveState("error");
+      setMemberState("error");
     }
   }
 
@@ -357,7 +362,7 @@ export function TerritoryAdminPage() {
       if (!confirmed) return;
     }
 
-    setSaveState("saving");
+    setMemberState("saving");
     try {
       const response = await authFetch(accessToken, `/api/team/members/${memberId}?mode=${mode}`, {
         method: "DELETE"
@@ -365,10 +370,10 @@ export function TerritoryAdminPage() {
 
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to delete member"));
       await loadMembers();
-      setSaveState("saved");
+      setMemberState("saved");
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Failed to delete member.");
-      setSaveState("error");
+      setMemberState("error");
     }
   }
 
@@ -377,7 +382,7 @@ export function TerritoryAdminPage() {
     const confirmed = window.confirm(`Clean up ${issue.email ?? "this stale user record"}? This permanently deletes the orphaned app user.`);
     if (!confirmed) return;
 
-    setSaveState("saving");
+    setCleanupState("saving");
     try {
       const response = await authFetch(accessToken, "/api/team/cleanup", {
         method: "POST",
@@ -389,17 +394,17 @@ export function TerritoryAdminPage() {
 
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to clean up team issue"));
       await loadMembers();
-      setSaveState("saved");
+      setCleanupState("saved");
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Failed to clean up team issue.");
-      setSaveState("error");
+      setCleanupState("error");
     }
   }
 
   async function handleSaveBranding() {
     if (!accessToken || !brandName.trim()) return;
 
-    setSaveState("saving");
+    setBrandingState("saving");
     try {
       const response = await authFetch(accessToken, "/api/organization/branding", {
         method: "PATCH",
@@ -414,9 +419,9 @@ export function TerritoryAdminPage() {
       if (!response.ok) throw new Error("Failed to save branding");
       await response.json() as OrganizationBrandingResponse;
       await refreshOrganizationBranding();
-      setSaveState("saved");
+      setBrandingState("saved");
     } catch {
-      setSaveState("error");
+      setBrandingState("error");
     }
   }
 
@@ -484,10 +489,10 @@ export function TerritoryAdminPage() {
               <button
                 type="button"
                 onClick={() => void handleSaveBranding()}
-                disabled={!brandName.trim() || saveState === "saving"}
+                disabled={!brandName.trim() || brandingState === "saving"}
                 className="rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {saveState === "saving" ? "Saving..." : "Save Branding"}
+                {brandingState === "saving" ? "Saving..." : "Save Branding"}
               </button>
             </div>
 
@@ -766,15 +771,15 @@ export function TerritoryAdminPage() {
             <button
               type="button"
               onClick={() => void handleInviteMember()}
-              disabled={!inviteEmail.trim() || !inviteName.trim() || saveState === "saving"}
+              disabled={!inviteEmail.trim() || !inviteName.trim() || inviteState === "saving"}
               className="w-full rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saveState === "saving" ? "Saving..." : "Invite User"}
+              {inviteState === "saving" ? "Saving..." : "Invite User"}
             </button>
             <div className="text-sm text-slate-500">
-              {saveState === "saved"
+              {inviteState === "saved"
                 ? "Saved."
-                : saveState === "error"
+                : inviteState === "error"
                   ? "A team action failed. The exact error is shown in the alert dialog."
                   : "This creates or reactivates the user record, membership, and access email in one step."}
             </div>
@@ -895,10 +900,10 @@ export function TerritoryAdminPage() {
             <button
               type="button"
               onClick={() => void handleCreateTerritory()}
-              disabled={!accessToken || saveState === "saving" || !createName.trim()}
+              disabled={!accessToken || territoryState === "saving" || !createName.trim()}
               className="mt-3 w-full rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saveState === "saving" ? "Saving..." : "Create Territory"}
+              {territoryState === "saving" ? "Saving..." : "Create Territory"}
             </button>
           </div>
         </section>
@@ -949,7 +954,7 @@ export function TerritoryAdminPage() {
                   <button
                     type="button"
                     onClick={() => void handleUpdateTerritory()}
-                    disabled={!accessToken || saveState === "saving" || !detailName.trim()}
+                    disabled={!accessToken || territoryState === "saving" || !detailName.trim()}
                     className="mt-3 rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Save Territory
@@ -987,7 +992,7 @@ export function TerritoryAdminPage() {
                           </div>
                           <button
                             type="button"
-                            disabled={assignedPropertyIds.has(property.propertyId) || saveState === "saving"}
+                            disabled={assignedPropertyIds.has(property.propertyId) || territoryState === "saving"}
                             onClick={() => void handleAssignProperty(property.propertyId)}
                             className="rounded-2xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                           >
@@ -1031,7 +1036,7 @@ export function TerritoryAdminPage() {
                         <button
                           type="button"
                           onClick={() => void handleRemoveProperty(property.propertyId)}
-                          disabled={saveState === "saving"}
+                          disabled={territoryState === "saving"}
                           className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Remove
@@ -1047,9 +1052,9 @@ export function TerritoryAdminPage() {
               </div>
 
               <div className="mt-4 text-sm text-slate-500">
-                {saveState === "saved"
+                {territoryState === "saved"
                   ? "Saved."
-                  : saveState === "error"
+                  : territoryState === "error"
                     ? "Could not save the territory update."
                     : "Territory changes here feed manager drill-downs and territory health reporting."}
               </div>
