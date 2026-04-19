@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useEffect, useState } from "react";
 import type { PropertyDetailResponse } from "@/types/api";
-import type { PropertyDetail } from "@/types/entities";
+import type { PropertyDetail, PropertySourceRecordItem } from "@/types/entities";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
 function formatDateTime(value: string | null) {
@@ -15,6 +15,105 @@ function formatDateTime(value: string | null) {
 function formatLabel(value: string | null) {
   if (!value) return "None";
   return value.replaceAll("_", " ");
+}
+
+function formatSourceLabel(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+function preferredPayloadEntries(payload: Record<string, unknown>) {
+  const preferredKeys = [
+    "Price",
+    "SALE TYPE",
+    "SOLD DATE",
+    "Sale Date",
+    "PROPERTY TYPE",
+    "STATUS",
+    "Beds",
+    "Baths",
+    "SqFt",
+    "SQUARE FEET",
+    "LOT SIZE",
+    "YEAR BUILT",
+    "DAYS ON MARKET",
+    "MLS#",
+    "Unqualified Reason",
+    "Notes",
+    "Unqualified Reason Notes",
+    "Phone",
+    "Email",
+    "First Name",
+    "Last Name"
+  ];
+
+  const keys = Object.keys(payload);
+  const ordered = [
+    ...preferredKeys.filter((key) => key in payload),
+    ...keys.filter((key) => !preferredKeys.includes(key))
+  ];
+
+  return ordered
+    .filter((key) => payload[key] !== null && payload[key] !== undefined && String(payload[key]).trim() !== "")
+    .slice(0, 10)
+    .map((key) => [key, payload[key]] as const);
+}
+
+function SourceRecordCard({ record }: { record: PropertySourceRecordItem }) {
+  const entries = preferredPayloadEntries(record.payload);
+
+  return (
+    <details className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+      <summary className="cursor-pointer list-none">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-ink">
+              {record.sourceName ?? formatSourceLabel(record.sourceType)}
+            </div>
+            <div className="mt-1 text-xs uppercase tracking-[0.12em] text-slate-500">
+              {formatSourceLabel(record.sourceType)}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+              {record.recordDate ? <span>Record date {new Date(record.recordDate).toLocaleDateString()}</span> : null}
+              <span>Imported {new Date(record.createdAt).toLocaleDateString()}</span>
+              {record.sourceBatchId ? <span>Batch {record.sourceBatchId}</span> : null}
+            </div>
+          </div>
+          <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+            Source
+          </div>
+        </div>
+      </summary>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {entries.map(([key, value]) => (
+          <div key={key} className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{key}</div>
+            <div className="mt-1 text-sm text-slate-700">{String(value)}</div>
+          </div>
+        ))}
+      </div>
+
+      {record.sourceUrl ? (
+        <div className="mt-4">
+          <a
+            href={record.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm font-semibold text-ink underline decoration-slate-300 underline-offset-4 transition hover:text-slate-700"
+          >
+            Open source link
+          </a>
+        </div>
+      ) : null}
+
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Raw payload</div>
+        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs leading-5 text-slate-600">
+          {JSON.stringify(record.payload, null, 2)}
+        </pre>
+      </div>
+    </details>
+  );
 }
 
 export function PropertyDetailPage({ propertyId }: { propertyId: string }) {
@@ -169,6 +268,34 @@ export function PropertyDetailPage({ propertyId }: { propertyId: string }) {
           </section>
         </div>
       </div>
+
+      <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Sources</div>
+            <p className="mt-2 text-sm text-slate-500">
+              Imported list rows and source payloads tied to this property.
+            </p>
+          </div>
+          <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+            {property?.sourceRecords.length ?? 0}
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {loading ? (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              Loading source records...
+            </div>
+          ) : property?.sourceRecords.length ? (
+            property.sourceRecords.map((record) => <SourceRecordCard key={record.id} record={record} />)
+          ) : (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              No imported source records are attached to this property yet.
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

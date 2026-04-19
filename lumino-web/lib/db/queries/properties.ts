@@ -50,7 +50,11 @@ export async function getPropertyDetail(propertyId: string): Promise<PropertyDet
   if (historyError) throw historyError;
   if (!historyRow) return null;
 
-  const [{ data: visits, error: visitsError }, { data: activities, error: activitiesError }] =
+  const [
+    { data: visits, error: visitsError },
+    { data: activities, error: activitiesError },
+    { data: sourceRecords, error: sourceRecordsError }
+  ] =
     await Promise.all([
       supabase
         .from("visits")
@@ -64,11 +68,18 @@ export async function getPropertyDetail(propertyId: string): Promise<PropertyDet
         .eq("entity_type", "property")
         .eq("entity_id", propertyId)
         .order("created_at", { ascending: false })
+        .limit(12),
+      supabase
+        .from("property_source_records")
+        .select("id,source_type,source_name,source_batch_id,source_record_id,source_url,record_date,payload,created_at")
+        .eq("property_id", propertyId)
+        .order("created_at", { ascending: false })
         .limit(12)
     ]);
 
   if (visitsError) throw visitsError;
   if (activitiesError) throw activitiesError;
+  if (sourceRecordsError) throw sourceRecordsError;
 
   const notHomeCount = (visits ?? []).filter((visit) => visit.outcome === "not_home").length;
 
@@ -111,6 +122,18 @@ export async function getPropertyDetail(propertyId: string): Promise<PropertyDet
         createdAt: activity.created_at,
         actorUserId: activity.actor_user_id,
         data: (activity.data as Record<string, unknown>) ?? {}
+      })) ?? [],
+    sourceRecords:
+      sourceRecords?.map((record) => ({
+        id: record.id,
+        sourceType: record.source_type,
+        sourceName: (record.source_name as string | null) ?? null,
+        sourceBatchId: (record.source_batch_id as string | null) ?? null,
+        sourceRecordId: (record.source_record_id as string | null) ?? null,
+        sourceUrl: (record.source_url as string | null) ?? null,
+        recordDate: (record.record_date as string | null) ?? null,
+        createdAt: record.created_at,
+        payload: (record.payload as Record<string, unknown>) ?? {}
       })) ?? []
   };
 }

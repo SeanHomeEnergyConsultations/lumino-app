@@ -82,6 +82,18 @@ export interface PropertyActivityItem {
   data: Record<string, unknown>;
 }
 
+export interface PropertySourceRecordItem {
+  id: string;
+  sourceType: string;
+  sourceName: string | null;
+  sourceBatchId: string | null;
+  sourceRecordId: string | null;
+  sourceUrl: string | null;
+  recordDate: string | null;
+  createdAt: string;
+  payload: Record<string, unknown>;
+}
+
 export interface PropertyDetail {
   propertyId: string;
   address: string;
@@ -108,4 +120,5 @@ export interface PropertyDetail {
   appointmentAt: string | null;
   recentVisits: PropertyVisitHistoryItem[];
   recentActivities: PropertyActivityItem[];
+  sourceRecords: PropertySourceRecordItem[];
 }
