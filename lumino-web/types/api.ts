@@ -451,3 +451,38 @@ export interface ImportUploadResponse {
   duplicateMatchedCount: number;
   pendingAnalysisCount: number;
 }
+
+export interface ImportBatchItemDetail {
+  itemId: string;
+  leadId: string | null;
+  sourceRowNumber: number | null;
+  rawAddress: string | null;
+  normalizedAddress: string | null;
+  ingestStatus: string;
+  analysisStatus: string;
+  analysisError: string | null;
+  createdAt: string | null;
+}
+
+export interface ImportBatchDetailResponse {
+  item: ImportBatchListItem & {
+    sourceName: string | null;
+    sourceType: string | null;
+    notes: string | null;
+    items: ImportBatchItemDetail[];
+  };
+}
+
+export interface ImportBatchAnalysisResponse {
+  batchId: string;
+  status: string;
+  processedCount: number;
+  succeededCount: number;
+  failedCount: number;
+  continued: boolean;
+  pendingAnalysisCount: number;
+  analyzingCount: number;
+  analyzedCount: number;
+  failedItemCount: number;
+  lastError: string | null;
+}

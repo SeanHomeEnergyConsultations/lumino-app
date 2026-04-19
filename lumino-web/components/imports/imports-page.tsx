@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Upload, FileUp, Database, RefreshCw } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { parseCsvText } from "@/lib/imports/csv";
-import type { ImportBatchListItem, ImportsResponse, ImportUploadResponse } from "@/types/api";
+import type { ImportBatchAnalysisResponse, ImportBatchListItem, ImportsResponse, ImportUploadResponse } from "@/types/api";
 
 function formatDateTime(value: string | null) {
   if (!value) return "Not started";
@@ -20,7 +21,10 @@ function statusTone(status: string) {
     case "uploaded":
       return "border-slate-200 bg-slate-100 text-slate-700";
     case "failed":
+    case "completed_with_errors":
       return "border-rose-200 bg-rose-50 text-rose-700";
+    case "completed":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
     default:
       return "border-slate-200 bg-slate-100 text-slate-700";
   }
@@ -36,6 +40,7 @@ export function ImportsPage() {
   const [batches, setBatches] = useState<ImportBatchListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [processingBatchId, setProcessingBatchId] = useState<string | null>(null);
   const [uploadState, setUploadState] = useState<"idle" | "done" | "error">("idle");
 
   const loadBatches = useCallback(async () => {
@@ -80,16 +85,39 @@ export function ImportsPage() {
         })
       });
       if (!response.ok) throw new Error("Failed to upload import");
-      await response.json() as ImportUploadResponse;
+      const result = (await response.json()) as ImportUploadResponse;
       setUploadState("done");
       setFilename(null);
       setHeaders([]);
       setPreviewRows([]);
       await loadBatches();
+      await runAnalysis(result.batchId, "run");
     } catch {
       setUploadState("error");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function runAnalysis(batchId: string, action: "run" | "retry_failed") {
+    if (!accessToken) return;
+    setProcessingBatchId(batchId);
+    try {
+      let keepGoing = true;
+      while (keepGoing) {
+        const response = await authFetch(accessToken, `/api/imports/${batchId}/analysis`, {
+          method: "POST",
+          body: JSON.stringify({ action })
+        });
+        if (!response.ok) throw new Error("Failed to analyze import batch");
+        const json = (await response.json()) as ImportBatchAnalysisResponse;
+        keepGoing = json.continued;
+        await loadBatches();
+      }
+    } catch {
+      window.alert("Import analysis failed. Open the batch detail page to inspect the error and retry.");
+    } finally {
+      setProcessingBatchId(null);
     }
   }
 
@@ -231,6 +259,30 @@ export function ImportsPage() {
                       <div className="mt-1 text-base font-semibold text-ink">{value}</div>
                     </div>
                   ))}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Link
+                    href={`/imports/${batch.batchId}`}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-slate-300"
+                  >
+                    View Batch
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => void runAnalysis(batch.batchId, "run")}
+                    disabled={processingBatchId === batch.batchId}
+                    className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                  >
+                    {processingBatchId === batch.batchId ? "Running..." : "Run Analysis"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void runAnalysis(batch.batchId, "retry_failed")}
+                    disabled={processingBatchId === batch.batchId || batch.failedCount === 0}
+                    className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
+                  >
+                    Retry Failed
+                  </button>
                 </div>
                 {batch.lastError ? <div className="mt-3 text-sm text-rose-600">{batch.lastError}</div> : null}
               </div>

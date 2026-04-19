@@ -1,5 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
+import { analyzeImportLead, makeAnalysisCacheKey } from "@/lib/imports/analysis";
 import type { AuthSessionContext } from "@/types/auth";
+import type { ImportBatchAnalysisResponse } from "@/types/api";
 
 type RawImportRow = Record<string, string>;
 
@@ -362,5 +364,359 @@ export async function ingestImportUpload(
     updatedCount,
     duplicateMatchedCount,
     pendingAnalysisCount
+  };
+}
+
+type ImportBatchItemRow = {
+  id: string;
+  lead_id: string | null;
+  source_payload: Record<string, unknown> | null;
+  analysis_status: string | null;
+  analysis_error: string | null;
+  source_row_number: number | null;
+  raw_address: string | null;
+  normalized_address: string | null;
+};
+
+type LeadRow = {
+  id: string;
+  property_id: string | null;
+  address: string | null;
+  normalized_address: string | null;
+  zipcode: string | null;
+  city: string | null;
+  state: string | null;
+  lat: number | null;
+  lng: number | null;
+  first_name: string | null;
+  last_name: string | null;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  listing_agent: string | null;
+  source: string | null;
+  analysis_attempt_count: number | null;
+};
+
+async function refreshImportBatchProgress(batchId: string) {
+  const supabase = createServerSupabaseClient();
+  const [{ count: pending }, { count: analyzing }, { count: analyzed }, { count: failed }] =
+    await Promise.all([
+      supabase.from("import_batch_items").select("id", { count: "exact", head: true }).eq("import_batch_id", batchId).eq("analysis_status", "pending"),
+      supabase.from("import_batch_items").select("id", { count: "exact", head: true }).eq("import_batch_id", batchId).eq("analysis_status", "analyzing"),
+      supabase.from("import_batch_items").select("id", { count: "exact", head: true }).eq("import_batch_id", batchId).eq("analysis_status", "analyzed"),
+      supabase.from("import_batch_items").select("id", { count: "exact", head: true }).eq("import_batch_id", batchId).eq("analysis_status", "failed")
+    ]);
+
+  const status =
+    (pending ?? 0) > 0 || (analyzing ?? 0) > 0
+      ? "analyzing"
+      : (failed ?? 0) > 0
+        ? "completed_with_errors"
+        : "completed";
+
+  const completedAt = status === "analyzing" ? null : new Date().toISOString();
+  await supabase
+    .from("import_batches")
+    .update({
+      status,
+      pending_analysis_count: pending ?? 0,
+      analyzing_count: analyzing ?? 0,
+      analyzed_count: analyzed ?? 0,
+      failed_count: failed ?? 0,
+      completed_at: completedAt
+    })
+    .eq("id", batchId);
+
+  return {
+    status,
+    pendingAnalysisCount: pending ?? 0,
+    analyzingCount: analyzing ?? 0,
+    analyzedCount: analyzed ?? 0,
+    failedItemCount: failed ?? 0
+  };
+}
+
+async function claimBatchItems(batchId: string, statuses: string[], chunkSize: number) {
+  const supabase = createServerSupabaseClient();
+  let query = supabase
+    .from("import_batch_items")
+    .select("id,lead_id,source_payload,analysis_status,analysis_error,source_row_number,raw_address,normalized_address")
+    .eq("import_batch_id", batchId)
+    .order("source_row_number", { ascending: true })
+    .limit(chunkSize);
+
+  if (statuses.length === 1) {
+    query = query.eq("analysis_status", statuses[0]);
+  } else {
+    query = query.in("analysis_status", statuses);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const items = (data ?? []) as ImportBatchItemRow[];
+  if (!items.length) return [];
+
+  await supabase
+    .from("import_batch_items")
+    .update({
+      analysis_status: "analyzing",
+      analysis_error: null
+    })
+    .in("id", items.map((item) => item.id));
+
+  const leadIds = items.map((item) => item.lead_id).filter(Boolean) as string[];
+  if (leadIds.length) {
+    await supabase
+      .from("leads")
+      .update({
+        analysis_status: "analyzing",
+        last_analysis_requested_at: new Date().toISOString(),
+        last_analysis_error: null
+      })
+      .in("id", leadIds);
+  }
+
+  await supabase.from("import_batches").update({ status: "analyzing" }).eq("id", batchId);
+  return items;
+}
+
+async function loadLeads(leadIds: string[]) {
+  const supabase = createServerSupabaseClient();
+  if (!leadIds.length) return new Map<string, LeadRow>();
+  const { data, error } = await supabase
+    .from("leads")
+    .select("id,property_id,address,normalized_address,zipcode,city,state,lat,lng,first_name,last_name,phone,email,notes,listing_agent,source,analysis_attempt_count")
+    .in("id", leadIds);
+  if (error) throw error;
+  return new Map((data ?? []).map((row) => [row.id as string, row as LeadRow]));
+}
+
+async function completeItemAnalysis(
+  batchId: string,
+  item: ImportBatchItemRow,
+  leadId: string,
+  status: "analyzed" | "failed",
+  analysisError: string | null,
+  analysisAttemptCount: number
+) {
+  const supabase = createServerSupabaseClient();
+  await supabase
+    .from("import_batch_items")
+    .update({
+      lead_id: leadId,
+      analysis_status: status,
+      analysis_error: analysisError
+    })
+    .eq("id", item.id);
+
+  const leadPayload: Record<string, unknown> = {
+    analysis_status: status,
+    analysis_attempt_count: Math.max(1, analysisAttemptCount),
+    last_analysis_error: analysisError,
+    last_import_batch_id: batchId
+  };
+  if (status === "analyzed") {
+    leadPayload.last_analysis_completed_at = new Date().toISOString();
+    leadPayload.needs_reanalysis = false;
+  }
+
+  await supabase.from("leads").update(leadPayload).eq("id", leadId);
+}
+
+async function persistAnalysisResult(lead: LeadRow, payload: Record<string, unknown>, result: Awaited<ReturnType<typeof analyzeImportLead>>) {
+  const supabase = createServerSupabaseClient();
+  const cacheKey = makeAnalysisCacheKey(payload);
+  const { data: existingAnalysis } = await supabase
+    .from("lead_analysis")
+    .select("id")
+    .eq("lead_id", lead.id)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  const analysisPayload = {
+    lead_id: lead.id,
+    cache_key: cacheKey,
+    sale_price: result.salePrice,
+    price_display: result.priceDisplay,
+    value_badge: result.valueBadge,
+    sqft: result.sqft,
+    sqft_display: result.sqftDisplay,
+    beds: result.beds,
+    baths: result.baths,
+    sold_date: result.soldDate,
+    permit_pulled: result.permitPulled,
+    sun_hours: result.sunHours,
+    sun_hours_display: result.sunHoursDisplay,
+    category: result.category,
+    solar_details: result.solarDetails,
+    priority_score: result.priorityScore,
+    priority_label: result.priorityLabel,
+    parking_address: result.parkingAddress,
+    parking_ease: result.parkingEase,
+    doors_to_knock: result.doorsToKnock,
+    ideal_count: result.idealCount,
+    good_count: result.goodCount,
+    walkable_count: result.walkableCount,
+    street_view_link: result.streetViewLink,
+    value_score: result.valueScore,
+    sqft_score: result.sqftScore,
+    analysis_error: null,
+    source_hash: cacheKey
+  };
+
+  let analysisId: string | null = null;
+  if (existingAnalysis?.[0]?.id) {
+    const { data, error } = await supabase
+      .from("lead_analysis")
+      .update(analysisPayload)
+      .eq("id", existingAnalysis[0].id as string)
+      .select("id")
+      .single();
+    if (error) throw error;
+    analysisId = data.id as string;
+  } else {
+    const { data, error } = await supabase
+      .from("lead_analysis")
+      .insert(analysisPayload)
+      .select("id")
+      .single();
+    if (error) throw error;
+    analysisId = data.id as string;
+  }
+
+  if (analysisId) {
+    await supabase.from("lead_neighbors").delete().eq("lead_analysis_id", analysisId);
+  }
+
+  if (lead.property_id) {
+    const solarPayload = result.solarDetails;
+    const { data: existingEnrichment } = await supabase
+      .from("property_enrichments")
+      .select("id")
+      .eq("property_id", lead.property_id)
+      .eq("provider", "google_solar")
+      .eq("enrichment_type", "solar")
+      .maybeSingle();
+
+    const enrichmentPayload = {
+      property_id: lead.property_id,
+      provider: "google_solar",
+      enrichment_type: "solar",
+      status: "success",
+      fetched_at: new Date().toISOString(),
+      payload: solarPayload
+    };
+
+    if (existingEnrichment?.id) {
+      await supabase.from("property_enrichments").update(enrichmentPayload).eq("id", existingEnrichment.id as string);
+    } else {
+      await supabase.from("property_enrichments").insert(enrichmentPayload);
+    }
+  }
+}
+
+export async function runImportBatchAnalysis(
+  batchId: string,
+  context: AuthSessionContext,
+  options?: { retryFailed?: boolean; chunkSize?: number }
+): Promise<ImportBatchAnalysisResponse> {
+  if (!context.organizationId) throw new Error("No active organization found.");
+  const chunkSize = Math.max(1, Math.min(options?.chunkSize ?? 3, 10));
+  const statuses = options?.retryFailed ? ["pending", "failed"] : ["pending"];
+  const items = await claimBatchItems(batchId, statuses, chunkSize);
+
+  if (!items.length) {
+    const progress = await refreshImportBatchProgress(batchId);
+    return {
+      batchId,
+      status: progress.status,
+      processedCount: 0,
+      succeededCount: 0,
+      failedCount: 0,
+      continued: progress.pendingAnalysisCount > 0 || (options?.retryFailed ? progress.failedItemCount > 0 : false),
+      pendingAnalysisCount: progress.pendingAnalysisCount,
+      analyzingCount: progress.analyzingCount,
+      analyzedCount: progress.analyzedCount,
+      failedItemCount: progress.failedItemCount,
+      lastError: null
+    };
+  }
+
+  const leads = await loadLeads(items.map((item) => item.lead_id).filter(Boolean) as string[]);
+  let succeededCount = 0;
+  let failedCount = 0;
+  let lastError: string | null = null;
+
+  for (const item of items) {
+    const lead = item.lead_id ? leads.get(item.lead_id) : null;
+    if (!lead) {
+      failedCount += 1;
+      lastError = "Lead record missing for import batch item.";
+      await completeItemAnalysis(batchId, item, item.lead_id ?? "", "failed", lastError, 1);
+      continue;
+    }
+
+    const payload = {
+      ...(item.source_payload ?? {}),
+      address: (item.source_payload ?? {}).address ?? lead.address ?? item.raw_address,
+      zipcode: (item.source_payload ?? {}).zipcode ?? lead.zipcode,
+      city: (item.source_payload ?? {}).city ?? lead.city,
+      state: (item.source_payload ?? {}).state ?? lead.state,
+      source_latitude: (item.source_payload ?? {}).source_latitude ?? lead.lat,
+      source_longitude: (item.source_payload ?? {}).source_longitude ?? lead.lng,
+      first_name: (item.source_payload ?? {}).first_name ?? lead.first_name,
+      last_name: (item.source_payload ?? {}).last_name ?? lead.last_name,
+      phone: (item.source_payload ?? {}).phone ?? lead.phone,
+      email: (item.source_payload ?? {}).email ?? lead.email,
+      notes: (item.source_payload ?? {}).notes ?? lead.notes,
+      listing_agent: (item.source_payload ?? {}).listing_agent ?? lead.listing_agent,
+      source: (item.source_payload ?? {}).source ?? lead.source ?? "imported"
+    } as Record<string, unknown>;
+
+    try {
+      const result = await analyzeImportLead(payload, lead);
+      await persistAnalysisResult(lead, payload, result);
+      await completeItemAnalysis(
+        batchId,
+        item,
+        lead.id,
+        "analyzed",
+        null,
+        Number(lead.analysis_attempt_count ?? 0) + 1
+      );
+      succeededCount += 1;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : "Analysis failed.";
+      await completeItemAnalysis(
+        batchId,
+        item,
+        lead.id,
+        "failed",
+        lastError,
+        Number(lead.analysis_attempt_count ?? 0) + 1
+      );
+      failedCount += 1;
+    }
+  }
+
+  const progress = await refreshImportBatchProgress(batchId);
+  if (lastError) {
+    await createServerSupabaseClient().from("import_batches").update({ last_error: lastError }).eq("id", batchId);
+  }
+
+  return {
+    batchId,
+    status: progress.status,
+    processedCount: items.length,
+    succeededCount,
+    failedCount,
+    continued: progress.pendingAnalysisCount > 0 || (options?.retryFailed ? progress.failedItemCount > 0 : false),
+    pendingAnalysisCount: progress.pendingAnalysisCount,
+    analyzingCount: progress.analyzingCount,
+    analyzedCount: progress.analyzedCount,
+    failedItemCount: progress.failedItemCount,
+    lastError
   };
 }
