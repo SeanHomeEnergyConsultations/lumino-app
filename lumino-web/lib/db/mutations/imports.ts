@@ -886,7 +886,7 @@ export async function runImportBatchAnalysis(
   options?: { retryFailed?: boolean; chunkSize?: number }
 ): Promise<ImportBatchAnalysisResponse> {
   if (!context.organizationId) throw new Error("No active organization found.");
-  const chunkSize = Math.max(1, Math.min(options?.chunkSize ?? 3, 10));
+  const chunkSize = Math.max(1, Math.min(options?.chunkSize ?? 12, 25));
   let statuses = options?.retryFailed ? ["pending", "failed"] : ["pending"];
   let items = await claimBatchItems(batchId, statuses, chunkSize);
 

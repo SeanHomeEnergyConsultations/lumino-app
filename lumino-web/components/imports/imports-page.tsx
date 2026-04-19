@@ -114,9 +114,7 @@ export function ImportsPage() {
   }, [loadBatches]);
 
   useEffect(() => {
-    const hasActiveBatch = batches.some((batch) =>
-      ["ready_for_analysis", "analyzing"].includes(batch.status)
-    );
+    const hasActiveBatch = batches.some((batch) => batch.status === "analyzing");
     if (!hasActiveBatch || processingBatchId) return;
 
     const interval = window.setInterval(() => {

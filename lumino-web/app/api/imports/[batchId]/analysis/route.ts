@@ -36,7 +36,7 @@ export async function POST(
       request,
       context,
       bucket: "imports_analysis",
-      limit: 12,
+      limit: 90,
       windowSeconds: 600,
       logEventType: "import_analysis_rate_limit_exceeded"
     });

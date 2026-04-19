@@ -129,7 +129,7 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
 
   useEffect(() => {
     if (!batch || running !== "idle") return;
-    if (!["ready_for_analysis", "analyzing"].includes(batch.status)) return;
+    if (batch.status !== "analyzing") return;
 
     const interval = window.setInterval(() => {
       void loadBatch({ silent: true });
@@ -153,6 +153,19 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
           throw new Error(json.error || "Failed to analyze import batch.");
         }
         const json = (await response.json()) as ImportBatchAnalysisResponse;
+        setBatch((current) =>
+          current
+            ? {
+                ...current,
+                status: json.status,
+                pendingAnalysisCount: json.pendingAnalysisCount,
+                analyzingCount: json.analyzingCount,
+                analyzedCount: json.analyzedCount,
+                failedCount: json.failedItemCount,
+                lastError: json.lastError
+              }
+            : current
+        );
         keepGoing = json.continued;
       }
       await loadBatch({ silent: true });
