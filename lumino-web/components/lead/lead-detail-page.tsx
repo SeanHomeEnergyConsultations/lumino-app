@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useEffect, useState } from "react";
 import type { LeadDetailResponse } from "@/types/api";
-import type { TaskInput } from "@/types/entities";
+import type { LeadInput, TaskInput } from "@/types/entities";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
 function formatDateTime(value: string | null) {
@@ -21,6 +21,16 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
   const { session } = useAuth();
   const [lead, setLead] = useState<LeadDetailResponse["item"] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [notes, setNotes] = useState("");
+  const [leadStatus, setLeadStatus] = useState("New");
+  const [interestLevel, setInterestLevel] = useState<"low" | "medium" | "high">("medium");
+  const [nextFollowUpAt, setNextFollowUpAt] = useState("");
+  const [appointmentAt, setAppointmentAt] = useState("");
+  const [leadSaveState, setLeadSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [taskType, setTaskType] = useState<TaskInput["type"]>("call");
   const [taskDueAt, setTaskDueAt] = useState("");
   const [taskNotes, setTaskNotes] = useState("");
@@ -43,6 +53,57 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
   useEffect(() => {
     void loadLead();
   }, [loadLead]);
+
+  useEffect(() => {
+    if (!lead) return;
+    const toLocal = (value: string | null) => {
+      if (!value) return "";
+      const date = new Date(value);
+      const offset = date.getTimezoneOffset();
+      return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16);
+    };
+
+    setFirstName(lead.firstName ?? "");
+    setLastName(lead.lastName ?? "");
+    setPhone(lead.phone ?? "");
+    setEmail(lead.email ?? "");
+    setNotes(lead.notes ?? "");
+    setLeadStatus(lead.leadStatus ?? "New");
+    setInterestLevel((lead.interestLevel as "low" | "medium" | "high" | null) ?? "medium");
+    setNextFollowUpAt(toLocal(lead.nextFollowUpAt));
+    setAppointmentAt(toLocal(lead.appointmentAt));
+    setLeadSaveState("idle");
+  }, [lead]);
+
+  async function handleSaveLead(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session?.access_token || !lead?.propertyId) return;
+    setLeadSaveState("saving");
+    try {
+      const payload: LeadInput = {
+        propertyId: lead.propertyId,
+        firstName,
+        lastName,
+        phone,
+        email,
+        notes,
+        leadStatus,
+        interestLevel,
+        nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null,
+        appointmentAt: appointmentAt ? new Date(appointmentAt).toISOString() : null
+      };
+      const response = await authFetch(session.access_token, "/api/leads", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) throw new Error("Failed to save lead");
+      await loadLead();
+      setLeadSaveState("saved");
+    } catch {
+      setLeadSaveState("error");
+    }
+  }
 
   async function handleCreateTask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -125,14 +186,112 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
         <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Contact and Property</div>
           <div className="mt-4 space-y-4 text-sm text-slate-600">
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Homeowner</div>
-              <div className="mt-2 text-base font-semibold text-ink">
-                {lead?.contactName ?? "No homeowner captured yet"}
+            <form className="rounded-3xl border border-slate-200 bg-slate-50 p-4" onSubmit={handleSaveLead}>
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Edit lead</div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <label className="text-xs text-slate-500">
+                  First name
+                  <input
+                    value={firstName}
+                    onChange={(event) => setFirstName(event.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  />
+                </label>
+                <label className="text-xs text-slate-500">
+                  Last name
+                  <input
+                    value={lastName}
+                    onChange={(event) => setLastName(event.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  />
+                </label>
+                <label className="text-xs text-slate-500">
+                  Phone
+                  <input
+                    value={phone}
+                    onChange={(event) => setPhone(event.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  />
+                </label>
+                <label className="text-xs text-slate-500">
+                  Email
+                  <input
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  />
+                </label>
+                <label className="text-xs text-slate-500">
+                  Lead stage
+                  <select
+                    value={leadStatus}
+                    onChange={(event) => setLeadStatus(event.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  >
+                    {["New", "Attempting Contact", "Connected", "Nurture", "Appointment Set", "Qualified", "Closed Lost"].map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs text-slate-500">
+                  Interest
+                  <select
+                    value={interestLevel}
+                    onChange={(event) => setInterestLevel(event.target.value as "low" | "medium" | "high")}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </label>
+                <label className="text-xs text-slate-500">
+                  Next follow-up
+                  <input
+                    type="datetime-local"
+                    value={nextFollowUpAt}
+                    onChange={(event) => setNextFollowUpAt(event.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  />
+                </label>
+                <label className="text-xs text-slate-500">
+                  Appointment
+                  <input
+                    type="datetime-local"
+                    value={appointmentAt}
+                    onChange={(event) => setAppointmentAt(event.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  />
+                </label>
+                <label className="text-xs text-slate-500 md:col-span-2">
+                  Notes
+                  <textarea
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    rows={4}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  />
+                </label>
               </div>
-              <div className="mt-2">{lead?.phone ?? "No phone yet"}</div>
-              <div className="mt-1">{lead?.email ?? "No email yet"}</div>
-            </div>
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <div className="text-xs text-slate-500">
+                  {leadSaveState === "saved"
+                    ? "Lead updated."
+                    : leadSaveState === "error"
+                      ? "Lead save failed."
+                      : "Edit this lead without leaving the detail page."}
+                </div>
+                <button
+                  type="submit"
+                  disabled={leadSaveState === "saving"}
+                  className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200"
+                >
+                  {leadSaveState === "saving" ? "Saving..." : "Save Lead"}
+                </button>
+              </div>
+            </form>
 
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Property Summary</div>
@@ -144,11 +303,6 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
               <div className="mt-1 text-xs text-slate-500">
                 Visit count: {lead?.propertySummary?.visitCount ?? 0}
               </div>
-            </div>
-
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Notes</div>
-              <div className="mt-2">{lead?.notes ?? "No lead notes yet."}</div>
             </div>
 
             <form className="rounded-3xl border border-slate-200 bg-slate-50 p-4" onSubmit={handleCreateTask}>

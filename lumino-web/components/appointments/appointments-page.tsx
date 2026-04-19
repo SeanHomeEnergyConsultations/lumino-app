@@ -16,7 +16,9 @@ function AppointmentSection({
   items,
   emptyLabel,
   onQueueReminder,
-  remindingLeadId
+  remindingLeadId,
+  onUpdateStatus,
+  updatingLeadId
 }: {
   title: string;
   description: string;
@@ -24,6 +26,11 @@ function AppointmentSection({
   emptyLabel: string;
   onQueueReminder: (item: AppointmentScheduleItem) => Promise<void>;
   remindingLeadId: string | null;
+  onUpdateStatus: (
+    item: AppointmentScheduleItem,
+    status: AppointmentScheduleItem["appointmentStatus"]
+  ) => Promise<void>;
+  updatingLeadId: string | null;
 }) {
   return (
     <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
@@ -46,7 +53,7 @@ function AppointmentSection({
                 <div className="text-right">
                   <div className="text-sm font-semibold text-ink">{formatDateTime(item.scheduledAt)}</div>
                   <div className="mt-1 text-xs uppercase tracking-[0.12em] text-slate-500">
-                    {item.leadStatus ?? "Appointment Set"}
+                    {item.appointmentStatus.replaceAll("_", " ")}
                   </div>
                 </div>
               </div>
@@ -97,6 +104,19 @@ function AppointmentSection({
                       ? "Queuing..."
                       : "Queue reminder"}
                 </button>
+                {["confirmed", "completed", "no_show"].map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => void onUpdateStatus(item, status as AppointmentScheduleItem["appointmentStatus"])}
+                    disabled={updatingLeadId === item.leadId || item.appointmentStatus === status}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {updatingLeadId === item.leadId && item.appointmentStatus !== status
+                      ? "Saving..."
+                      : status.replaceAll("_", " ")}
+                  </button>
+                ))}
               </div>
             </div>
           ))
@@ -115,6 +135,7 @@ export function AppointmentsPage({ initialOwnerId = null }: { initialOwnerId?: s
   const [appointments, setAppointments] = useState<AppointmentsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [remindingLeadId, setRemindingLeadId] = useState<string | null>(null);
+  const [updatingLeadId, setUpdatingLeadId] = useState<string | null>(null);
 
   const loadAppointments = useCallback(async () => {
     if (!session?.access_token) return null;
@@ -162,6 +183,29 @@ export function AppointmentsPage({ initialOwnerId = null }: { initialOwnerId?: s
     }
   }
 
+  async function handleUpdateStatus(
+    item: AppointmentScheduleItem,
+    status: AppointmentScheduleItem["appointmentStatus"]
+  ) {
+    if (!session?.access_token) return;
+    setUpdatingLeadId(item.leadId);
+    try {
+      const response = await authFetch(session.access_token, "/api/appointments", {
+        method: "POST",
+        body: JSON.stringify({
+          leadId: item.leadId,
+          status,
+          notes: `Appointment marked ${status.replaceAll("_", " ")} from appointments workspace.`
+        })
+      });
+
+      if (!response.ok) throw new Error("Failed to update appointment");
+      await loadAppointments();
+    } finally {
+      setUpdatingLeadId(null);
+    }
+  }
+
   return (
     <div className="p-4 md:p-6">
       <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
@@ -193,6 +237,8 @@ export function AppointmentsPage({ initialOwnerId = null }: { initialOwnerId?: s
           emptyLabel="No past-due appointments right now."
           onQueueReminder={handleQueueReminder}
           remindingLeadId={remindingLeadId}
+          onUpdateStatus={handleUpdateStatus}
+          updatingLeadId={updatingLeadId}
         />
         <AppointmentSection
           title="Today"
@@ -201,6 +247,8 @@ export function AppointmentsPage({ initialOwnerId = null }: { initialOwnerId?: s
           emptyLabel="No appointments scheduled for today."
           onQueueReminder={handleQueueReminder}
           remindingLeadId={remindingLeadId}
+          onUpdateStatus={handleUpdateStatus}
+          updatingLeadId={updatingLeadId}
         />
         <AppointmentSection
           title="Upcoming"
@@ -209,6 +257,8 @@ export function AppointmentsPage({ initialOwnerId = null }: { initialOwnerId?: s
           emptyLabel="No future appointments are scheduled yet."
           onQueueReminder={handleQueueReminder}
           remindingLeadId={remindingLeadId}
+          onUpdateStatus={handleUpdateStatus}
+          updatingLeadId={updatingLeadId}
         />
       </div>
     </div>

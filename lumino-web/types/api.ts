@@ -246,6 +246,8 @@ export interface AppointmentScheduleItem {
   ownerName: string | null;
   reminderTaskId: string | null;
   reminderDueAt: string | null;
+  appointmentRecordId: string | null;
+  appointmentStatus: "scheduled" | "confirmed" | "completed" | "no_show" | "cancelled" | "rescheduled";
 }
 
 export interface AppointmentsResponse {

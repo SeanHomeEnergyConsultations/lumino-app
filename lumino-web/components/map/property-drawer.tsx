@@ -54,6 +54,7 @@ export function PropertyDrawer({
   onDismiss?: () => void;
   isOpen?: boolean;
 }) {
+  const [mobileExpanded, setMobileExpanded] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -95,6 +96,7 @@ export function PropertyDrawer({
     setTaskDueAt("");
     setTaskNotes("");
     setTaskState("idle");
+    setMobileExpanded(false);
   }, [property]);
 
   const content = loading ? (
@@ -574,22 +576,47 @@ export function PropertyDrawer({
 
       {isOpen ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 p-3 xl:hidden">
-          <div className="pointer-events-auto mx-auto max-h-[55vh] max-w-md overflow-y-auto rounded-[1.75rem] border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="mx-auto h-1.5 w-14 rounded-full bg-slate-300" />
-              {property && !loading ? (
+          {mobileExpanded ? (
+            <div className="pointer-events-auto mx-auto max-h-[55vh] max-w-md overflow-y-auto rounded-[1.75rem] border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur">
+              <div className="mb-3 flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={() => onDismiss?.()}
-                  className="absolute right-6 top-5 flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600"
-                  aria-label="Hide property panel"
+                  onClick={() => setMobileExpanded(false)}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600"
                 >
-                  <X className="h-4 w-4" />
+                  Collapse
                 </button>
-              ) : null}
+                <div className="h-1.5 w-14 rounded-full bg-slate-300" />
+                {property && !loading ? (
+                  <button
+                    type="button"
+                    onClick={() => onDismiss?.()}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600"
+                    aria-label="Hide property panel"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <div className="w-[3.5rem]" />
+                )}
+              </div>
+              {content}
             </div>
-            {content}
-          </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setMobileExpanded(true)}
+              className="pointer-events-auto mx-auto flex w-full max-w-md items-center justify-between rounded-[1.5rem] border border-slate-200 bg-white/95 px-4 py-3 text-left shadow-2xl backdrop-blur"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-ink">{property?.address ?? "Selected property"}</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {property?.lastVisitOutcome ?? property?.leadStatus ?? "Tap to open property actions"}
+                </div>
+              </div>
+              <div className="ml-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Open</div>
+            </button>
+          )}
         </div>
       ) : null}
     </>
