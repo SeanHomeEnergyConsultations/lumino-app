@@ -404,6 +404,23 @@ export async function deleteOrphanAppUser(userId: string, context: AuthSessionCo
     .delete()
     .eq("id", userId);
 
-  if (deleteAppUserError) throw deleteAppUserError;
-  return { userId };
+  if (!deleteAppUserError) {
+    return { userId, archived: false as const };
+  }
+
+  const archivedEmail = `deleted+${userId}@lumino.invalid`;
+  const { error: archiveUserError } = await supabase
+    .from("app_users")
+    .update({
+      email: archivedEmail,
+      full_name: "Deleted User",
+      external_auth_id: null,
+      default_organization_id: null,
+      is_active: false,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", userId);
+
+  if (archiveUserError) throw archiveUserError;
+  return { userId, archived: true as const };
 }
