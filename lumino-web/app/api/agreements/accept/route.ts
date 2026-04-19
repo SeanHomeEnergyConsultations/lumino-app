@@ -12,7 +12,7 @@ import { recordSecurityEvent } from "@/lib/security/security-events";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const context = await getRequestSessionContext(request);
+  const context = await getRequestSessionContext(request, { allowBlocked: true });
   if (!context) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
