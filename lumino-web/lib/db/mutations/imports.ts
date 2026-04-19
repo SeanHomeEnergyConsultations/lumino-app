@@ -658,7 +658,12 @@ async function completeItemAnalysis(
   await supabase.from("leads").update(leadPayload).eq("id", leadId);
 }
 
-async function persistAnalysisResult(lead: LeadRow, payload: Record<string, unknown>, result: Awaited<ReturnType<typeof analyzeImportLead>>) {
+async function persistAnalysisResult(
+  lead: LeadRow,
+  payload: Record<string, unknown>,
+  result: Awaited<ReturnType<typeof analyzeImportLead>>,
+  organizationId: string
+) {
   const supabase = createServerSupabaseClient();
   const cacheKey = makeAnalysisCacheKey(payload);
   const { data: existingAnalysis } = await supabase
@@ -734,6 +739,7 @@ async function persistAnalysisResult(lead: LeadRow, payload: Record<string, unkn
       .maybeSingle();
 
     const enrichmentPayload = {
+      organization_id: organizationId,
       property_id: lead.property_id,
       provider: "google_solar",
       enrichment_type: "solar",
@@ -848,7 +854,7 @@ export async function runImportBatchAnalysis(
 
     try {
       const result = await analyzeImportLead(payload, lead);
-      await persistAnalysisResult(lead, payload, result);
+      await persistAnalysisResult(lead, payload, result, context.organizationId);
       await completeItemAnalysis(
         batchId,
         item,
