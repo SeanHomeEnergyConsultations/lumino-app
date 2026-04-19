@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { computeOperationalPropertyPriority } from "@/lib/properties/priority";
 import type { MapPropertiesResponse } from "@/types/api";
+import type { AuthSessionContext } from "@/types/auth";
 import type { MapProperty } from "@/types/entities";
 
 export interface MapViewportFilters {
@@ -12,6 +13,7 @@ export interface MapViewportFilters {
   ownerId?: string;
   city?: string;
   state?: string;
+  showTeamKnocks?: boolean;
 }
 
 function deriveMapState(row: Record<string, unknown>): MapProperty["mapState"] {
@@ -40,15 +42,20 @@ function deriveMapState(row: Record<string, unknown>): MapProperty["mapState"] {
 }
 
 export async function getMapPropertiesForViewport(
+  context: AuthSessionContext,
   filters: MapViewportFilters = {}
 ): Promise<MapPropertiesResponse> {
   const supabase = createServerSupabaseClient();
   const limit = filters.limit ?? 250;
+  const isManager = context.memberships.some((membership) =>
+    ["owner", "admin", "manager"].includes(membership.role)
+  );
+  const showTeamKnocks = filters.showTeamKnocks ?? isManager;
 
   let query = supabase
     .from("map_properties_view")
     .select(
-      "property_id,raw_address,city,state,postal_code,lat,lng,map_state,follow_up_state,visit_count,last_visit_outcome,last_visited_at,lead_id,lead_status,appointment_at,first_name,last_name,phone,email"
+      "property_id,raw_address,city,state,postal_code,lat,lng,map_state,follow_up_state,visit_count,last_visit_outcome,last_visited_at,last_visited_by,lead_id,lead_status,owner_id,appointment_at,first_name,last_name,phone,email"
     )
     .limit(limit);
 
@@ -63,7 +70,24 @@ export async function getMapPropertiesForViewport(
   const { data, error } = await query;
   if (error) throw error;
 
-  const rows = data ?? [];
+  const rows = (data ?? []).filter((row) => {
+    if (isManager) return true;
+
+    const visitCount = Number(row.visit_count ?? 0);
+    const ownerId = (row.owner_id as string | null) ?? null;
+    const lastVisitedBy = (row.last_visited_by as string | null) ?? null;
+    const leadId = (row.lead_id as string | null) ?? null;
+
+    if (ownerId === context.appUser.id) return true;
+
+    if (visitCount === 0) {
+      return leadId === null;
+    }
+
+    if (showTeamKnocks) return true;
+
+    return lastVisitedBy === context.appUser.id;
+  });
   const propertyIds = rows.map((row) => row.property_id).filter(Boolean);
   let notHomeCounts = new Map<string, number>();
   let propertyFacts = new Map<string, Record<string, unknown>>();

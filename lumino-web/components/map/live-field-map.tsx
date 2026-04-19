@@ -100,7 +100,14 @@ export function LiveFieldMap({
   cityFilter?: string | null;
   stateFilter?: string | null;
 }) {
-  const { session } = useAuth();
+  const { session, appContext } = useAuth();
+  const isManager = useMemo(
+    () =>
+      appContext?.memberships.some((membership) =>
+        ["owner", "admin", "manager"].includes(membership.role)
+      ) ?? false,
+    [appContext]
+  );
   const mapRef = useRef<MapRef | null>(null);
   const hasAutoCenteredOnUserRef = useRef(false);
   const [items, setItems] = useState(initialItems);
@@ -115,6 +122,7 @@ export function LiveFieldMap({
   const [isResultsOpen, setIsResultsOpen] = useState(false);
   const [isResultsPanelVisible, setIsResultsPanelVisible] = useState(true);
   const [isDrawerVisible, setIsDrawerVisible] = useState(true);
+  const [showTeamKnocks, setShowTeamKnocks] = useState(isManager);
 
   const selectedMapItem = useMemo(
     () => items.find((item) => item.propertyId === selectedPropertyId) ?? null,
@@ -143,6 +151,10 @@ export function LiveFieldMap({
   useEffect(() => {
     setActiveFilters(initialFilters.length ? initialFilters : ["all"]);
   }, [initialFilters]);
+
+  useEffect(() => {
+    setShowTeamKnocks(isManager);
+  }, [isManager]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -201,7 +213,7 @@ export function LiveFieldMap({
         ownerIdFilter ? `&ownerId=${encodeURIComponent(ownerIdFilter)}` : ""
       }${cityFilter ? `&city=${encodeURIComponent(cityFilter)}` : ""}${
         stateFilter ? `&state=${encodeURIComponent(stateFilter)}` : ""
-      }`
+      }${showTeamKnocks ? "&showTeamKnocks=1" : ""}`
     );
     if (!response.ok) return;
     const json = (await response.json()) as { items: MapProperty[] };
@@ -211,7 +223,7 @@ export function LiveFieldMap({
   useEffect(() => {
     void loadPropertiesForViewport(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token, ownerIdFilter, cityFilter, stateFilter]);
+  }, [session?.access_token, ownerIdFilter, cityFilter, stateFilter, showTeamKnocks]);
 
   useEffect(() => {
     if (!session?.access_token || !selectedPropertyId) {
@@ -402,7 +414,13 @@ export function LiveFieldMap({
 
   return (
     <div className="flex min-h-[calc(100vh-7.5rem)] flex-col">
-      <MapToolbar activeFilters={activeFilters} onToggle={handleToggleFilter} />
+      <MapToolbar
+        activeFilters={activeFilters}
+        onToggle={handleToggleFilter}
+        showTeamKnocks={showTeamKnocks}
+        onToggleTeamKnocks={() => setShowTeamKnocks((current) => !current)}
+        canToggleTeamKnocks={!isManager}
+      />
 
       <div className="flex min-h-0 flex-1">
       <PropertyResultsPanel
