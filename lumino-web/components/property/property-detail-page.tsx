@@ -17,6 +17,20 @@ function formatLabel(value: string | null) {
   return value.replaceAll("_", " ");
 }
 
+function formatCurrency(value: number | null) {
+  if (value === null || value === undefined) return "Unknown";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
+function formatNumber(value: number | null) {
+  if (value === null || value === undefined) return "Unknown";
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
 function formatSourceLabel(value: string) {
   return value.replaceAll("_", " ");
 }
@@ -116,6 +130,69 @@ function SourceRecordCard({ record }: { record: PropertySourceRecordItem }) {
   );
 }
 
+function preferredEnrichmentEntries(payload: Record<string, unknown>) {
+  const preferredKeys = [
+    "solar_fit_score",
+    "system_capacity_kw",
+    "yearly_energy_dc_kwh",
+    "roof_segment_count",
+    "south_facing_segment_count",
+    "imagery_quality",
+    "max_array_panels_count",
+    "whole_roof_area_m2",
+    "building_area_m2"
+  ];
+
+  const keys = Object.keys(payload);
+  const ordered = [
+    ...preferredKeys.filter((key) => key in payload),
+    ...keys.filter((key) => !preferredKeys.includes(key))
+  ];
+
+  return ordered
+    .filter((key) => payload[key] !== null && payload[key] !== undefined && String(payload[key]).trim() !== "")
+    .slice(0, 8)
+    .map((key) => [key, payload[key]] as const);
+}
+
+function EnrichmentCard({
+  provider,
+  enrichmentType,
+  fetchedAt,
+  payload
+}: {
+  provider: string;
+  enrichmentType: string;
+  fetchedAt: string;
+  payload: Record<string, unknown>;
+}) {
+  const entries = preferredEnrichmentEntries(payload);
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-ink">
+            {formatSourceLabel(provider)} · {formatSourceLabel(enrichmentType)}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">Fetched {formatDateTime(fetchedAt)}</div>
+        </div>
+        <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+          Enrichment
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {entries.map(([key, value]) => (
+          <div key={key} className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{formatLabel(key)}</div>
+            <div className="mt-1 text-sm text-slate-700">{String(value)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function PropertyDetailPage({ propertyId }: { propertyId: string }) {
   const { session } = useAuth();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
@@ -171,8 +248,9 @@ export function PropertyDetailPage({ propertyId }: { propertyId: string }) {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-6">
+        <div className="mt-6 grid gap-3 md:grid-cols-4 xl:grid-cols-7">
           {[
+            { label: "Priority", value: loading ? "…" : `${property?.priorityScore ?? 0} · ${property?.priorityBand ?? "low"}` },
             { label: "Map State", value: property ? formatLabel(property.mapState) : "…" },
             { label: "Follow-Up", value: property ? formatLabel(property.followUpState) : "…" },
             { label: "Visits", value: loading ? "…" : String(property?.visitCount ?? 0) },
@@ -268,6 +346,111 @@ export function PropertyDetailPage({ propertyId }: { propertyId: string }) {
           </section>
         </div>
       </div>
+
+      <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Property Facts</div>
+            <p className="mt-2 text-sm text-slate-500">
+              Normalized property data distilled from imports and analysis.
+            </p>
+            {property ? <p className="mt-2 text-sm font-medium text-slate-600">{property.prioritySummary}</p> : null}
+          </div>
+          <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+            {property?.facts.dataCompletenessScore ?? 0}% complete
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            { label: "Beds", value: formatNumber(property?.facts.beds ?? null) },
+            { label: "Baths", value: formatNumber(property?.facts.baths ?? null) },
+            { label: "Square Feet", value: formatNumber(property?.facts.squareFeet ?? null) },
+            { label: "Lot Size (sqft)", value: formatNumber(property?.facts.lotSizeSqft ?? null) },
+            { label: "Year Built", value: formatNumber(property?.facts.yearBuilt ?? null) },
+            { label: "Last Sale Date", value: property?.facts.lastSaleDate ? new Date(property.facts.lastSaleDate).toLocaleDateString() : "Unknown" },
+            { label: "Last Sale Price", value: formatCurrency(property?.facts.lastSalePrice ?? null) },
+            { label: "Property Type", value: property?.facts.propertyType ?? "Unknown" },
+            { label: "Listing Status", value: property?.facts.listingStatus ?? "Unknown" },
+            { label: "Sale Type", value: property?.facts.saleType ?? "Unknown" },
+            { label: "Days on Market", value: formatNumber(property?.facts.daysOnMarket ?? null) },
+            { label: "HOA / Month", value: formatCurrency(property?.facts.hoaMonthly ?? null) }
+          ].map((item) => (
+            <div key={item.label} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-mist">{item.label}</div>
+              <div className="mt-2 text-base font-semibold text-ink">{loading ? "…" : item.value}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Priority Signals</div>
+            <p className="mt-2 text-sm text-slate-500">
+              Live knocking priority blends solar fit, imported detail, contactability, and recent field outcomes.
+            </p>
+          </div>
+          <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+            {property?.priorityBand ?? "low"}
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            { label: "Operational Priority", value: loading ? "…" : String(property?.priorityScore ?? 0) },
+            { label: "Solar Fit Score", value: formatNumber(property?.facts.solarFitScore ?? null) },
+            { label: "System Capacity (kW)", value: formatNumber(property?.facts.estimatedSystemCapacityKw ?? null) },
+            { label: "Yearly Energy (kWh)", value: formatNumber(property?.facts.estimatedYearlyEnergyKwh ?? null) },
+            { label: "Roof Capacity Score", value: formatNumber(property?.facts.roofCapacityScore ?? null) },
+            { label: "Roof Complexity Score", value: formatNumber(property?.facts.roofComplexityScore ?? null) },
+            { label: "Solar Imagery", value: property?.facts.solarImageryQuality ?? "Unknown" },
+            { label: "Persisted Score Band", value: property?.facts.propertyPriorityLabel ?? "Unknown" }
+          ].map((item) => (
+            <div key={item.label} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-mist">{item.label}</div>
+              <div className="mt-2 text-base font-semibold text-ink">{loading ? "…" : item.value}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Enrichment</div>
+            <p className="mt-2 text-sm text-slate-500">
+              External and computed data layered onto this property, starting with solar fit.
+            </p>
+          </div>
+          <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+            {property?.enrichments.length ?? 0}
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {loading ? (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              Loading enrichments...
+            </div>
+          ) : property?.enrichments.length ? (
+            property.enrichments.map((enrichment) => (
+              <EnrichmentCard
+                key={enrichment.id}
+                provider={enrichment.provider}
+                enrichmentType={enrichment.enrichmentType}
+                fetchedAt={enrichment.fetchedAt}
+                payload={enrichment.payload}
+              />
+            ))
+          ) : (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              No enrichment snapshots are attached to this property yet.
+            </div>
+          )}
+        </div>
+      </section>
 
       <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
         <div className="flex items-start justify-between gap-3">

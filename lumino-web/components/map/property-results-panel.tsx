@@ -66,6 +66,8 @@ type ResultItem = {
   city?: string | null;
   state?: string | null;
   postalCode?: string | null;
+  priorityScore?: number;
+  priorityBand?: MapProperty["priorityBand"];
 };
 
 function identityKey(item: ResultItem) {
@@ -142,7 +144,9 @@ export function PropertyResultsPanel({
           notHomeCount: item.notHomeCount,
           city: item.city,
           state: item.state,
-          postalCode: item.postalCode
+          postalCode: item.postalCode,
+          priorityScore: item.priorityScore,
+          priorityBand: item.priorityBand
         }))
       : items
           .filter((item) =>
@@ -159,16 +163,25 @@ export function PropertyResultsPanel({
             notHomeCount: item.notHomeCount,
             city: item.city,
             state: item.state,
-            postalCode: item.postalCode
+            postalCode: item.postalCode,
+            priorityScore: item.priorityScore,
+            priorityBand: item.priorityBand
           }));
 
     const dedupedLocalMatches = Array.from(
       localMatches.reduce((map, item) => {
         const key = identityKey(item);
         const existing = map.get(key);
-        const currentScore = (item.visitCount ?? 0) + (item.mapState === "imported_target" ? 5 : 0);
+        const currentScore =
+          (item.priorityScore ?? 0) +
+          (item.visitCount ?? 0) +
+          (item.mapState === "imported_target" ? 5 : 0);
         const existingScore =
-          existing ? (existing.visitCount ?? 0) + (existing.mapState === "imported_target" ? 5 : 0) : -1;
+          existing
+            ? (existing.priorityScore ?? 0) +
+              (existing.visitCount ?? 0) +
+              (existing.mapState === "imported_target" ? 5 : 0)
+            : -1;
 
         if (!existing || currentScore >= existingScore) {
           map.set(key, item);
@@ -187,7 +200,7 @@ export function PropertyResultsPanel({
         merged.set(key, item);
       }
     }
-    return Array.from(merged.values());
+    return Array.from(merged.values()).sort((a, b) => (b.priorityScore ?? 0) - (a.priorityScore ?? 0));
   }, [items, query, remoteResults]);
 
   return (
@@ -242,6 +255,26 @@ export function PropertyResultsPanel({
                     <div className={`mt-1 text-xs ${selectedPropertyId === item.propertyId ? "text-slate-200" : "text-slate-500"}`}>
                       {item.subtitle}
                     </div>
+                    {item.priorityScore !== undefined ? (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                            selectedPropertyId === item.propertyId
+                              ? "bg-white/15 text-white"
+                              : item.priorityBand === "high"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : item.priorityBand === "medium"
+                                  ? "bg-amber-100 text-amber-700"
+                                  : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {item.priorityBand ?? "low"} priority
+                        </span>
+                        <span className={`text-[11px] font-semibold ${selectedPropertyId === item.propertyId ? "text-slate-200" : "text-slate-500"}`}>
+                          {item.priorityScore}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </button>

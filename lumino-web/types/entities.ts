@@ -16,6 +16,7 @@ export type MapState =
   | "do_not_knock";
 
 export type FollowUpState = "none" | "due_today" | "scheduled_future" | "overdue";
+export type PropertyPriorityBand = "high" | "medium" | "low";
 
 export interface MapProperty {
   propertyId: string;
@@ -33,6 +34,8 @@ export interface MapProperty {
   leadId: string | null;
   leadStatus: string | null;
   appointmentAt: string | null;
+  priorityScore: number;
+  priorityBand: PropertyPriorityBand;
 }
 
 export interface VisitInput {
@@ -94,6 +97,40 @@ export interface PropertySourceRecordItem {
   payload: Record<string, unknown>;
 }
 
+export interface PropertyFactsSnapshot {
+  beds: number | null;
+  baths: number | null;
+  squareFeet: number | null;
+  lotSizeSqft: number | null;
+  yearBuilt: number | null;
+  lastSaleDate: string | null;
+  lastSalePrice: number | null;
+  propertyType: string | null;
+  listingStatus: string | null;
+  saleType: string | null;
+  daysOnMarket: number | null;
+  hoaMonthly: number | null;
+  dataCompletenessScore: number | null;
+  solarFitScore: number | null;
+  roofCapacityScore: number | null;
+  roofComplexityScore: number | null;
+  estimatedSystemCapacityKw: number | null;
+  estimatedYearlyEnergyKwh: number | null;
+  solarImageryQuality: string | null;
+  propertyPriorityScore: number | null;
+  propertyPriorityLabel: string | null;
+}
+
+export interface PropertyEnrichmentItem {
+  id: string;
+  provider: string;
+  enrichmentType: string;
+  status: string;
+  fetchedAt: string;
+  expiresAt: string | null;
+  payload: Record<string, unknown>;
+}
+
 export interface PropertyDetail {
   propertyId: string;
   address: string;
@@ -118,7 +155,12 @@ export interface PropertyDetail {
   leadNotes: string | null;
   leadNextFollowUpAt: string | null;
   appointmentAt: string | null;
+  priorityScore: number;
+  priorityBand: PropertyPriorityBand;
+  prioritySummary: string;
   recentVisits: PropertyVisitHistoryItem[];
   recentActivities: PropertyActivityItem[];
+  facts: PropertyFactsSnapshot;
+  enrichments: PropertyEnrichmentItem[];
   sourceRecords: PropertySourceRecordItem[];
 }

@@ -1,5 +1,6 @@
 export const FILTER_OPTIONS = [
   { key: "all", label: "All" },
+  { key: "high_priority", label: "High Priority" },
   { key: "not_home", label: "Not Home" },
   { key: "left_doorhanger", label: "Left Doorhanger" },
   { key: "opportunity", label: "Opportunity" },

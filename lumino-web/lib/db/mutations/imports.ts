@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { analyzeImportLead, makeAnalysisCacheKey } from "@/lib/imports/analysis";
+import { computeAnalysisBackedPropertyPriority, propertyPriorityBand } from "@/lib/properties/priority";
 import type { AuthSessionContext } from "@/types/auth";
 import type { ImportBatchAnalysisResponse } from "@/types/api";
 
@@ -690,10 +691,42 @@ async function persistAnalysisResult(lead: LeadRow, payload: Record<string, unkn
     };
 
     if (existingEnrichment?.id) {
-      await supabase.from("property_enrichments").update(enrichmentPayload).eq("id", existingEnrichment.id as string);
+      const { error } = await supabase
+        .from("property_enrichments")
+        .update(enrichmentPayload)
+        .eq("id", existingEnrichment.id as string);
+      if (error) throw error;
     } else {
-      await supabase.from("property_enrichments").insert(enrichmentPayload);
+      const { error } = await supabase.from("property_enrichments").insert(enrichmentPayload);
+      if (error) throw error;
     }
+
+    const propertyPriorityScore = computeAnalysisBackedPropertyPriority({
+      analysisPriorityScore: result.priorityScore,
+      solarFitScore: result.solarFitScore,
+      valueScore: result.valueScore,
+      sqftScore: result.sqftScore,
+      systemCapacityKw: (result.solarDetails.system_capacity_kw as number | null | undefined) ?? null
+    });
+
+    const { error: propertyUpdateError } = await supabase
+      .from("properties")
+      .update({
+        solar_fit_score: result.solarFitScore,
+        roof_capacity_score: result.roofCapacityScore,
+        roof_complexity_score: result.roofComplexityScore,
+        estimated_system_capacity_kw: (result.solarDetails.system_capacity_kw as number | null | undefined) ?? null,
+        estimated_yearly_energy_kwh: (result.solarDetails.yearly_energy_dc_kwh as number | null | undefined) ?? null,
+        solar_imagery_quality: (result.solarDetails.imagery_quality as string | null | undefined) ?? null,
+        property_priority_score: propertyPriorityScore,
+        property_priority_label: propertyPriorityBand(propertyPriorityScore),
+        priority_last_computed_at: new Date().toISOString(),
+        lat: result.lat ?? lead.lat,
+        lng: result.lng ?? lead.lng,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", lead.property_id);
+    if (propertyUpdateError) throw propertyUpdateError;
   }
 }
 

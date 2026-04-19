@@ -124,6 +124,7 @@ export function LiveFieldMap({
   const filteredItems = useMemo(() => {
     if (activeFilters.includes("all")) return items;
     return items.filter((item) => {
+      if (activeFilters.includes("high_priority") && item.priorityBand === "high") return true;
       if (item.mapState !== "canvassed_with_lead" && activeFilters.includes(item.mapState as MapFilterKey)) return true;
       return false;
     });
