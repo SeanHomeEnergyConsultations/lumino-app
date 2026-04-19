@@ -391,6 +391,18 @@ export interface TeamMemberActionResponse {
   ok: true;
 }
 
+export interface OrganizationBranding {
+  organizationId: string;
+  appName: string;
+  logoUrl: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+}
+
+export interface OrganizationBrandingResponse {
+  item: OrganizationBranding;
+}
+
 export interface ImportBatchListItem {
   batchId: string;
   filename: string;

@@ -7,7 +7,10 @@ import { CommandSearch } from "@/components/shared/command-search";
 
 export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
   const router = useRouter();
-  const { supabase, appContext } = useAuth();
+  const { supabase, appContext, organizationBranding } = useAuth();
+  const appName = organizationBranding?.appName ?? "Lumino";
+  const primaryColor = organizationBranding?.primaryColor ?? "#0b1220";
+  const accentColor = organizationBranding?.accentColor ?? "#94a3b8";
 
   async function handleSignOut() {
     if (!supabase) return;
@@ -27,7 +30,9 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
           <Menu className="h-5 w-5" />
         </button>
         <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-mist">Live Field Map</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.22em]" style={{ color: accentColor }}>
+            {appName}
+          </div>
           <h1 className="text-lg font-semibold text-ink md:text-xl">Work the neighborhood, not the menu</h1>
         </div>
       </div>
@@ -42,7 +47,8 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
           <button
             type="button"
             onClick={handleSignOut}
-            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-950 hover:text-white"
+            className="rounded-full border bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-950 hover:text-white"
+            style={{ borderColor: `${primaryColor}33` }}
           >
             Sign out
           </button>

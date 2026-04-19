@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import type {
   ManagerDashboardResponse,
+  OrganizationBrandingResponse,
   TeamMembersResponse,
   TeamMemberItem,
   TerritoriesResponse,
@@ -20,7 +21,7 @@ function statusPill(status: string) {
 }
 
 export function TerritoryAdminPage() {
-  const { session } = useAuth();
+  const { session, organizationBranding, refreshOrganizationBranding } = useAuth();
   const accessToken = session?.access_token ?? null;
 
   const [territories, setTerritories] = useState<TerritoryListItem[]>([]);
@@ -41,6 +42,10 @@ export function TerritoryAdminPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteRole, setInviteRole] = useState<"owner" | "admin" | "manager" | "rep" | "setter">("rep");
+  const [brandName, setBrandName] = useState("Lumino");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [primaryColor, setPrimaryColor] = useState("#0b1220");
+  const [accentColor, setAccentColor] = useState("#94a3b8");
 
   const assignedPropertyIds = useMemo(
     () => new Set((selectedTerritory?.properties ?? []).map((item) => item.propertyId)),
@@ -119,6 +124,14 @@ export function TerritoryAdminPage() {
       setMembers([]);
     });
   }, [loadMembers]);
+
+  useEffect(() => {
+    if (!organizationBranding) return;
+    setBrandName(organizationBranding.appName || "Lumino");
+    setLogoUrl(organizationBranding.logoUrl || "");
+    setPrimaryColor(organizationBranding.primaryColor || "#0b1220");
+    setAccentColor(organizationBranding.accentColor || "#94a3b8");
+  }, [organizationBranding]);
 
   useEffect(() => {
     void loadTerritoryDetail(selectedTerritoryId);
@@ -314,6 +327,30 @@ export function TerritoryAdminPage() {
     }
   }
 
+  async function handleSaveBranding() {
+    if (!accessToken || !brandName.trim()) return;
+
+    setSaveState("saving");
+    try {
+      const response = await authFetch(accessToken, "/api/organization/branding", {
+        method: "PATCH",
+        body: JSON.stringify({
+          appName: brandName.trim(),
+          logoUrl: logoUrl.trim() || null,
+          primaryColor: primaryColor.trim(),
+          accentColor: accentColor.trim()
+        })
+      });
+
+      if (!response.ok) throw new Error("Failed to save branding");
+      await response.json() as OrganizationBrandingResponse;
+      await refreshOrganizationBranding();
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  }
+
   return (
     <div className="p-4 md:p-6">
       <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
@@ -325,6 +362,105 @@ export function TerritoryAdminPage() {
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Branding</div>
+              <p className="mt-2 text-sm text-slate-500">
+                Set the organization name, logo URL, and brand colors that drive the white-label shell.
+              </p>
+            </div>
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+              Live preview
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_0.9fr]">
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={brandName}
+                onChange={(event) => setBrandName(event.target.value)}
+                placeholder="Organization name"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              />
+              <input
+                type="url"
+                value={logoUrl}
+                onChange={(event) => setLogoUrl(event.target.value)}
+                placeholder="Logo URL"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              />
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Primary</span>
+                  <input
+                    type="color"
+                    value={primaryColor}
+                    onChange={(event) => setPrimaryColor(event.target.value)}
+                    className="h-10 w-full cursor-pointer rounded-xl border-0 bg-transparent"
+                  />
+                </label>
+                <label className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Accent</span>
+                  <input
+                    type="color"
+                    value={accentColor}
+                    onChange={(event) => setAccentColor(event.target.value)}
+                    className="h-10 w-full cursor-pointer rounded-xl border-0 bg-transparent"
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleSaveBranding()}
+                disabled={!brandName.trim() || saveState === "saving"}
+                className="rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {saveState === "saving" ? "Saving..." : "Save Branding"}
+              </button>
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Shell preview</div>
+              <div className="mt-3 overflow-hidden rounded-3xl border border-slate-200 bg-white">
+                <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-3">
+                  <div
+                    className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-white/60 bg-white text-sm font-semibold shadow-panel"
+                    style={{ color: primaryColor }}
+                  >
+                    {logoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={logoUrl} alt={`${brandName} logo`} className="h-full w-full object-cover" />
+                    ) : (
+                      brandName
+                        .split(/\s+/)
+                        .map((part) => part[0])
+                        .join("")
+                        .slice(0, 2)
+                        .toUpperCase() || "LU"
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: accentColor }}>
+                      {brandName}
+                    </div>
+                    <div className="text-sm font-semibold text-ink">Field CRM</div>
+                  </div>
+                </div>
+                <div className="space-y-2 p-4">
+                  <div className="rounded-2xl px-3 py-2 text-sm font-medium text-white" style={{ backgroundColor: primaryColor }}>
+                    Active navigation
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-600">
+                    Default card surface
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>

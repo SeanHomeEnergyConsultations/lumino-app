@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/client";
+import { LogoMark } from "@/components/shared/logo-mark";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -43,7 +44,10 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center px-6">
       <div className="w-full max-w-md rounded-3xl border border-white/70 bg-white/80 p-8 shadow-panel backdrop-blur">
-        <div className="text-xs font-semibold uppercase tracking-[0.24em] text-mist">Lumino</div>
+        <div className="flex items-center gap-3">
+          <LogoMark appName="Lumino" primaryColor="#0b1220" />
+          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-mist">Lumino</div>
+        </div>
         <h1 className="mt-2 text-3xl font-semibold text-ink">Sign in</h1>
         <p className="mt-3 text-sm text-slate-600">
           Use your existing Supabase account to access the new map-first field CRM.
