@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
+import { getOrganizationFeatureAccess } from "@/lib/db/queries/platform";
 import { computeOperationalPropertyPriority } from "@/lib/properties/priority";
 import type { MapPropertiesResponse } from "@/types/api";
 import type { AuthSessionContext } from "@/types/auth";
@@ -46,6 +47,15 @@ export async function getMapPropertiesForViewport(
   filters: MapViewportFilters = {}
 ): Promise<MapPropertiesResponse> {
   const supabase = createServerSupabaseClient();
+  const featureResolution = context.organizationId
+    ? await getOrganizationFeatureAccess(context.organizationId)
+    : null;
+  const featureAccess = featureResolution?.effective ?? {
+    enrichmentEnabled: false,
+    priorityScoringEnabled: false,
+    advancedImportsEnabled: false,
+    securityConsoleEnabled: false
+  };
   const limit = filters.limit ?? 250;
   const isManager = context.memberships.some((membership) =>
     ["owner", "admin", "manager"].includes(membership.role)
@@ -103,12 +113,14 @@ export async function getMapPropertiesForViewport(
         .select("property_id")
         .eq("outcome", "not_home")
         .in("property_id", propertyIds),
-      supabase
-        .from("properties")
-        .select(
-          "id,data_completeness_score,solar_fit_score,property_priority_score,property_priority_label"
-        )
-        .in("id", propertyIds)
+      featureAccess.priorityScoringEnabled
+        ? supabase
+            .from("properties")
+            .select(
+              "id,data_completeness_score,solar_fit_score,property_priority_score,property_priority_label"
+            )
+            .in("id", propertyIds)
+        : Promise.resolve({ data: [], error: null })
     ]);
 
     if (visitsError) throw visitsError;
@@ -127,22 +139,24 @@ export async function getMapPropertiesForViewport(
     items: rows
       .map((row) => {
         const facts = propertyFacts.get(row.property_id as string);
-        const priority = computeOperationalPropertyPriority({
-          basePriorityScore: Number(facts?.property_priority_score ?? 0),
-          solarFitScore: Number(facts?.solar_fit_score ?? 0),
-          dataCompletenessScore: Number(facts?.data_completeness_score ?? 0),
-          sourceRecordCount: row.lead_id ? 1 : 0,
-          hasFirstName: Boolean(row.first_name),
-          hasLastName: Boolean(row.last_name),
-          hasPhone: Boolean(row.phone),
-          hasEmail: Boolean(row.email),
-          leadStatus: (row.lead_status as string | null) ?? null,
-          followUpState: (row.follow_up_state as MapProperty["followUpState"]) ?? "none",
-          appointmentAt: (row.appointment_at as string | null) ?? null,
-          lastVisitOutcome: (row.last_visit_outcome as string | null) ?? null,
-          lastVisitedAt: (row.last_visited_at as string | null) ?? null,
-          notHomeCount: notHomeCounts.get(row.property_id as string) ?? 0
-        });
+        const priority = featureAccess.priorityScoringEnabled
+          ? computeOperationalPropertyPriority({
+              basePriorityScore: Number(facts?.property_priority_score ?? 0),
+              solarFitScore: Number(facts?.solar_fit_score ?? 0),
+              dataCompletenessScore: Number(facts?.data_completeness_score ?? 0),
+              sourceRecordCount: row.lead_id ? 1 : 0,
+              hasFirstName: Boolean(row.first_name),
+              hasLastName: Boolean(row.last_name),
+              hasPhone: Boolean(row.phone),
+              hasEmail: Boolean(row.email),
+              leadStatus: (row.lead_status as string | null) ?? null,
+              followUpState: (row.follow_up_state as MapProperty["followUpState"]) ?? "none",
+              appointmentAt: (row.appointment_at as string | null) ?? null,
+              lastVisitOutcome: (row.last_visit_outcome as string | null) ?? null,
+              lastVisitedAt: (row.last_visited_at as string | null) ?? null,
+              notHomeCount: notHomeCounts.get(row.property_id as string) ?? 0
+            })
+          : { score: 0, band: "low" as const };
 
         return {
           propertyId: row.property_id,
@@ -164,6 +178,11 @@ export async function getMapPropertiesForViewport(
           priorityBand: priority.band
         };
       })
-      .sort((a, b) => b.priorityScore - a.priorityScore)
+      .sort((a, b) =>
+        featureAccess.priorityScoringEnabled
+          ? b.priorityScore - a.priorityScore
+          : a.address.localeCompare(b.address)
+      ),
+    features: featureAccess
   };
 }

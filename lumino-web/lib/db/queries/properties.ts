@@ -1,5 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
+import { getOrganizationFeatureAccess } from "@/lib/db/queries/platform";
 import { computeOperationalPropertyPriority } from "@/lib/properties/priority";
+import type { AuthSessionContext } from "@/types/auth";
 import type { PropertyDetail } from "@/types/entities";
 
 function deriveFollowUpState(nextFollowUpAt: string | null): PropertyDetail["followUpState"] {
@@ -39,8 +41,20 @@ function deriveMapState(row: Record<string, unknown>): PropertyDetail["mapState"
   return "unworked_property";
 }
 
-export async function getPropertyDetail(propertyId: string): Promise<PropertyDetail | null> {
+export async function getPropertyDetail(
+  propertyId: string,
+  context: AuthSessionContext
+): Promise<PropertyDetail | null> {
   const supabase = createServerSupabaseClient();
+  const featureResolution = context.organizationId
+    ? await getOrganizationFeatureAccess(context.organizationId)
+    : null;
+  const featureAccess = featureResolution?.effective ?? {
+    enrichmentEnabled: false,
+    priorityScoringEnabled: false,
+    advancedImportsEnabled: false,
+    securityConsoleEnabled: false
+  };
 
   const { data: historyRow, error: historyError } = await supabase
     .from("property_history_view")
@@ -100,22 +114,28 @@ export async function getPropertyDetail(propertyId: string): Promise<PropertyDet
   if (enrichmentsError) throw enrichmentsError;
 
   const notHomeCount = (visits ?? []).filter((visit) => visit.outcome === "not_home").length;
-  const priority = computeOperationalPropertyPriority({
-    basePriorityScore: (propertyFactsRow?.property_priority_score as number | null) ?? 0,
-    solarFitScore: (propertyFactsRow?.solar_fit_score as number | null) ?? 0,
-    dataCompletenessScore: (propertyFactsRow?.data_completeness_score as number | null) ?? 0,
-    sourceRecordCount: sourceRecords?.length ?? 0,
-    hasFirstName: Boolean(historyRow.first_name),
-    hasLastName: Boolean(historyRow.last_name),
-    hasPhone: Boolean(historyRow.phone),
-    hasEmail: Boolean(historyRow.email),
-    leadStatus: historyRow.lead_status,
-    followUpState: deriveFollowUpState(historyRow.lead_next_follow_up_at),
-    appointmentAt: historyRow.appointment_at,
-    lastVisitOutcome: historyRow.last_visit_outcome,
-    lastVisitedAt: historyRow.last_visited_at,
-    notHomeCount
-  });
+  const priority = featureAccess.priorityScoringEnabled
+    ? computeOperationalPropertyPriority({
+        basePriorityScore: (propertyFactsRow?.property_priority_score as number | null) ?? 0,
+        solarFitScore: (propertyFactsRow?.solar_fit_score as number | null) ?? 0,
+        dataCompletenessScore: (propertyFactsRow?.data_completeness_score as number | null) ?? 0,
+        sourceRecordCount: sourceRecords?.length ?? 0,
+        hasFirstName: Boolean(historyRow.first_name),
+        hasLastName: Boolean(historyRow.last_name),
+        hasPhone: Boolean(historyRow.phone),
+        hasEmail: Boolean(historyRow.email),
+        leadStatus: historyRow.lead_status,
+        followUpState: deriveFollowUpState(historyRow.lead_next_follow_up_at),
+        appointmentAt: historyRow.appointment_at,
+        lastVisitOutcome: historyRow.last_visit_outcome,
+        lastVisitedAt: historyRow.last_visited_at,
+        notHomeCount
+      })
+    : {
+        score: 0,
+        band: "low" as const,
+        summary: "Priority scoring is not enabled for this organization."
+      };
 
   return {
     propertyId: historyRow.property_id,
@@ -144,6 +164,7 @@ export async function getPropertyDetail(propertyId: string): Promise<PropertyDet
     priorityScore: priority.score,
     priorityBand: priority.band,
     prioritySummary: priority.summary,
+    featureAccess,
     recentVisits:
       visits?.map((visit) => ({
         id: visit.id,
@@ -183,16 +204,17 @@ export async function getPropertyDetail(propertyId: string): Promise<PropertyDet
       propertyPriorityScore: (propertyFactsRow?.property_priority_score as number | null) ?? null,
       propertyPriorityLabel: (propertyFactsRow?.property_priority_label as string | null) ?? null
     },
-    enrichments:
-      enrichments?.map((enrichment) => ({
-        id: enrichment.id,
-        provider: enrichment.provider,
-        enrichmentType: enrichment.enrichment_type,
-        status: enrichment.status,
-        fetchedAt: enrichment.fetched_at,
-        expiresAt: (enrichment.expires_at as string | null) ?? null,
-        payload: (enrichment.payload as Record<string, unknown>) ?? {}
-      })) ?? [],
+    enrichments: featureAccess.enrichmentEnabled
+      ? enrichments?.map((enrichment) => ({
+          id: enrichment.id,
+          provider: enrichment.provider,
+          enrichmentType: enrichment.enrichment_type,
+          status: enrichment.status,
+          fetchedAt: enrichment.fetched_at,
+          expiresAt: (enrichment.expires_at as string | null) ?? null,
+          payload: (enrichment.payload as Record<string, unknown>) ?? {}
+        })) ?? []
+      : [],
     sourceRecords:
       sourceRecords?.map((record) => ({
         id: record.id,

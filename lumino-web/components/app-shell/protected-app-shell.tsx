@@ -3,15 +3,17 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell/app-shell";
-import { hasAnyRole } from "@/lib/auth/permissions";
+import { hasAnyRole, hasPlatformAccess } from "@/lib/auth/permissions";
 import { useAuth } from "@/lib/auth/client";
 
 export function ProtectedAppShell({
   children,
-  allowedRoles
+  allowedRoles,
+  platformOnly = false
 }: {
   children: React.ReactNode;
   allowedRoles?: string[];
+  platformOnly?: boolean;
 }) {
   const router = useRouter();
   const { session, loading, envReady, appContext } = useAuth();
@@ -32,6 +34,15 @@ export function ProtectedAppShell({
       router.replace("/accept-agreement");
     }
   }, [appContext, loading, router, session]);
+
+  useEffect(() => {
+    if (!loading && session && platformOnly) {
+      const allowed = appContext ? hasPlatformAccess(appContext) : false;
+      if (!allowed) {
+        router.replace("/map");
+      }
+    }
+  }, [appContext, loading, platformOnly, router, session]);
 
   useEffect(() => {
     if (!loading && session && allowedRoles?.length) {
@@ -89,6 +100,10 @@ export function ProtectedAppShell({
     );
   }
   if (appContext && !appContext.hasAcceptedRequiredAgreement) return null;
+  if (platformOnly) {
+    const allowed = appContext ? hasPlatformAccess(appContext) : false;
+    if (!allowed) return null;
+  }
   if (allowedRoles?.length) {
     const allowed = appContext ? hasAnyRole(appContext, allowedRoles) : false;
     if (!allowed) return null;

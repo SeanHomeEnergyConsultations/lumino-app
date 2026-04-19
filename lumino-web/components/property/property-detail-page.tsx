@@ -250,7 +250,14 @@ export function PropertyDetailPage({ propertyId }: { propertyId: string }) {
 
         <div className="mt-6 grid gap-3 md:grid-cols-4 xl:grid-cols-7">
           {[
-            { label: "Priority", value: loading ? "…" : `${property?.priorityScore ?? 0} · ${property?.priorityBand ?? "low"}` },
+            {
+              label: "Priority",
+              value: loading
+                ? "…"
+                : property?.featureAccess.priorityScoringEnabled
+                  ? `${property?.priorityScore ?? 0} · ${property?.priorityBand ?? "low"}`
+                  : "Locked"
+            },
             { label: "Map State", value: property ? formatLabel(property.mapState) : "…" },
             { label: "Follow-Up", value: property ? formatLabel(property.followUpState) : "…" },
             { label: "Visits", value: loading ? "…" : String(property?.visitCount ?? 0) },
@@ -384,73 +391,91 @@ export function PropertyDetailPage({ propertyId }: { propertyId: string }) {
         </div>
       </section>
 
-      <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Priority Signals</div>
-            <p className="mt-2 text-sm text-slate-500">
-              Live knocking priority blends solar fit, imported detail, contactability, and recent field outcomes.
-            </p>
-          </div>
-          <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
-            {property?.priorityBand ?? "low"}
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {[
-            { label: "Operational Priority", value: loading ? "…" : String(property?.priorityScore ?? 0) },
-            { label: "Solar Fit Score", value: formatNumber(property?.facts.solarFitScore ?? null) },
-            { label: "System Capacity (kW)", value: formatNumber(property?.facts.estimatedSystemCapacityKw ?? null) },
-            { label: "Yearly Energy (kWh)", value: formatNumber(property?.facts.estimatedYearlyEnergyKwh ?? null) },
-            { label: "Roof Capacity Score", value: formatNumber(property?.facts.roofCapacityScore ?? null) },
-            { label: "Roof Complexity Score", value: formatNumber(property?.facts.roofComplexityScore ?? null) },
-            { label: "Solar Imagery", value: property?.facts.solarImageryQuality ?? "Unknown" },
-            { label: "Persisted Score Band", value: property?.facts.propertyPriorityLabel ?? "Unknown" }
-          ].map((item) => (
-            <div key={item.label} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-mist">{item.label}</div>
-              <div className="mt-2 text-base font-semibold text-ink">{loading ? "…" : item.value}</div>
+      {loading || property?.featureAccess.priorityScoringEnabled ? (
+        <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Priority Signals</div>
+              <p className="mt-2 text-sm text-slate-500">
+                Live knocking priority blends solar fit, imported detail, contactability, and recent field outcomes.
+              </p>
             </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Enrichment</div>
-            <p className="mt-2 text-sm text-slate-500">
-              External and computed data layered onto this property, starting with solar fit.
-            </p>
-          </div>
-          <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
-            {property?.enrichments.length ?? 0}
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-3">
-          {loading ? (
-            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-              Loading enrichments...
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+              {property?.priorityBand ?? "low"}
             </div>
-          ) : property?.enrichments.length ? (
-            property.enrichments.map((enrichment) => (
-              <EnrichmentCard
-                key={enrichment.id}
-                provider={enrichment.provider}
-                enrichmentType={enrichment.enrichmentType}
-                fetchedAt={enrichment.fetchedAt}
-                payload={enrichment.payload}
-              />
-            ))
-          ) : (
-            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-              No enrichment snapshots are attached to this property yet.
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              { label: "Operational Priority", value: loading ? "…" : String(property?.priorityScore ?? 0) },
+              { label: "Solar Fit Score", value: formatNumber(property?.facts.solarFitScore ?? null) },
+              { label: "System Capacity (kW)", value: formatNumber(property?.facts.estimatedSystemCapacityKw ?? null) },
+              { label: "Yearly Energy (kWh)", value: formatNumber(property?.facts.estimatedYearlyEnergyKwh ?? null) },
+              { label: "Roof Capacity Score", value: formatNumber(property?.facts.roofCapacityScore ?? null) },
+              { label: "Roof Complexity Score", value: formatNumber(property?.facts.roofComplexityScore ?? null) },
+              { label: "Solar Imagery", value: property?.facts.solarImageryQuality ?? "Unknown" },
+              { label: "Persisted Score Band", value: property?.facts.propertyPriorityLabel ?? "Unknown" }
+            ].map((item) => (
+              <div key={item.label} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-mist">{item.label}</div>
+                <div className="mt-2 text-base font-semibold text-ink">{loading ? "…" : item.value}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Priority Signals</div>
+          <div className="mt-3 rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+            Priority scoring is available on premium plans once this organization enables intelligence features.
+          </div>
+        </section>
+      )}
+
+      {loading || property?.featureAccess.enrichmentEnabled ? (
+        <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Enrichment</div>
+              <p className="mt-2 text-sm text-slate-500">
+                External and computed data layered onto this property, starting with solar fit.
+              </p>
             </div>
-          )}
-        </div>
-      </section>
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+              {property?.enrichments.length ?? 0}
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {loading ? (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                Loading enrichments...
+              </div>
+            ) : property?.enrichments.length ? (
+              property.enrichments.map((enrichment) => (
+                <EnrichmentCard
+                  key={enrichment.id}
+                  provider={enrichment.provider}
+                  enrichmentType={enrichment.enrichmentType}
+                  fetchedAt={enrichment.fetchedAt}
+                  payload={enrichment.payload}
+                />
+              ))
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                No enrichment snapshots are attached to this property yet.
+              </div>
+            )}
+          </div>
+        </section>
+      ) : (
+        <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Enrichment</div>
+          <div className="mt-3 rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+            Enrichment snapshots are part of the premium intelligence layer for this organization.
+          </div>
+        </section>
+      )}
 
       <section className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
         <div className="flex items-start justify-between gap-3">

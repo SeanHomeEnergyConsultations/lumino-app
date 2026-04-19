@@ -83,13 +83,15 @@ export function PropertyResultsPanel({
   selectedPropertyId,
   onSelect,
   className = "relative z-20 hidden w-80 shrink-0 border-r border-slate-200/80 bg-white/80 backdrop-blur xl:block",
-  showHeader = true
+  showHeader = true,
+  showPriority = true
 }: {
   items: MapProperty[];
   selectedPropertyId: string | null;
   onSelect: (propertyId: string) => void;
   className?: string;
   showHeader?: boolean;
+  showPriority?: boolean;
 }) {
   const { session } = useAuth();
   const [query, setQuery] = useState("");
@@ -255,7 +257,7 @@ export function PropertyResultsPanel({
                     <div className={`mt-1 text-xs ${selectedPropertyId === item.propertyId ? "text-slate-200" : "text-slate-500"}`}>
                       {item.subtitle}
                     </div>
-                    {item.priorityScore !== undefined ? (
+                    {showPriority && item.priorityScore !== undefined ? (
                       <div className="mt-2 flex items-center gap-2">
                         <span
                           className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${

@@ -18,6 +18,13 @@ export type MapState =
 export type FollowUpState = "none" | "due_today" | "scheduled_future" | "overdue";
 export type PropertyPriorityBand = "high" | "medium" | "low";
 
+export interface OrganizationFeatureAccess {
+  enrichmentEnabled: boolean;
+  priorityScoringEnabled: boolean;
+  advancedImportsEnabled: boolean;
+  securityConsoleEnabled: boolean;
+}
+
 export interface MapProperty {
   propertyId: string;
   address: string;
@@ -158,6 +165,7 @@ export interface PropertyDetail {
   priorityScore: number;
   priorityBand: PropertyPriorityBand;
   prioritySummary: string;
+  featureAccess: OrganizationFeatureAccess;
   recentVisits: PropertyVisitHistoryItem[];
   recentActivities: PropertyActivityItem[];
   facts: PropertyFactsSnapshot;

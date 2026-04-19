@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ORGANIZATION_BILLING_PLANS } from "@/lib/platform/features";
 
 const hexColor = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
@@ -13,4 +14,16 @@ export const organizationCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
   slug: z.string().trim().min(2).max(80).regex(/^[a-z0-9-]+$/).nullable().optional().or(z.literal("")),
   appName: z.string().trim().min(1).max(120).nullable().optional().or(z.literal(""))
+});
+
+export const organizationPlatformUpdateSchema = z.object({
+  billingPlan: z.enum(ORGANIZATION_BILLING_PLANS).nullable().optional(),
+  status: z.enum(["active", "disabled"]).nullable().optional()
+});
+
+export const organizationFeatureUpdateSchema = z.object({
+  enrichmentEnabled: z.boolean().nullable().optional(),
+  priorityScoringEnabled: z.boolean().nullable().optional(),
+  advancedImportsEnabled: z.boolean().nullable().optional(),
+  securityConsoleEnabled: z.boolean().nullable().optional()
 });

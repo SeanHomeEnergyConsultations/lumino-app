@@ -18,13 +18,15 @@ export function MapToolbar({
   onToggle,
   showTeamKnocks,
   onToggleTeamKnocks,
-  canToggleTeamKnocks
+  canToggleTeamKnocks,
+  showPriorityFilter = true
 }: {
   activeFilters: MapFilterKey[];
   onToggle: (filter: MapFilterKey) => void;
   showTeamKnocks: boolean;
   onToggleTeamKnocks: () => void;
   canToggleTeamKnocks: boolean;
+  showPriorityFilter?: boolean;
 }) {
   return (
     <div className="overflow-x-auto border-b border-slate-200/80 bg-white/75 px-4 py-3 backdrop-blur md:px-6">
@@ -42,7 +44,7 @@ export function MapToolbar({
             {showTeamKnocks ? "Showing Team Knocks" : "Show Team Knocks"}
           </button>
         ) : null}
-        {FILTER_OPTIONS.map((option) => {
+        {FILTER_OPTIONS.filter((option) => showPriorityFilter || option.key !== "high_priority").map((option) => {
           const active = activeFilters.includes(option.key);
           return (
             <button

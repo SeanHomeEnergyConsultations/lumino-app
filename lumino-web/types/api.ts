@@ -1,7 +1,9 @@
-import type { MapProperty, PropertyDetail } from "@/types/entities";
+import type { MapProperty, OrganizationFeatureAccess, PropertyDetail } from "@/types/entities";
+import type { OrganizationBillingPlan, OrganizationFeatureOverrides } from "@/lib/platform/features";
 
 export interface MapPropertiesResponse {
   items: MapProperty[];
+  features: OrganizationFeatureAccess;
 }
 
 export interface VisitResponse {
@@ -11,6 +13,61 @@ export interface VisitResponse {
 
 export interface PropertyDetailResponse {
   item: PropertyDetail;
+}
+
+export interface PlatformOrganizationChecklist {
+  firstAdminInvited: boolean;
+  brandingConfigured: boolean;
+  firstImportCompleted: boolean;
+  firstTerritoryCreated: boolean;
+}
+
+export interface PlatformOrganizationOverviewItem {
+  organizationId: string;
+  name: string;
+  appName: string;
+  slug: string | null;
+  status: string;
+  billingPlan: OrganizationBillingPlan;
+  createdAt: string;
+  teamMemberCount: number;
+  activeTeamMemberCount: number;
+  adminCount: number;
+  importBatchCount: number;
+  completedImportCount: number;
+  territoryCount: number;
+  lastImportAt: string | null;
+  lastSecurityEventAt: string | null;
+  lastActivityAt: string;
+  featureOverrides: OrganizationFeatureOverrides;
+  effectiveFeatures: OrganizationFeatureAccess;
+  checklist: PlatformOrganizationChecklist;
+}
+
+export interface PlatformOverviewResponse {
+  items: PlatformOrganizationOverviewItem[];
+}
+
+export interface PlatformSecurityEventItem {
+  id: string;
+  organizationId: string | null;
+  organizationName: string | null;
+  actorUserId: string | null;
+  actorName: string | null;
+  actorEmail: string | null;
+  targetUserId: string | null;
+  targetName: string | null;
+  targetEmail: string | null;
+  eventType: string;
+  severity: "info" | "low" | "medium" | "high";
+  ipAddress: string | null;
+  userAgent: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface PlatformSecurityEventsResponse {
+  items: PlatformSecurityEventItem[];
 }
 
 export interface ResolvePropertyResponse {

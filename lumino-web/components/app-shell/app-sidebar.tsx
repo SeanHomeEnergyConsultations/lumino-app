@@ -3,10 +3,10 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname } from "next/navigation";
-import { Map, LayoutDashboard, ListTodo, CheckSquare2, Users, CalendarCheck2, ContactRound, Upload } from "lucide-react";
+import { Map, LayoutDashboard, ListTodo, CheckSquare2, Users, CalendarCheck2, ContactRound, Upload, Building2 } from "lucide-react";
 import { LogoMark } from "@/components/shared/logo-mark";
 import { useAuth } from "@/lib/auth/client";
-import { hasManagerAccess } from "@/lib/auth/permissions";
+import { hasManagerAccess, hasPlatformAccess } from "@/lib/auth/permissions";
 
 const nav = [
   { href: "/map", label: "Map", icon: Map },
@@ -16,7 +16,8 @@ const nav = [
   { href: "/imports", label: "Imports", icon: Upload },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/tasks", label: "Tasks", icon: CheckSquare2 },
-  { href: "/team", label: "Team", icon: Users }
+  { href: "/team", label: "Team", icon: Users },
+  { href: "/platform", label: "Platform", icon: Building2 }
 ] as const satisfies ReadonlyArray<{
   href: Route;
   label: string;
@@ -30,9 +31,13 @@ export function AppSidebar() {
   const primaryColor = organizationBranding?.primaryColor ?? "#0b1220";
   const accentColor = organizationBranding?.accentColor ?? "#94a3b8";
   const canManage = appContext ? hasManagerAccess(appContext) : false;
+  const canAccessPlatform = appContext ? hasPlatformAccess(appContext) : false;
   const filteredNav = nav.filter((item) => {
     if (["/imports", "/dashboard", "/team"].includes(item.href)) {
       return canManage;
+    }
+    if (item.href === "/platform") {
+      return canAccessPlatform;
     }
     return true;
   });

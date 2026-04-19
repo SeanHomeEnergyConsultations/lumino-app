@@ -31,7 +31,7 @@ import Map, {
   type ViewStateChangeEvent
 } from "react-map-gl/maplibre";
 import type { ResolvePropertyResponse } from "@/types/api";
-import type { LeadInput, MapProperty, PropertyDetail, TaskInput } from "@/types/entities";
+import type { LeadInput, MapProperty, OrganizationFeatureAccess, PropertyDetail, TaskInput } from "@/types/entities";
 import { MapToolbar, type MapFilterKey } from "@/components/map/map-toolbar";
 import { PropertyResultsPanel, mapStateVisual } from "@/components/map/property-results-panel";
 import { PropertyDrawer } from "@/components/map/property-drawer";
@@ -121,6 +121,12 @@ export function LiveFieldMap({
   const [isResultsPanelVisible, setIsResultsPanelVisible] = useState(true);
   const [isDrawerVisible, setIsDrawerVisible] = useState(true);
   const [showTeamKnocks, setShowTeamKnocks] = useState(isManager);
+  const [featureAccess, setFeatureAccess] = useState<OrganizationFeatureAccess>({
+    enrichmentEnabled: false,
+    priorityScoringEnabled: false,
+    advancedImportsEnabled: false,
+    securityConsoleEnabled: false
+  });
 
   const selectedMapItem = useMemo(
     () => items.find((item) => item.propertyId === selectedPropertyId) ?? null,
@@ -130,11 +136,13 @@ export function LiveFieldMap({
   const filteredItems = useMemo(() => {
     if (activeFilters.includes("all")) return items;
     return items.filter((item) => {
-      if (activeFilters.includes("high_priority") && item.priorityBand === "high") return true;
+      if (featureAccess.priorityScoringEnabled && activeFilters.includes("high_priority") && item.priorityBand === "high") {
+        return true;
+      }
       if (item.mapState !== "canvassed_with_lead" && activeFilters.includes(item.mapState as MapFilterKey)) return true;
       return false;
     });
-  }, [activeFilters, items]);
+  }, [activeFilters, featureAccess.priorityScoringEnabled, items]);
 
   useEffect(() => {
     setSelectedPropertyId(initialSelectedPropertyId);
@@ -153,6 +161,14 @@ export function LiveFieldMap({
   useEffect(() => {
     setShowTeamKnocks(isManager);
   }, [isManager]);
+
+  useEffect(() => {
+    if (featureAccess.priorityScoringEnabled) return;
+    setActiveFilters((current) => {
+      const next = current.filter((filter) => filter !== "high_priority");
+      return next.length ? next : ["all"];
+    });
+  }, [featureAccess.priorityScoringEnabled]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -214,8 +230,11 @@ export function LiveFieldMap({
       }${showTeamKnocks ? "&showTeamKnocks=1" : ""}`
     );
     if (!response.ok) return;
-    const json = (await response.json()) as { items: MapProperty[] };
+    const json = (await response.json()) as { items: MapProperty[]; features?: OrganizationFeatureAccess };
     setItems(json.items);
+    if (json.features) {
+      setFeatureAccess(json.features);
+    }
   }
 
   useEffect(() => {
@@ -240,6 +259,9 @@ export function LiveFieldMap({
       .then((json) => {
         if (!cancelled) {
           setSelectedProperty(json?.item ?? null);
+          if (json?.item?.featureAccess) {
+            setFeatureAccess(json.item.featureAccess);
+          }
         }
       })
       .finally(() => {
@@ -401,6 +423,10 @@ export function LiveFieldMap({
         return ["all"];
       }
 
+      if (filter === "high_priority" && !featureAccess.priorityScoringEnabled) {
+        return current;
+      }
+
       const withoutAll = current.filter((item) => item !== "all");
       const exists = withoutAll.includes(filter);
       const next = exists ? withoutAll.filter((item) => item !== filter) : [...withoutAll, filter];
@@ -418,6 +444,7 @@ export function LiveFieldMap({
         showTeamKnocks={showTeamKnocks}
         onToggleTeamKnocks={() => setShowTeamKnocks((current) => !current)}
         canToggleTeamKnocks={!isManager}
+        showPriorityFilter={featureAccess.priorityScoringEnabled}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -428,6 +455,7 @@ export function LiveFieldMap({
           setSelectedPropertyId(propertyId);
           setIsDrawerVisible(true);
         }}
+        showPriority={featureAccess.priorityScoringEnabled}
         className={`relative z-20 shrink-0 border-r border-slate-200/80 bg-white/80 backdrop-blur ${isResultsPanelVisible ? "hidden w-80 xl:block" : "hidden xl:hidden"}`}
       />
 
@@ -597,6 +625,7 @@ export function LiveFieldMap({
                 setSelectedPropertyId(propertyId);
                 setIsResultsOpen(false);
               }}
+              showPriority={featureAccess.priorityScoringEnabled}
               className="block max-h-[calc(70vh-4.5rem)] w-full overflow-y-auto bg-white"
               showHeader={false}
             />

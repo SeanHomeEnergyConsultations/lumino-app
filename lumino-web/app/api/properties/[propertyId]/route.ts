@@ -14,7 +14,7 @@ export async function GET(
   }
 
   const { propertyId } = await params;
-  const item = await getPropertyDetail(propertyId);
+  const item = await getPropertyDetail(propertyId, context);
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
