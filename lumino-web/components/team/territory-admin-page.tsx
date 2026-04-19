@@ -21,7 +21,7 @@ function statusPill(status: string) {
 }
 
 export function TerritoryAdminPage() {
-  const { session, organizationBranding, refreshOrganizationBranding } = useAuth();
+  const { session, appContext, organizationBranding, refreshOrganizationBranding } = useAuth();
   const accessToken = session?.access_token ?? null;
 
   const [territories, setTerritories] = useState<TerritoryListItem[]>([]);
@@ -50,6 +50,10 @@ export function TerritoryAdminPage() {
   const assignedPropertyIds = useMemo(
     () => new Set((selectedTerritory?.properties ?? []).map((item) => item.propertyId)),
     [selectedTerritory?.properties]
+  );
+  const canEditBranding = useMemo(
+    () => (appContext?.memberships ?? []).some((item) => ["owner", "admin"].includes(item.role)),
+    [appContext?.memberships]
   );
 
   const loadTerritories = useCallback(async () => {
@@ -361,8 +365,9 @@ export function TerritoryAdminPage() {
         </p>
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+      {canEditBranding ? (
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+          <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Branding</div>
@@ -459,9 +464,9 @@ export function TerritoryAdminPage() {
               </div>
             </div>
           </div>
-        </section>
+          </section>
 
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Rep Roster</div>
@@ -537,8 +542,9 @@ export function TerritoryAdminPage() {
               </div>
             ) : null}
           </div>
-        </section>
-      </div>
+          </section>
+        </div>
+      ) : null}
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">

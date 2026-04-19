@@ -5,7 +5,7 @@ import { getOrganizationBranding } from "@/lib/db/queries/organization";
 import { organizationBrandingSchema } from "@/lib/validation/organization";
 
 function canManageOrganization(roles: string[]) {
-  return roles.some((role) => ["owner", "admin", "manager"].includes(role));
+  return roles.some((role) => ["owner", "admin"].includes(role));
 }
 
 export const dynamic = "force-dynamic";
