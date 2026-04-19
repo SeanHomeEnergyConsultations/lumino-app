@@ -83,6 +83,33 @@ export function ImportsPage() {
     return () => window.clearInterval(interval);
   }, [batches, loadBatches, processingBatchId]);
 
+  const applyBatchProgress = useCallback(
+    (
+      batchId: string,
+      progress: Pick<
+        ImportBatchAnalysisResponse,
+        "status" | "pendingAnalysisCount" | "analyzingCount" | "analyzedCount" | "failedItemCount" | "lastError"
+      >
+    ) => {
+      setBatches((current) =>
+        current.map((batch) =>
+          batch.batchId === batchId
+            ? {
+                ...batch,
+                status: progress.status,
+                pendingAnalysisCount: progress.pendingAnalysisCount,
+                analyzingCount: progress.analyzingCount,
+                analyzedCount: progress.analyzedCount,
+                failedCount: progress.failedItemCount,
+                lastError: progress.lastError
+              }
+            : batch
+        )
+      );
+    },
+    []
+  );
+
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -125,6 +152,17 @@ export function ImportsPage() {
   async function runAnalysis(batchId: string, action: "run" | "retry_failed") {
     if (!accessToken) return;
     setProcessingBatchId(batchId);
+    setBatches((current) =>
+      current.map((batch) =>
+        batch.batchId === batchId
+          ? {
+              ...batch,
+              status: "analyzing",
+              lastError: null
+            }
+          : batch
+      )
+    );
     try {
       let keepGoing = true;
       while (keepGoing) {
@@ -135,10 +173,12 @@ export function ImportsPage() {
         if (!response.ok) throw new Error("Failed to analyze import batch");
         const json = (await response.json()) as ImportBatchAnalysisResponse;
         keepGoing = json.continued;
-        await loadBatches({ silent: true });
+        applyBatchProgress(batchId, json);
       }
+      await loadBatches({ silent: true });
     } catch {
       window.alert("Import analysis failed. Open the batch detail page to inspect the error and retry.");
+      await loadBatches({ silent: true });
     } finally {
       setProcessingBatchId(null);
     }

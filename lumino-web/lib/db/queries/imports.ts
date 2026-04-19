@@ -39,9 +39,14 @@ export async function getRecentImportBatches(context: AuthSessionContext): Promi
 
 export async function getImportBatchDetail(
   batchId: string,
-  context: AuthSessionContext
+  context: AuthSessionContext,
+  options?: { page?: number; pageSize?: number }
 ): Promise<ImportBatchDetailResponse["item"] | null> {
   if (!context.organizationId) return null;
+  const page = Math.max(1, options?.page ?? 1);
+  const pageSize = Math.min(500, Math.max(25, options?.pageSize ?? 100));
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
 
   const supabase = createServerSupabaseClient();
   const { data: batchRow, error: batchError } = await supabase
@@ -56,12 +61,19 @@ export async function getImportBatchDetail(
   if (batchError) throw batchError;
   if (!batchRow) return null;
 
+  const { count: totalItems, error: countError } = await supabase
+    .from("import_batch_items")
+    .select("id", { count: "exact", head: true })
+    .eq("import_batch_id", batchId);
+
+  if (countError) throw countError;
+
   const { data: itemRows, error: itemsError } = await supabase
     .from("import_batch_items")
     .select("id,lead_id,source_row_number,raw_address,normalized_address,ingest_status,analysis_status,analysis_error,created_at")
     .eq("import_batch_id", batchId)
     .order("source_row_number", { ascending: true })
-    .limit(150);
+    .range(from, to);
 
   if (itemsError) throw itemsError;
 
@@ -85,6 +97,10 @@ export async function getImportBatchDetail(
     startedAt: (batchRow.started_at as string | null) ?? null,
     completedAt: (batchRow.completed_at as string | null) ?? null,
     lastError: (batchRow.last_error as string | null) ?? null,
+    page,
+    pageSize,
+    totalItems: Number(totalItems ?? 0),
+    totalPages: Math.max(1, Math.ceil(Number(totalItems ?? 0) / pageSize)),
     items:
       (itemRows ?? []).map((row) => ({
         itemId: row.id as string,

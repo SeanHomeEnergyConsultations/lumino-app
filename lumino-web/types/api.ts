@@ -469,6 +469,10 @@ export interface ImportBatchDetailResponse {
     sourceName: string | null;
     sourceType: string | null;
     notes: string | null;
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
     items: ImportBatchItemDetail[];
   };
 }

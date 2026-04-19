@@ -19,7 +19,10 @@ export async function GET(
   }
 
   const { batchId } = await params;
-  const item = await getImportBatchDetail(batchId, context);
+  const { searchParams } = new URL(request.url);
+  const page = Number(searchParams.get("page") ?? "1");
+  const pageSize = Number(searchParams.get("pageSize") ?? "100");
+  const item = await getImportBatchDetail(batchId, context, { page, pageSize });
   if (!item) return NextResponse.json({ error: "Import batch not found" }, { status: 404 });
   return NextResponse.json({ item });
 }

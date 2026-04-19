@@ -30,6 +30,7 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
   const { session } = useAuth();
   const accessToken = session?.access_token ?? null;
   const [batch, setBatch] = useState<ImportBatchDetailResponse["item"] | null>(null);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [running, setRunning] = useState<"idle" | "running" | "retrying">("idle");
@@ -43,7 +44,7 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
       setLoading(true);
     }
     try {
-      const response = await authFetch(accessToken, `/api/imports/${batchId}`);
+      const response = await authFetch(accessToken, `/api/imports/${batchId}?page=${page}&pageSize=100`);
       if (!response.ok) throw new Error("Failed to load import batch.");
       const json = (await response.json()) as ImportBatchDetailResponse;
       setBatch(json.item);
@@ -54,7 +55,7 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
         setLoading(false);
       }
     }
-  }, [accessToken, batchId]);
+  }, [accessToken, batchId, page]);
 
   useEffect(() => {
     void loadBatch();
@@ -175,6 +176,34 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
                 {batch.lastError}
               </div>
             ) : null}
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              <div>
+                Showing rows {(batch.page - 1) * batch.pageSize + 1}-
+                {Math.min(batch.page * batch.pageSize, batch.totalItems)} of {batch.totalItems}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={batch.page <= 1}
+                  className="rounded-2xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-ink transition hover:border-slate-300 disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  Page {batch.page} of {batch.totalPages}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.min(batch.totalPages, current + 1))}
+                  disabled={batch.page >= batch.totalPages}
+                  className="rounded-2xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-ink transition hover:border-slate-300 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </>
         ) : null}
       </div>
