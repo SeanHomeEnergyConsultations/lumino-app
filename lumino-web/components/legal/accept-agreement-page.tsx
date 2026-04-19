@@ -47,8 +47,7 @@ export function AcceptAgreementPage({ nextPath }: { nextPath: string }) {
       return;
     }
 
-    router.replace(nextPath as Route);
-    router.refresh();
+    window.location.assign(nextPath);
   }
 
   return (
