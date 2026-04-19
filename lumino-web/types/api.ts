@@ -390,3 +390,34 @@ export interface TeamMembersResponse {
 export interface TeamMemberActionResponse {
   ok: true;
 }
+
+export interface ImportBatchListItem {
+  batchId: string;
+  filename: string;
+  status: string;
+  totalRows: number;
+  detectedRows: number;
+  insertedCount: number;
+  updatedCount: number;
+  duplicateMatchedCount: number;
+  pendingAnalysisCount: number;
+  analyzingCount: number;
+  analyzedCount: number;
+  failedCount: number;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  lastError: string | null;
+}
+
+export interface ImportsResponse {
+  items: ImportBatchListItem[];
+}
+
+export interface ImportUploadResponse {
+  batchId: string;
+  insertedCount: number;
+  updatedCount: number;
+  duplicateMatchedCount: number;
+  pendingAnalysisCount: number;
+}
