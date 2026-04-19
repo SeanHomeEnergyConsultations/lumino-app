@@ -39,26 +39,49 @@ export function ImportsPage() {
   const [headers, setHeaders] = useState<string[]>([]);
   const [batches, setBatches] = useState<ImportBatchListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [processingBatchId, setProcessingBatchId] = useState<string | null>(null);
   const [uploadState, setUploadState] = useState<"idle" | "done" | "error">("idle");
 
-  const loadBatches = useCallback(async () => {
+  const loadBatches = useCallback(async (options?: { silent?: boolean }) => {
     if (!accessToken) return;
-    setLoading(true);
+    const silent = options?.silent ?? false;
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const response = await authFetch(accessToken, "/api/imports");
       if (!response.ok) throw new Error("Failed to load imports");
       const json = (await response.json()) as ImportsResponse;
       setBatches(json.items);
     } finally {
-      setLoading(false);
+      if (silent) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   }, [accessToken]);
 
   useEffect(() => {
     void loadBatches();
   }, [loadBatches]);
+
+  useEffect(() => {
+    const hasActiveBatch = batches.some((batch) =>
+      ["ready_for_analysis", "analyzing"].includes(batch.status)
+    );
+    if (!hasActiveBatch || processingBatchId) return;
+
+    const interval = window.setInterval(() => {
+      void loadBatches({ silent: true });
+    }, 4000);
+
+    return () => window.clearInterval(interval);
+  }, [batches, loadBatches, processingBatchId]);
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -90,7 +113,7 @@ export function ImportsPage() {
       setFilename(null);
       setHeaders([]);
       setPreviewRows([]);
-      await loadBatches();
+      await loadBatches({ silent: true });
       await runAnalysis(result.batchId, "run");
     } catch {
       setUploadState("error");
@@ -112,7 +135,7 @@ export function ImportsPage() {
         if (!response.ok) throw new Error("Failed to analyze import batch");
         const json = (await response.json()) as ImportBatchAnalysisResponse;
         keepGoing = json.continued;
-        await loadBatches();
+        await loadBatches({ silent: true });
       }
     } catch {
       window.alert("Import analysis failed. Open the batch detail page to inspect the error and retry.");
@@ -136,11 +159,11 @@ export function ImportsPage() {
           </div>
           <button
             type="button"
-            onClick={() => void loadBatches()}
+            onClick={() => void loadBatches({ silent: batches.length > 0 })}
             className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-slate-300"
           >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Refreshing..." : "Refresh"}
           </button>
         </div>
 
@@ -229,7 +252,7 @@ export function ImportsPage() {
       <section className="mt-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Recent Batches</div>
         <div className="mt-4 space-y-3">
-          {loading ? (
+          {loading && !batches.length ? (
             <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
               Loading import history...
             </div>
@@ -245,14 +268,17 @@ export function ImportsPage() {
                     {batch.status.replaceAll("_", " ")}
                   </div>
                 </div>
-                <div className="mt-4 grid gap-3 md:grid-cols-4 xl:grid-cols-6">
+                <div className="mt-4 grid gap-3 md:grid-cols-4 xl:grid-cols-8">
                   {[
                     ["Rows", batch.totalRows],
                     ["Detected", batch.detectedRows],
                     ["Inserted", batch.insertedCount],
                     ["Updated", batch.updatedCount],
                     ["Duplicates", batch.duplicateMatchedCount],
-                    ["Pending Analysis", batch.pendingAnalysisCount]
+                    ["Pending", batch.pendingAnalysisCount],
+                    ["Analyzing", batch.analyzingCount],
+                    ["Analyzed", batch.analyzedCount],
+                    ["Failed", batch.failedCount]
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</div>

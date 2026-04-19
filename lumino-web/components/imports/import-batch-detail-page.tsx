@@ -31,24 +31,45 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
   const accessToken = session?.access_token ?? null;
   const [batch, setBatch] = useState<ImportBatchDetailResponse["item"] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [running, setRunning] = useState<"idle" | "running" | "retrying">("idle");
 
-  const loadBatch = useCallback(async () => {
+  const loadBatch = useCallback(async (options?: { silent?: boolean }) => {
     if (!accessToken) return;
-    setLoading(true);
+    const silent = options?.silent ?? false;
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const response = await authFetch(accessToken, `/api/imports/${batchId}`);
       if (!response.ok) throw new Error("Failed to load import batch.");
       const json = (await response.json()) as ImportBatchDetailResponse;
       setBatch(json.item);
     } finally {
-      setLoading(false);
+      if (silent) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   }, [accessToken, batchId]);
 
   useEffect(() => {
     void loadBatch();
   }, [loadBatch]);
+
+  useEffect(() => {
+    if (!batch || running !== "idle") return;
+    if (!["ready_for_analysis", "analyzing"].includes(batch.status)) return;
+
+    const interval = window.setInterval(() => {
+      void loadBatch({ silent: true });
+    }, 3000);
+
+    return () => window.clearInterval(interval);
+  }, [batch, loadBatch, running]);
 
   async function runAnalysis(action: "run" | "retry_failed") {
     if (!accessToken) return;
@@ -67,7 +88,7 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
         const json = (await response.json()) as ImportBatchAnalysisResponse;
         keepGoing = json.continued;
       }
-      await loadBatch();
+      await loadBatch({ silent: true });
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Failed to analyze import batch.");
     } finally {
@@ -96,6 +117,13 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
             >
               Back to Imports
             </Link>
+            <button
+              type="button"
+              onClick={() => void loadBatch({ silent: Boolean(batch) })}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-slate-300"
+            >
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </button>
             <button
               type="button"
               onClick={() => void runAnalysis("run")}
