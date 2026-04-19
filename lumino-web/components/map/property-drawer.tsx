@@ -43,6 +43,8 @@ export function PropertyDrawer({
   onSaveLead,
   onCreateTask,
   onDismiss,
+  onCloseDesktop,
+  desktopVisible = true,
   isOpen = false
 }: {
   property: PropertyDetail | null;
@@ -52,6 +54,8 @@ export function PropertyDrawer({
   onSaveLead: (input: LeadInput) => Promise<void>;
   onCreateTask: (input: TaskInput) => Promise<void>;
   onDismiss?: () => void;
+  onCloseDesktop?: () => void;
+  desktopVisible?: boolean;
   isOpen?: boolean;
 }) {
   const [mobileExpanded, setMobileExpanded] = useState(false);
@@ -570,7 +574,19 @@ export function PropertyDrawer({
 
   return (
     <>
-      <aside className="relative z-20 hidden w-[28rem] shrink-0 border-l border-slate-200/80 bg-white/80 p-5 backdrop-blur xl:block">
+      <aside className={`relative z-20 hidden w-[28rem] shrink-0 border-l border-slate-200/80 bg-white/80 p-5 backdrop-blur ${desktopVisible ? "xl:block" : "xl:hidden"}`}>
+        {(property || loading) && onCloseDesktop ? (
+          <div className="mb-3 flex justify-end">
+            <button
+              type="button"
+              onClick={onCloseDesktop}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+              aria-label="Hide property details"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ) : null}
         {content}
       </aside>
 

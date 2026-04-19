@@ -1,3 +1,5 @@
+"use client";
+
 import {
   BadgeHelp,
   Ban,
@@ -10,10 +12,14 @@ import {
   HelpCircle,
   House,
   PhoneCall,
+  Search,
   UserRoundCheck,
   XCircle
 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import type { SearchResponse } from "@/types/api";
 import type { MapProperty } from "@/types/entities";
+import { authFetch, useAuth } from "@/lib/auth/client";
 
 export function mapStateVisual(mapState: MapProperty["mapState"]) {
   switch (mapState) {
@@ -50,6 +56,15 @@ export function mapStateVisual(mapState: MapProperty["mapState"]) {
   }
 }
 
+type ResultItem = {
+  propertyId: string;
+  address: string;
+  subtitle: string;
+  mapState?: MapProperty["mapState"];
+  visitCount?: number;
+  notHomeCount?: number;
+};
+
 export function PropertyResultsPanel({
   items,
   selectedPropertyId,
@@ -63,49 +78,147 @@ export function PropertyResultsPanel({
   className?: string;
   showHeader?: boolean;
 }) {
+  const { session } = useAuth();
+  const [query, setQuery] = useState("");
+  const [remoteResults, setRemoteResults] = useState<ResultItem[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!session?.access_token || trimmed.length < 2) {
+      setRemoteResults([]);
+      setSearchLoading(false);
+      return;
+    }
+
+    const timeout = window.setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const response = await authFetch(
+          session.access_token,
+          `/api/search?q=${encodeURIComponent(trimmed)}`
+        );
+        if (!response.ok) {
+          setRemoteResults([]);
+          return;
+        }
+        const json = (await response.json()) as SearchResponse;
+        const nextResults = json.items
+          .filter((item) => item.propertyId)
+          .map((item) => ({
+            propertyId: item.propertyId as string,
+            address: item.kind === "property" ? item.title : item.subtitle,
+            subtitle: item.kind === "property" ? item.subtitle : item.title
+          }));
+        setRemoteResults(nextResults);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [query, session?.access_token]);
+
+  const visibleItems = useMemo(() => {
+    const trimmed = query.trim().toLowerCase();
+    const localMatches: ResultItem[] = !trimmed
+      ? items.map((item) => ({
+          propertyId: item.propertyId,
+          address: item.address,
+          subtitle: `${item.visitCount} visits${item.mapState === "not_home" && item.notHomeCount > 1 ? ` · ${item.notHomeCount} tries` : ""}`,
+          mapState: item.mapState,
+          visitCount: item.visitCount,
+          notHomeCount: item.notHomeCount
+        }))
+      : items
+          .filter((item) =>
+            [item.address, item.city, item.state, item.postalCode]
+              .filter(Boolean)
+              .some((value) => value?.toLowerCase().includes(trimmed))
+          )
+          .map((item) => ({
+            propertyId: item.propertyId,
+            address: item.address,
+            subtitle: `${item.visitCount} visits${item.mapState === "not_home" && item.notHomeCount > 1 ? ` · ${item.notHomeCount} tries` : ""}`,
+            mapState: item.mapState,
+            visitCount: item.visitCount,
+            notHomeCount: item.notHomeCount
+          }));
+
+    if (!trimmed) return localMatches;
+
+    const merged = new Map<string, ResultItem>();
+    for (const item of localMatches) merged.set(item.propertyId, item);
+    for (const item of remoteResults) {
+      if (!merged.has(item.propertyId)) {
+        merged.set(item.propertyId, item);
+      }
+    }
+    return Array.from(merged.values());
+  }, [items, query, remoteResults]);
+
   return (
     <aside className={className}>
       {showHeader ? (
         <div className="border-b border-slate-200/80 px-4 py-3">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Nearby Targets</div>
           <div className="mt-1 text-sm text-slate-600">{items.length} properties in view</div>
+          <div className="mt-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Find a property from your list"
+              className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-slate-400"
+            />
+          </div>
         </div>
       ) : null}
       <div className="max-h-[calc(100vh-8rem)] space-y-2 overflow-y-auto p-3">
-        {items.map((item) => {
-          const visual = mapStateVisual(item.mapState);
-          const Icon = visual.icon;
+        {searchLoading ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 p-3 text-sm text-slate-500">
+            Searching properties…
+          </div>
+        ) : visibleItems.length ? (
+          visibleItems.map((item) => {
+            const matchingMapItem = items.find((candidate) => candidate.propertyId === item.propertyId) ?? null;
+            const visual = matchingMapItem ? mapStateVisual(matchingMapItem.mapState) : mapStateVisual("imported_target");
+            const Icon = visual.icon;
 
-          return (
-            <button
-              key={item.propertyId}
-              type="button"
-              onClick={() => onSelect(item.propertyId)}
-              className={`w-full rounded-2xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-ink/30 ${
-                selectedPropertyId === item.propertyId
-                  ? "border-ink bg-ink text-white shadow-panel"
-                  : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-              }`}
-            >
-              <div className="flex items-start gap-3">
-                <span
-                  className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                    selectedPropertyId === item.propertyId ? "bg-white/15 text-white" : visual.className
-                  }`}
-                >
-                  <Icon className="h-4 w-4" strokeWidth={2.2} />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold">{item.address}</div>
-                  <div className={`mt-1 text-xs ${selectedPropertyId === item.propertyId ? "text-slate-200" : "text-slate-500"}`}>
-                    {item.visitCount} visits
-                    {item.mapState === "not_home" && item.notHomeCount > 1 ? ` · ${item.notHomeCount} tries` : ""}
+            return (
+              <button
+                key={item.propertyId}
+                type="button"
+                onClick={() => onSelect(item.propertyId)}
+                className={`w-full rounded-2xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-ink/30 ${
+                  selectedPropertyId === item.propertyId
+                    ? "border-ink bg-ink text-white shadow-panel"
+                    : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <span
+                    className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                      selectedPropertyId === item.propertyId ? "bg-white/15 text-white" : visual.className
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" strokeWidth={2.2} />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold">{item.address}</div>
+                    <div className={`mt-1 text-xs ${selectedPropertyId === item.propertyId ? "text-slate-200" : "text-slate-500"}`}>
+                      {item.subtitle}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </button>
-          );
-        })}
+              </button>
+            );
+          })
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-200 p-3 text-sm text-slate-500">
+            {query.trim().length >= 2 ? "No matching properties found." : "No nearby properties yet."}
+          </div>
+        )}
       </div>
     </aside>
   );

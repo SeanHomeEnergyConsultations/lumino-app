@@ -8,6 +8,7 @@ export async function searchEntities(
 ): Promise<SearchResponse> {
   const supabase = createServerSupabaseClient();
   const trimmed = query.trim();
+  const normalized = trimmed.toLowerCase();
 
   if (!trimmed || trimmed.length < 2) {
     return { items: [] };
@@ -16,9 +17,17 @@ export async function searchEntities(
   const [{ data: propertyRows, error: propertyError }, { data: leadRows, error: leadError }] =
     await Promise.all([
       supabase
-        .from("property_history_view")
-        .select("property_id,raw_address,city,state")
-        .ilike("raw_address", `%${trimmed}%`)
+        .from("properties")
+        .select("id,raw_address,address_line_1,city,state,postal_code,normalized_address")
+        .or(
+          [
+            `raw_address.ilike.%${trimmed}%`,
+            `address_line_1.ilike.%${trimmed}%`,
+            `city.ilike.%${trimmed}%`,
+            `state.ilike.%${trimmed}%`,
+            `normalized_address.ilike.%${normalized}%`
+          ].join(",")
+        )
         .limit(8),
       supabase
         .from("leads")
@@ -41,12 +50,22 @@ export async function searchEntities(
 
   const items: SearchResultItem[] = [
     ...(propertyRows ?? []).map((row) => ({
-      id: `property:${row.property_id as string}`,
+      id: `property:${row.id as string}`,
       kind: "property" as const,
-      title: row.raw_address as string,
-      subtitle: [row.city as string | null, row.state as string | null].filter(Boolean).join(", ") || "Property",
-      href: `/properties/${row.property_id as string}`,
-      propertyId: row.property_id as string,
+      title:
+        (row.raw_address as string | null) ??
+        (row.address_line_1 as string | null) ??
+        "Property",
+      subtitle:
+        [
+          row.city as string | null,
+          row.state as string | null,
+          row.postal_code as string | null
+        ]
+          .filter(Boolean)
+          .join(", ") || "Property",
+      href: `/properties/${row.id as string}`,
+      propertyId: row.id as string,
       leadId: null
     })),
     ...(leadRows ?? []).map((row) => {

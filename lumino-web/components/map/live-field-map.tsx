@@ -15,6 +15,10 @@ import {
   House,
   LocateFixed,
   MapPinned,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   PhoneCall,
   UserRoundCheck,
   XCircle
@@ -109,6 +113,8 @@ export function LiveFieldMap({
   const [isSavingVisit, setIsSavingVisit] = useState(false);
   const [isResolvingTap, setIsResolvingTap] = useState(false);
   const [isResultsOpen, setIsResultsOpen] = useState(false);
+  const [isResultsPanelVisible, setIsResultsPanelVisible] = useState(true);
+  const [isDrawerVisible, setIsDrawerVisible] = useState(true);
 
   const selectedMapItem = useMemo(
     () => items.find((item) => item.propertyId === selectedPropertyId) ?? null,
@@ -126,6 +132,12 @@ export function LiveFieldMap({
   useEffect(() => {
     setSelectedPropertyId(initialSelectedPropertyId);
   }, [initialSelectedPropertyId]);
+
+  useEffect(() => {
+    if (selectedPropertyId) {
+      setIsDrawerVisible(true);
+    }
+  }, [selectedPropertyId]);
 
   useEffect(() => {
     setActiveFilters(initialFilters.length ? initialFilters : ["all"]);
@@ -277,6 +289,7 @@ export function LiveFieldMap({
       if (!response.ok) return;
       const json = (await response.json()) as ResolvePropertyResponse;
       setSelectedPropertyId(json.propertyId);
+      setIsDrawerVisible(true);
       await refreshSelectedProperty(json.propertyId);
     } finally {
       setIsResolvingTap(false);
@@ -391,9 +404,36 @@ export function LiveFieldMap({
       <MapToolbar activeFilters={activeFilters} onToggle={handleToggleFilter} />
 
       <div className="flex min-h-0 flex-1">
-      <PropertyResultsPanel items={filteredItems} selectedPropertyId={selectedPropertyId} onSelect={setSelectedPropertyId} />
+      <PropertyResultsPanel
+        items={filteredItems}
+        selectedPropertyId={selectedPropertyId}
+        onSelect={(propertyId) => {
+          setSelectedPropertyId(propertyId);
+          setIsDrawerVisible(true);
+        }}
+        className={`relative z-20 shrink-0 border-r border-slate-200/80 bg-white/80 backdrop-blur ${isResultsPanelVisible ? "hidden w-80 xl:block" : "hidden xl:hidden"}`}
+      />
 
       <div className="relative flex-1 overflow-hidden bg-[linear-gradient(135deg,#f8fafc_0%,#e7eef9_100%)]">
+        <div className="absolute left-4 top-4 z-20 hidden items-center gap-2 xl:flex">
+          <button
+            type="button"
+            onClick={() => setIsResultsPanelVisible((current) => !current)}
+            className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel transition hover:bg-white"
+          >
+            {isResultsPanelVisible ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+            {isResultsPanelVisible ? "Hide List" : "Show List"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsDrawerVisible((current) => !current)}
+            className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel transition hover:bg-white"
+          >
+            {isDrawerVisible ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+            {isDrawerVisible ? "Hide Details" : "Show Details"}
+          </button>
+        </div>
+
         <Map
           ref={mapRef}
           {...viewState}
@@ -417,6 +457,7 @@ export function LiveFieldMap({
                   onClick={(event) => {
                     event.stopPropagation();
                     setSelectedPropertyId(item.propertyId);
+                    setIsDrawerVisible(true);
                   }}
                   title={`${item.address} · ${item.mapState}`}
                   className={`flex h-11 w-11 items-center justify-center rounded-full border-2 shadow-lg transition focus:outline-none focus:ring-2 focus:ring-ink/30 ${
@@ -503,6 +544,8 @@ export function LiveFieldMap({
         onLogOutcome={handleLogOutcome}
         onSaveLead={handleSaveLead}
         onCreateTask={handleCreateTask}
+        desktopVisible={isDrawerVisible}
+        onCloseDesktop={() => setIsDrawerVisible(false)}
         isOpen={Boolean(selectedPropertyId)}
         onDismiss={() => {
           setSelectedPropertyId(null);
