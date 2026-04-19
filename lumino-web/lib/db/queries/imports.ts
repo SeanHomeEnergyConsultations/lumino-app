@@ -76,11 +76,25 @@ async function loadImportScopeLookups(organizationId: string) {
   return { teamOptions, userOptions, teamNameById, userNameById };
 }
 
+async function loadImportScopeLookupsSafe(organizationId: string) {
+  try {
+    return await loadImportScopeLookups(organizationId);
+  } catch (error) {
+    console.error("Failed to load import assignment lookups", error);
+    return {
+      teamOptions: [] as ImportAssignmentOption[],
+      userOptions: [] as ImportAssignmentOption[],
+      teamNameById: new Map<string, string>(),
+      userNameById: new Map<string, string>()
+    };
+  }
+}
+
 export async function getRecentImportBatches(context: AuthSessionContext): Promise<ImportBatchListItem[]> {
   if (!context.organizationId) return [];
 
   const supabase = createServerSupabaseClient();
-  const { teamNameById, userNameById } = await loadImportScopeLookups(context.organizationId);
+  const { teamNameById, userNameById } = await loadImportScopeLookupsSafe(context.organizationId);
   const { data, error } = await supabase
     .from("import_batches")
     .select(
@@ -100,7 +114,7 @@ export async function getImportAssignmentOptions(context: AuthSessionContext) {
     return { teams: [], users: [] };
   }
 
-  const { teamOptions, userOptions } = await loadImportScopeLookups(context.organizationId);
+  const { teamOptions, userOptions } = await loadImportScopeLookupsSafe(context.organizationId);
   return { teams: teamOptions, users: userOptions };
 }
 
@@ -116,7 +130,7 @@ export async function getImportBatchDetail(
   const to = from + pageSize - 1;
 
   const supabase = createServerSupabaseClient();
-  const { teamNameById, userNameById } = await loadImportScopeLookups(context.organizationId);
+  const { teamNameById, userNameById } = await loadImportScopeLookupsSafe(context.organizationId);
   const { data: batchRow, error: batchError } = await supabase
     .from("import_batches")
     .select(

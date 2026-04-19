@@ -16,11 +16,27 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const [items, options] = await Promise.all([
+  const [itemsResult, optionsResult] = await Promise.allSettled([
     getRecentImportBatches(context),
     getImportAssignmentOptions(context)
   ]);
-  return NextResponse.json({ items, options });
+
+  if (itemsResult.status === "rejected") {
+    console.error("Failed to load recent import batches", itemsResult.reason);
+    return NextResponse.json({ error: "Failed to load recent import batches." }, { status: 500 });
+  }
+
+  if (optionsResult.status === "rejected") {
+    console.error("Failed to load import assignment options", optionsResult.reason);
+  }
+
+  return NextResponse.json({
+    items: itemsResult.value,
+    options:
+      optionsResult.status === "fulfilled"
+        ? optionsResult.value
+        : { teams: [], users: [] }
+  });
 }
 
 export async function POST(request: Request) {

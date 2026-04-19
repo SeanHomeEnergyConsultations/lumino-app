@@ -92,11 +92,14 @@ export function ImportsPage() {
     }
     try {
       const response = await authFetch(accessToken, "/api/imports");
-      if (!response.ok) throw new Error("Failed to load imports");
-      const json = (await response.json()) as ImportsResponse;
-      setBatches(json.items);
-      setAssignmentOptions(json.options);
-      return json.items;
+      const json = await response.json().catch(() => ({} as { error?: string }));
+      if (!response.ok) {
+        throw new Error((json as { error?: string }).error || "Failed to load imports.");
+      }
+      const typedJson = json as ImportsResponse;
+      setBatches(typedJson.items);
+      setAssignmentOptions(typedJson.options);
+      return typedJson.items;
     } finally {
       if (silent) {
         setRefreshing(false);
