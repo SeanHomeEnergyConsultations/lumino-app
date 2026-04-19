@@ -98,6 +98,7 @@ export function LiveFieldMap({
 }) {
   const { session } = useAuth();
   const mapRef = useRef<MapRef | null>(null);
+  const hasAutoCenteredOnUserRef = useRef(false);
   const [items, setItems] = useState(initialItems);
   const [activeFilters, setActiveFilters] = useState<MapFilterKey[]>(initialFilters);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(initialSelectedPropertyId);
@@ -138,12 +139,15 @@ export function LiveFieldMap({
         longitude: position.coords.longitude
       };
       setUserLocation(nextLocation);
-      setViewState((current) => ({
-        ...current,
-        latitude: nextLocation.latitude,
-        longitude: nextLocation.longitude,
-        zoom: Math.max(current.zoom, 18)
-      }));
+      if (!hasAutoCenteredOnUserRef.current) {
+        hasAutoCenteredOnUserRef.current = true;
+        setViewState((current) => ({
+          ...current,
+          latitude: nextLocation.latitude,
+          longitude: nextLocation.longitude,
+          zoom: Math.max(current.zoom, 18)
+        }));
+      }
     };
 
     navigator.geolocation.getCurrentPosition(success, () => undefined, {
