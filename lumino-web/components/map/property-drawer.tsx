@@ -2,16 +2,29 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { CalendarCheck2, Clock3, X } from "lucide-react";
+import {
+  BadgeHelp,
+  Ban,
+  CalendarCheck2,
+  Clock3,
+  DoorOpen,
+  FileBadge2,
+  Handshake,
+  PhoneCall,
+  X,
+  XCircle
+} from "lucide-react";
 import type { LeadInput, PropertyDetail, TaskInput } from "@/types/entities";
 
 const quickOutcomes = [
-  { label: "Not Home", value: "not_home" },
-  { label: "Left Doorhanger", value: "left_doorhanger" },
-  { label: "Opportunity", value: "opportunity" },
-  { label: "Not Interested", value: "not_interested" },
-  { label: "Disqualified", value: "disqualified" },
-  { label: "Appointment", value: "appointment_set" }
+  { label: "Not Home", value: "not_home", icon: DoorOpen },
+  { label: "Left Doorhanger", value: "left_doorhanger", icon: FileBadge2 },
+  { label: "Opportunity", value: "opportunity", icon: Handshake },
+  { label: "Not Interested", value: "not_interested", icon: XCircle },
+  { label: "Disqualified", value: "disqualified", icon: BadgeHelp },
+  { label: "Appointment", value: "appointment_set", icon: CalendarCheck2 },
+  { label: "Callback", value: "callback_requested", icon: PhoneCall },
+  { label: "Do Not Knock", value: "do_not_knock", icon: Ban }
 ];
 
 function EmptyPropertyState() {
@@ -117,7 +130,7 @@ export function PropertyDrawer({
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-2">
+        <div className="mt-5 grid grid-cols-4 gap-2">
           {quickOutcomes.map((item) => (
             <button
               key={item.value}
@@ -137,9 +150,11 @@ export function PropertyDrawer({
                 void onLogOutcome(item.value);
               }}
               disabled={savingVisit}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-950 hover:text-white"
+              title={item.label}
+              aria-label={item.label}
+              className="flex aspect-square items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 transition hover:bg-slate-950 hover:text-white"
             >
-              {item.label}
+              <item.icon className="h-5 w-5" />
             </button>
           ))}
         </div>

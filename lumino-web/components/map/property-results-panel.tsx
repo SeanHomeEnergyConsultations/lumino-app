@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import type { MapProperty } from "@/types/entities";
 
-function mapStateVisual(mapState: MapProperty["mapState"]) {
+export function mapStateVisual(mapState: MapProperty["mapState"]) {
   switch (mapState) {
     case "not_home":
       return { icon: DoorOpen, className: "bg-slate-100 text-slate-700" };
@@ -53,18 +53,24 @@ function mapStateVisual(mapState: MapProperty["mapState"]) {
 export function PropertyResultsPanel({
   items,
   selectedPropertyId,
-  onSelect
+  onSelect,
+  className = "relative z-20 hidden w-80 shrink-0 border-r border-slate-200/80 bg-white/80 backdrop-blur xl:block",
+  showHeader = true
 }: {
   items: MapProperty[];
   selectedPropertyId: string | null;
   onSelect: (propertyId: string) => void;
+  className?: string;
+  showHeader?: boolean;
 }) {
   return (
-    <aside className="relative z-20 hidden w-80 shrink-0 border-r border-slate-200/80 bg-white/80 backdrop-blur xl:block">
-      <div className="border-b border-slate-200/80 px-4 py-3">
-        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Nearby Targets</div>
-        <div className="mt-1 text-sm text-slate-600">{items.length} properties in view</div>
-      </div>
+    <aside className={className}>
+      {showHeader ? (
+        <div className="border-b border-slate-200/80 px-4 py-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Nearby Targets</div>
+          <div className="mt-1 text-sm text-slate-600">{items.length} properties in view</div>
+        </div>
+      ) : null}
       <div className="max-h-[calc(100vh-8rem)] space-y-2 overflow-y-auto p-3">
         {items.map((item) => {
           const visual = mapStateVisual(item.mapState);
@@ -92,7 +98,7 @@ export function PropertyResultsPanel({
                 <div className="min-w-0">
                   <div className="text-sm font-semibold">{item.address}</div>
                   <div className={`mt-1 text-xs ${selectedPropertyId === item.propertyId ? "text-slate-200" : "text-slate-500"}`}>
-                    {item.mapState} · {item.visitCount} visits
+                    {item.visitCount} visits
                     {item.mapState === "not_home" && item.notHomeCount > 1 ? ` · ${item.notHomeCount} tries` : ""}
                   </div>
                 </div>

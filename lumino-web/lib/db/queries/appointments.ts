@@ -30,8 +30,9 @@ export async function getAppointments(
 
   const propertyIds = (leads ?? []).map((row) => row.property_id as string | null).filter(Boolean) as string[];
   const ownerIds = [...new Set((leads ?? []).map((row) => row.owner_id as string | null).filter(Boolean))] as string[];
+  const leadIds = (leads ?? []).map((row) => row.id as string | null).filter(Boolean) as string[];
 
-  const [{ data: properties, error: propertiesError }, { data: users, error: usersError }] =
+  const [{ data: properties, error: propertiesError }, { data: users, error: usersError }, { data: reminderTasks, error: reminderError }] =
     await Promise.all([
       propertyIds.length
         ? supabase
@@ -41,14 +42,24 @@ export async function getAppointments(
         : Promise.resolve({ data: [], error: null }),
       ownerIds.length
         ? supabase.from("app_users").select("id,full_name,email").in("id", ownerIds)
+        : Promise.resolve({ data: [], error: null }),
+      leadIds.length
+        ? supabase
+            .from("tasks")
+            .select("id,lead_id,due_at,status,type")
+            .in("lead_id", leadIds)
+            .eq("type", "appointment_confirm")
+            .in("status", ["open", "overdue", "blocked"])
         : Promise.resolve({ data: [], error: null })
     ]);
 
   if (propertiesError) throw propertiesError;
   if (usersError) throw usersError;
+  if (reminderError) throw reminderError;
 
   const propertyMap = new Map((properties ?? []).map((row) => [row.property_id as string, row]));
   const userMap = new Map((users ?? []).map((row) => [row.id as string, row]));
+  const reminderMap = new Map((reminderTasks ?? []).map((row) => [row.lead_id as string, row]));
   const now = Date.now();
   const tomorrow = new Date();
   tomorrow.setHours(24, 0, 0, 0);
@@ -61,6 +72,7 @@ export async function getAppointments(
 
       const property = propertyMap.get(propertyId);
       const owner = userMap.get((lead.owner_id as string | null) ?? "");
+      const reminder = reminderMap.get(lead.id as string);
       const scheduledAt = lead.appointment_at as string | null;
       if (!scheduledAt) return null;
 
@@ -77,7 +89,9 @@ export async function getAppointments(
         phone: (lead.phone as string | null) ?? null,
         email: (lead.email as string | null) ?? null,
         ownerId: (lead.owner_id as string | null) ?? null,
-        ownerName: (owner?.full_name as string | null | undefined) ?? (owner?.email as string | null | undefined) ?? null
+        ownerName: (owner?.full_name as string | null | undefined) ?? (owner?.email as string | null | undefined) ?? null,
+        reminderTaskId: (reminder?.id as string | null | undefined) ?? null,
+        reminderDueAt: (reminder?.due_at as string | null | undefined) ?? null
       };
     })
     .filter((item): item is AppointmentScheduleItem => Boolean(item));

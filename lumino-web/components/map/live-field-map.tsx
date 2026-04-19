@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ChevronDown,
   BadgeHelp,
   Ban,
   CalendarCheck2,
@@ -13,6 +14,7 @@ import {
   HelpCircle,
   House,
   LocateFixed,
+  MapPinned,
   PhoneCall,
   UserRoundCheck,
   XCircle
@@ -27,7 +29,7 @@ import Map, {
 import type { ResolvePropertyResponse } from "@/types/api";
 import type { LeadInput, MapProperty, PropertyDetail, TaskInput } from "@/types/entities";
 import { MapToolbar, type MapFilterKey } from "@/components/map/map-toolbar";
-import { PropertyResultsPanel } from "@/components/map/property-results-panel";
+import { PropertyResultsPanel, mapStateVisual } from "@/components/map/property-results-panel";
 import { PropertyDrawer } from "@/components/map/property-drawer";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
@@ -105,6 +107,7 @@ export function LiveFieldMap({
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isSavingVisit, setIsSavingVisit] = useState(false);
   const [isResolvingTap, setIsResolvingTap] = useState(false);
+  const [isResultsOpen, setIsResultsOpen] = useState(false);
 
   const selectedMapItem = useMemo(
     () => items.find((item) => item.propertyId === selectedPropertyId) ?? null,
@@ -253,6 +256,7 @@ export function LiveFieldMap({
     if (typeof window !== "undefined" && window.innerWidth < 1280 && selectedPropertyId) {
       setSelectedPropertyId(null);
       setSelectedProperty(null);
+      setIsResultsOpen(false);
       return;
     }
 
@@ -305,15 +309,19 @@ export function LiveFieldMap({
                       ? "not_home"
                       : outcome === "left_doorhanger"
                         ? "left_doorhanger"
+                        : outcome === "callback_requested"
+                          ? "callback_requested"
+                          : outcome === "do_not_knock"
+                            ? "do_not_knock"
                         : outcome === "interested"
-                    ? "interested"
-                    : outcome === "disqualified"
-                      ? "disqualified"
-                      : outcome === "not_interested"
-                        ? "not_interested"
-                        : outcome === "appointment_set"
-                          ? "appointment_set"
-                          : "canvassed_with_lead"
+                          ? "interested"
+                          : outcome === "disqualified"
+                            ? "disqualified"
+                            : outcome === "not_interested"
+                              ? "not_interested"
+                              : outcome === "appointment_set"
+                                ? "appointment_set"
+                                : "canvassed_with_lead"
               }
             : item
         )
@@ -371,6 +379,8 @@ export function LiveFieldMap({
       return next.length ? next : ["all"];
     });
   }
+
+  const selectedVisual = selectedMapItem ? mapStateVisual(selectedMapItem.mapState) : null;
 
   return (
     <div className="flex min-h-[calc(100vh-7.5rem)] flex-col">
@@ -458,12 +468,28 @@ export function LiveFieldMap({
 
         {selectedMapItem ? (
           <div className="absolute right-4 top-4 rounded-2xl border border-slate-200 bg-white/92 px-4 py-3 text-sm text-slate-700 shadow-panel xl:hidden">
-            <div className="font-semibold text-ink">{selectedMapItem.address}</div>
-            <div className="mt-1 text-xs text-slate-500">
-              {selectedMapItem.mapState} · {selectedMapItem.visitCount} visits
+            <div className="flex items-center gap-3">
+              {selectedVisual ? (
+                <span className={`flex h-8 w-8 items-center justify-center rounded-full ${selectedVisual.className}`}>
+                  <selectedVisual.icon className="h-4 w-4" strokeWidth={2.2} />
+                </span>
+              ) : null}
+              <div>
+                <div className="font-semibold text-ink">{selectedMapItem.address}</div>
+                <div className="mt-1 text-xs text-slate-500">{selectedMapItem.visitCount} visits</div>
+              </div>
             </div>
           </div>
         ) : null}
+
+        <button
+          type="button"
+          onClick={() => setIsResultsOpen(true)}
+          className="absolute left-4 top-4 flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel xl:hidden"
+        >
+          <MapPinned className="h-4 w-4" />
+          Nearby
+        </button>
       </div>
 
       <PropertyDrawer
@@ -480,6 +506,39 @@ export function LiveFieldMap({
           setPropertyLoading(false);
         }}
       />
+      {isResultsOpen ? (
+        <div className="fixed inset-0 z-30 bg-slate-950/20 xl:hidden" onClick={() => setIsResultsOpen(false)}>
+          <div
+            className="absolute inset-x-0 bottom-0 max-h-[70vh] rounded-t-[2rem] border border-slate-200 bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Nearby Targets</div>
+                <div className="mt-1 text-sm text-slate-600">{filteredItems.length} properties in view</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsResultsOpen(false)}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600"
+                aria-label="Hide nearby targets"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </button>
+            </div>
+            <PropertyResultsPanel
+              items={filteredItems}
+              selectedPropertyId={selectedPropertyId}
+              onSelect={(propertyId) => {
+                setSelectedPropertyId(propertyId);
+                setIsResultsOpen(false);
+              }}
+              className="block max-h-[calc(70vh-4.5rem)] w-full overflow-y-auto bg-white"
+              showHeader={false}
+            />
+          </div>
+        </div>
+      ) : null}
       </div>
     </div>
   );

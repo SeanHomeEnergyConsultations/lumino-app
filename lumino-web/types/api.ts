@@ -244,6 +244,8 @@ export interface AppointmentScheduleItem {
   email: string | null;
   ownerId: string | null;
   ownerName: string | null;
+  reminderTaskId: string | null;
+  reminderDueAt: string | null;
 }
 
 export interface AppointmentsResponse {
