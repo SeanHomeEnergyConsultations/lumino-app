@@ -64,6 +64,37 @@ export async function getRequestSessionContext(
     appUserError = fallbackResult.error;
   }
 
+  if (!appUser && user.email) {
+    const fallbackByEmailResult = await serviceClient
+      .from("app_users")
+      .select("id,email,full_name,default_organization_id,role,is_active")
+      .ilike("email", user.email)
+      .order("created_at", { ascending: true })
+      .limit(2);
+
+    if (fallbackByEmailResult.error) {
+      appUserError = fallbackByEmailResult.error;
+    } else {
+      const emailMatches = (fallbackByEmailResult.data as AppUserRow[] | null) ?? [];
+      if (emailMatches.length === 1) {
+        appUser = {
+          ...emailMatches[0],
+          platform_role: null
+        };
+        appUserError = null;
+
+        await serviceClient
+          .from("app_users")
+          .update({
+            external_auth_id: user.id,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", emailMatches[0].id)
+          .is("external_auth_id", null);
+      }
+    }
+  }
+
   if (appUserError || !appUser) return null;
 
   const { data: memberships, error: membershipError } = await serviceClient
