@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { getRequestSessionContext } from "@/lib/auth/server";
-import { triggerTeamMemberAccessEmail, updateTeamMember } from "@/lib/db/mutations/team";
+import { deleteTeamMember, triggerTeamMemberAccessEmail, updateTeamMember } from "@/lib/db/mutations/team";
 import { teamMemberActionSchema, teamMemberUpdateSchema } from "@/lib/validation/team";
 
 function canManageTeam(roles: string[]) {
   return roles.some((role) => ["owner", "admin", "manager"].includes(role));
+}
+
+function canDeleteTeamMembers(roles: string[]) {
+  return roles.some((role) => ["owner", "admin"].includes(role));
 }
 
 export const dynamic = "force-dynamic";
@@ -54,5 +58,20 @@ export async function POST(
       : `${origin}/set-password?mode=recovery`;
 
   const result = await triggerTeamMemberAccessEmail(memberId, parsed.data.action, context, redirectTo);
+  return NextResponse.json(result);
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ memberId: string }> }
+) {
+  const context = await getRequestSessionContext(request);
+  if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!canDeleteTeamMembers(context.memberships.map((item) => item.role))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { memberId } = await params;
+  const result = await deleteTeamMember(memberId, context);
   return NextResponse.json(result);
 }

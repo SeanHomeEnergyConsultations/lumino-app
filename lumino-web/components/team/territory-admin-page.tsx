@@ -55,6 +55,7 @@ export function TerritoryAdminPage() {
     () => (appContext?.memberships ?? []).some((item) => ["owner", "admin"].includes(item.role)),
     [appContext?.memberships]
   );
+  const canDeleteMembers = canEditBranding;
 
   const loadTerritories = useCallback(async () => {
     if (!accessToken) return;
@@ -325,6 +326,27 @@ export function TerritoryAdminPage() {
       });
 
       if (!response.ok) throw new Error("Failed to send access email");
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  }
+
+  async function handleDeleteMember(memberId: string, memberName: string) {
+    if (!accessToken || !canDeleteMembers) return;
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(`Delete ${memberName} from this organization? This removes their team access.`);
+      if (!confirmed) return;
+    }
+
+    setSaveState("saving");
+    try {
+      const response = await authFetch(accessToken, `/api/team/members/${memberId}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) throw new Error("Failed to delete member");
+      await loadMembers();
       setSaveState("saved");
     } catch {
       setSaveState("error");
@@ -622,6 +644,20 @@ export function TerritoryAdminPage() {
                       >
                         Send Reset
                       </button>
+                      {canDeleteMembers && ["rep", "setter"].includes(member.role) ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleDeleteMember(
+                              member.memberId,
+                              member.fullName ?? member.email ?? "this team member"
+                            )
+                          }
+                          className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+                        >
+                          Delete
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </div>

@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetState, setResetState] = useState<"idle" | "sending" | "sent" | "error">("idle");
 
   useEffect(() => {
     setMounted(true);
@@ -39,6 +40,36 @@ export default function LoginPage() {
     }
 
     router.replace("/map");
+  }
+
+  async function handleForgotPassword() {
+    if (!supabase) {
+      setError("Supabase environment variables are missing.");
+      return;
+    }
+    if (!email.trim()) {
+      setError("Enter your email first, then tap Forgot password.");
+      return;
+    }
+
+    setError(null);
+    setResetState("sending");
+    const redirectTo =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/set-password?mode=recovery`
+        : undefined;
+
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo
+    });
+
+    if (resetError) {
+      setResetState("error");
+      setError(resetError.message);
+      return;
+    }
+
+    setResetState("sent");
   }
 
   return (
@@ -79,8 +110,23 @@ export default function LoginPage() {
               required
             />
           </label>
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => void handleForgotPassword()}
+              disabled={loading || resetState === "sending" || (mounted && !envReady)}
+              className="text-sm font-medium text-slate-600 transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {resetState === "sending" ? "Sending reset..." : "Forgot password?"}
+            </button>
+          </div>
           {error ? (
             <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+          ) : null}
+          {resetState === "sent" ? (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              Password reset email sent. Open the link in your inbox to set a new password.
+            </div>
           ) : null}
           <button
             type="submit"

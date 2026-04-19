@@ -232,3 +232,30 @@ export async function updateTeamMember(
   if (error) throw error;
   return { memberId };
 }
+
+export async function deleteTeamMember(memberId: string, context: AuthSessionContext) {
+  const supabase = createServerSupabaseClient();
+  if (!context.organizationId) throw new Error("No active organization found for this user.");
+
+  const { data: membership, error: membershipError } = await supabase
+    .from("organization_members")
+    .select("id,user_id,role")
+    .eq("organization_id", context.organizationId)
+    .eq("id", memberId)
+    .maybeSingle();
+
+  if (membershipError) throw membershipError;
+  if (!membership) throw new Error("Team member not found.");
+  if (!["rep", "setter"].includes(membership.role as string)) {
+    throw new Error("Only reps and setters can be deleted.");
+  }
+
+  const { error } = await supabase
+    .from("organization_members")
+    .delete()
+    .eq("organization_id", context.organizationId)
+    .eq("id", memberId);
+
+  if (error) throw error;
+  return { memberId };
+}
