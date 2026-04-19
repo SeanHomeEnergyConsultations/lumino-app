@@ -656,7 +656,7 @@ export function TerritoryAdminPage() {
                         ) : null}
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-start gap-2">
                       <select
                         value={member.role}
                         disabled={!canMutateMember}
@@ -702,34 +702,39 @@ export function TerritoryAdminPage() {
                         Send Reset
                       </button>
                       {canDeleteMembers && canMutateMember && ["rep", "setter"].includes(member.role) ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleDeleteMember(
-                              member.memberId,
-                              member.fullName ?? member.email ?? "this team member",
-                              "remove"
-                            )
-                          }
-                          className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-                        >
-                          Remove
-                        </button>
-                      ) : null}
-                      {canDeleteMembers && canMutateMember && ["rep", "setter"].includes(member.role) ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleDeleteMember(
-                              member.memberId,
-                              member.fullName ?? member.email ?? "this team member",
-                              "account"
-                            )
-                          }
-                          className="rounded-2xl border border-rose-300 bg-rose-100 px-3 py-2 text-sm font-semibold text-rose-800 transition hover:bg-rose-200"
-                        >
-                          Delete Account
-                        </button>
+                        <details className="group relative">
+                          <summary className="list-none rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 cursor-pointer">
+                            More
+                          </summary>
+                          <div className="absolute right-0 z-10 mt-2 flex min-w-[13rem] flex-col gap-1 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleDeleteMember(
+                                  member.memberId,
+                                  member.fullName ?? member.email ?? "this team member",
+                                  "remove"
+                                )
+                              }
+                              className="rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                            >
+                              Remove From Team
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleDeleteMember(
+                                  member.memberId,
+                                  member.fullName ?? member.email ?? "this team member",
+                                  "account"
+                                )
+                              }
+                              className="rounded-xl px-3 py-2 text-left text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
+                            >
+                              Delete Account
+                            </button>
+                          </div>
+                        </details>
                       ) : null}
                     </div>
                   </div>
