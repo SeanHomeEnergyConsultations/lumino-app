@@ -563,6 +563,58 @@ async function claimBatchItems(batchId: string, statuses: string[], chunkSize: n
   return items;
 }
 
+async function resetBatchItemsForReanalysis(batchId: string, statuses: string[]) {
+  const supabase = createServerSupabaseClient();
+
+  let itemQuery = supabase
+    .from("import_batch_items")
+    .update({
+      analysis_status: "pending",
+      analysis_error: null
+    })
+    .eq("import_batch_id", batchId);
+
+  if (statuses.length === 1) {
+    itemQuery = itemQuery.eq("analysis_status", statuses[0]);
+  } else {
+    itemQuery = itemQuery.in("analysis_status", statuses);
+  }
+
+  const { error: itemError } = await itemQuery;
+  if (itemError) throw itemError;
+
+  const { data: leadRows, error: leadRowsError } = await supabase
+    .from("import_batch_items")
+    .select("lead_id")
+    .eq("import_batch_id", batchId)
+    .not("lead_id", "is", null);
+
+  if (leadRowsError) throw leadRowsError;
+
+  const leadIds = Array.from(new Set((leadRows ?? []).map((row) => row.lead_id).filter(Boolean))) as string[];
+  if (leadIds.length) {
+    const { error: leadError } = await supabase
+      .from("leads")
+      .update({
+        analysis_status: "pending",
+        last_analysis_error: null,
+        needs_reanalysis: true
+      })
+      .in("id", leadIds);
+    if (leadError) throw leadError;
+  }
+
+  const { error: batchError } = await supabase
+    .from("import_batches")
+    .update({
+      status: "ready_for_analysis",
+      last_error: null,
+      completed_at: null
+    })
+    .eq("id", batchId);
+  if (batchError) throw batchError;
+}
+
 async function loadLeads(leadIds: string[]) {
   const supabase = createServerSupabaseClient();
   if (!leadIds.length) return new Map<string, LeadRow>();
@@ -737,8 +789,14 @@ export async function runImportBatchAnalysis(
 ): Promise<ImportBatchAnalysisResponse> {
   if (!context.organizationId) throw new Error("No active organization found.");
   const chunkSize = Math.max(1, Math.min(options?.chunkSize ?? 3, 10));
-  const statuses = options?.retryFailed ? ["pending", "failed"] : ["pending"];
-  const items = await claimBatchItems(batchId, statuses, chunkSize);
+  let statuses = options?.retryFailed ? ["pending", "failed"] : ["pending"];
+  let items = await claimBatchItems(batchId, statuses, chunkSize);
+
+  if (!items.length && !options?.retryFailed) {
+    await resetBatchItemsForReanalysis(batchId, ["analyzed", "failed"]);
+    statuses = ["pending"];
+    items = await claimBatchItems(batchId, statuses, chunkSize);
+  }
 
   if (!items.length) {
     const progress = await refreshImportBatchProgress(batchId);
