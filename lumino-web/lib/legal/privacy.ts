@@ -22,14 +22,17 @@ export const PRIVACY_POLICY_SECTIONS = [
     ]
   },
   {
-    heading: "3. Data Ownership",
-    paragraphs: ["Organizations control the data entered into the App, and we process that data on their behalf."]
+    heading: "3. Data Ownership & Contribution Model",
+    paragraphs: [
+      "Organizations control Private Organization Data, which means data entered or uploaded without contribution consent. We process that data on the organization's behalf and do not reuse it outside that organization except as needed to operate the App for that organization.",
+      "Contributed Data means data uploaded through features that require explicit contribution consent, including bulk upload, CSV import, or automated mapping and pinning workflows made available through free-tier or contribution-based access. Contributed Data may be retained in original, aggregated, enriched, or derived form and may be used to improve the App or create commercial data products."
+    ]
   },
   {
     heading: "4. Data Sharing",
     paragraphs: [
-      "We do not sell personal data.",
-      "We may share data with infrastructure providers, if required by law, or when necessary to protect system security."
+      "We do not sell raw personal data directly.",
+      "We may share aggregated, enriched, or derived datasets built from Contributed Data, share data with infrastructure providers, disclose data if required by law, or use data as necessary to protect system security."
     ]
   },
   {
