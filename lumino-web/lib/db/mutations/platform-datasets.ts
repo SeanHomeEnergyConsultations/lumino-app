@@ -204,6 +204,7 @@ async function syncPlatformDatasetRecords(datasetId: string, sourceBatchId: stri
 async function syncOrganizationDatasetTargets(input: {
   datasetId: string;
   organizationId: string;
+  listType: string;
   visibilityScope: DatasetGrantScope;
   assignedTeamId: string | null;
   assignedUserId: string | null;
@@ -223,7 +224,7 @@ async function syncOrganizationDatasetTargets(input: {
 
   const { data: records, error: recordsError } = await supabase
     .from("platform_dataset_records")
-    .select("id,property_id")
+    .select("id,property_id,city,postal_code")
     .eq("platform_dataset_id", input.datasetId);
   if (recordsError) throw recordsError;
 
@@ -234,7 +235,25 @@ async function syncOrganizationDatasetTargets(input: {
     .eq("platform_dataset_id", input.datasetId);
   if (deleteError) throw deleteError;
 
-  const payload = (records ?? []).map((record) => ({
+  let visibleRecords = records ?? [];
+  const featureResolution = await getOrganizationFeatureAccess(input.organizationId);
+  if (
+    featureResolution.billingPlan !== "intelligence" &&
+    ["sold_properties", "solar_permits", "roofing_permits"].includes(input.listType)
+  ) {
+    const entitlements = await loadOrganizationDatasetEntitlements(input.organizationId);
+    const relevant = entitlements[input.listType as keyof typeof entitlements];
+    const entitledCities = new Set(relevant.cities.map((value) => normalizeDatasetEntitlementValue("city", value)));
+    const entitledZips = new Set(relevant.zips.map((value) => normalizeDatasetEntitlementValue("zip", value)));
+
+    visibleRecords = visibleRecords.filter((record) => {
+      const city = normalizeDatasetEntitlementValue("city", (record.city as string | null | undefined) ?? "");
+      const zip = normalizeDatasetEntitlementValue("zip", (record.postal_code as string | null | undefined) ?? "");
+      return (city && entitledCities.has(city)) || (zip && entitledZips.has(zip));
+    });
+  }
+
+  const payload = visibleRecords.map((record) => ({
     organization_id: input.organizationId,
     platform_dataset_id: input.datasetId,
     platform_dataset_record_id: record.id as string,
@@ -372,13 +391,10 @@ export async function reconcileOrganizationDatasetAccess(
   for (const grant of grants ?? []) {
     const dataset = grant.platform_datasets as { list_type?: string | null } | null;
     const listType = dataset?.list_type ?? "general_canvass_list";
-
-    let shouldBeActive = true;
-    try {
-      await assertOrganizationCanReceiveDataset(organizationId, listType);
-    } catch {
-      shouldBeActive = false;
-    }
+    const shouldBeActive = await organizationShouldReceiveDataset(organizationId, {
+      datasetId: grant.platform_dataset_id as string,
+      listType
+    }).catch(() => false);
 
     const nextStatus = shouldBeActive
       ? ((grant.status as "active" | "paused" | "revoked" | null) ?? "active")
@@ -397,6 +413,7 @@ export async function reconcileOrganizationDatasetAccess(
     await syncOrganizationDatasetTargets({
       datasetId: grant.platform_dataset_id as string,
       organizationId,
+      listType,
       visibilityScope:
         ((grant.visibility_scope as DatasetGrantScope | null | undefined) ?? "organization"),
       assignedTeamId: (grant.assigned_team_id as string | null | undefined) ?? null,
@@ -534,6 +551,7 @@ export async function grantPlatformDatasetToOrganization(
   await syncOrganizationDatasetTargets({
     datasetId: input.datasetId,
     organizationId: input.organizationId,
+    listType: (dataset.list_type as string | null) ?? "general_canvass_list",
     visibilityScope,
     assignedTeamId,
     assignedUserId,
