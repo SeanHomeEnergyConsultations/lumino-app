@@ -29,6 +29,17 @@
   - inactive target organizations cannot receive active dataset grants
   - source organizations no longer need or retain self-grants for their own datasets
 - Prevented source-org datasets from appearing as duplicated shared grants in `/imports`
+- Added alert routing support for high-severity `security_events` through `SECURITY_ALERT_WEBHOOK_URL`
+- Added repeated-event anomaly escalation helpers so suspicious patterns can emit elevated security events instead of only low-level noise
+- Added production secret/config audit documentation for Vercel, Supabase, Edge Functions, and Resend
+- Hardened abuse-sensitive read/write routes with anomaly-aware logging:
+  - suspicious search probing
+  - invalid property resolve payloads
+  - repeated property resolve failures
+  - invalid import payloads
+  - consent-bypass attempts on uploads
+  - repeated import create failures
+  - repeated import analysis failures
 
 ## Remaining High-Priority Work
 
@@ -65,29 +76,20 @@
   - repeated invalid dataset-assignment attempts
   - repeated invite/reset attempts to the same email
   - frequent plan/grant churn on the same organization
-- Add alert routing for high-severity `security_events`:
-  - email
-  - Slack/webhook
-  - daily anomaly digest
+- Add a daily anomaly digest or summary job on top of the current webhook alert path
 
 ### Secret / Config Audit
 
-- Confirm production environment variables exist and are rotated where needed:
-  - `SUPABASE_SERVICE_ROLE_KEY`
-  - `NEXT_PUBLIC_SUPABASE_URL`
-  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-  - `RESEND_API_KEY`
-  - `SEND_EMAIL_HOOK_SECRET`
-  - `RESEND_FROM_EMAIL`
-  - `APP_URL` / `NEXT_PUBLIC_APP_URL`
-- Confirm Vercel production, preview, and local env scopes are correct.
-- Confirm Supabase Edge Function secrets match production values.
+- Run the checklist in `docs/production-secret-config-audit.md` against:
+  - Vercel production
+  - Vercel preview
+  - Supabase Edge Function secrets
+  - Resend sender configuration
+- Confirm values are populated and scoped correctly in the real hosted environments.
 
 ### Abuse Prevention
 
 - Add duplicate-email cooldown logic for team invites and password resets.
-- Add repeated upload-failure anomaly tracking.
-- Review search/property resolve endpoints for enumeration resistance.
 - Review large import and analysis flows for background-job abuse ceilings.
 
 ### Database / RLS Audit

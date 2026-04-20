@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
+import { maybeEscalateRepeatedSecurityEvent } from "@/lib/security/anomaly";
 import { getRequestIpAddress } from "@/lib/security/request-meta";
 import { recordSecurityEvent } from "@/lib/security/security-events";
 import type { AuthSessionContext } from "@/types/auth";
@@ -35,11 +36,26 @@ export async function enforceRateLimit(input: {
   }
 
   if (existing && Number(existing.request_count ?? 0) >= input.limit) {
+    const eventType = input.logEventType ?? "rate_limit_exceeded";
     await recordSecurityEvent({
       request: input.request,
       context: input.context ?? null,
-      eventType: input.logEventType ?? "rate_limit_exceeded",
+      eventType,
       severity: "medium",
+      metadata: {
+        bucket: input.bucket,
+        limit: input.limit,
+        windowSeconds: input.windowSeconds
+      }
+    });
+    await maybeEscalateRepeatedSecurityEvent({
+      request: input.request,
+      context: input.context ?? null,
+      signalEventType: eventType,
+      anomalyEventType: `${eventType}_repeated`,
+      threshold: 3,
+      windowSeconds: Math.max(input.windowSeconds * 3, 900),
+      severity: "high",
       metadata: {
         bucket: input.bucket,
         limit: input.limit,

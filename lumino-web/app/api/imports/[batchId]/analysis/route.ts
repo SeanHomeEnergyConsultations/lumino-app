@@ -3,6 +3,7 @@ import { z } from "zod";
 import { hasManagerAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { runImportBatchAnalysis } from "@/lib/db/mutations/imports";
+import { maybeEscalateRepeatedSecurityEvent } from "@/lib/security/anomaly";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { recordSecurityEvent } from "@/lib/security/security-events";
 
@@ -25,8 +26,10 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ batchId: string }> }
 ) {
+  let context = null;
+  let batchId = "";
   try {
-    const context = await getRequestSessionContext(request);
+    context = await getRequestSessionContext(request);
     if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!hasManagerAccess(context)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -50,10 +53,25 @@ export async function POST(
     const body = await request.json().catch(() => ({}));
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
+      await recordSecurityEvent({
+        request,
+        context,
+        eventType: "import_analysis_invalid_payload",
+        severity: "low"
+      });
+      await maybeEscalateRepeatedSecurityEvent({
+        request,
+        context,
+        signalEventType: "import_analysis_invalid_payload",
+        anomalyEventType: "import_analysis_invalid_payload_repeated",
+        threshold: 5,
+        windowSeconds: 1800,
+        severity: "high"
+      });
       return NextResponse.json({ error: "Invalid analysis payload" }, { status: 400 });
     }
 
-    const { batchId } = await params;
+    ({ batchId } = await params);
     const result = await runImportBatchAnalysis(batchId, context, {
       retryFailed: parsed.data.action === "retry_failed"
     });
@@ -69,6 +87,32 @@ export async function POST(
     });
     return NextResponse.json(result);
   } catch (error) {
+    await recordSecurityEvent({
+      request,
+      context,
+      eventType: "import_analysis_failed",
+      severity: "medium",
+      metadata: {
+        batchId: batchId || null,
+        error: errorMessage(error).slice(0, 200)
+      }
+    }).catch((securityError) => {
+      console.error("Failed to record import_analysis_failed security event", securityError);
+    });
+    await maybeEscalateRepeatedSecurityEvent({
+      request,
+      context,
+      signalEventType: "import_analysis_failed",
+      anomalyEventType: "import_analysis_failures_repeated",
+      threshold: 3,
+      windowSeconds: 1800,
+      severity: "high",
+      metadata: {
+        batchId: batchId || null
+      }
+    }).catch((securityError) => {
+      console.error("Failed to escalate repeated import analysis failures", securityError);
+    });
     return NextResponse.json(
       { error: errorMessage(error) },
       { status: 500 }
