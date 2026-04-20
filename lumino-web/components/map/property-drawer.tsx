@@ -102,7 +102,9 @@ export function PropertyDrawer({
     setTaskDueAt("");
     setTaskNotes("");
     setTaskState("idle");
-    setMobileExpanded(Boolean(property?.isPreview));
+    if (property?.isPreview) {
+      setMobileExpanded(true);
+    }
   }, [property]);
 
   useEffect(() => {
