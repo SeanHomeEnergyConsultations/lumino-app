@@ -18,7 +18,7 @@ function droppedPinKey(lat: number, lng: number) {
 }
 
 export async function resolveOrCreateProperty(
-  input: { lat: number; lng: number },
+  input: { lat: number; lng: number; persist?: boolean },
   context: AuthSessionContext
 ) {
   const supabase = createServerSupabaseClient();
@@ -82,6 +82,21 @@ export async function resolveOrCreateProperty(
   const address = geocoded?.formattedAddress ?? droppedPinAddress(input.lat, input.lng);
   const now = new Date().toISOString();
 
+  if (!input.persist) {
+    return {
+      propertyId: null,
+      created: false,
+      preview: {
+        address,
+        city: geocoded?.city ?? null,
+        state: geocoded?.state ?? null,
+        postalCode: geocoded?.postalCode ?? null,
+        lat: input.lat,
+        lng: input.lng
+      }
+    };
+  }
+
   const insertPayload = {
     normalized_address: normalizedAddress,
     raw_address: address,
@@ -123,6 +138,7 @@ export async function resolveOrCreateProperty(
 
   return {
     propertyId: insertedProperty.id,
-    created: true
+    created: true,
+    preview: null
   };
 }

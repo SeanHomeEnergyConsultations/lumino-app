@@ -88,8 +88,16 @@ export interface PlatformSecurityEventsResponse {
 }
 
 export interface ResolvePropertyResponse {
-  propertyId: string;
+  propertyId: string | null;
   created: boolean;
+  preview?: {
+    address: string;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+    lat: number;
+    lng: number;
+  } | null;
 }
 
 export interface RepQueueItem {

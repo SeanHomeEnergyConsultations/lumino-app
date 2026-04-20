@@ -184,4 +184,5 @@ export interface PropertyDetail {
   facts: PropertyFactsSnapshot;
   enrichments: PropertyEnrichmentItem[];
   sourceRecords: PropertySourceRecordItem[];
+  isPreview?: boolean;
 }

@@ -5,8 +5,13 @@ import { maybeEscalateRepeatedSecurityEvent } from "@/lib/security/anomaly";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { recordSecurityEvent } from "@/lib/security/security-events";
 import { resolvePropertyInputSchema } from "@/lib/validation/properties";
+import { z } from "zod";
 
 export const dynamic = "force-dynamic";
+
+const propertyResolveRequestSchema = resolvePropertyInputSchema.extend({
+  persist: z.boolean().optional()
+});
 
 export async function POST(request: Request) {
   let context = null;
@@ -32,7 +37,7 @@ export async function POST(request: Request) {
     }
 
     const json = await request.json();
-    const parsed = resolvePropertyInputSchema.safeParse(json);
+    const parsed = propertyResolveRequestSchema.safeParse(json);
 
     if (!parsed.success) {
       await recordSecurityEvent({

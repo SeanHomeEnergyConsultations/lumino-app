@@ -40,6 +40,78 @@ import { PropertyDrawer } from "@/components/map/property-drawer";
 import { hasManagerAccess } from "@/lib/auth/permissions";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
+function previewSelectionKey(lat: number, lng: number) {
+  return `preview:${lat.toFixed(5)},${lng.toFixed(5)}`;
+}
+
+function buildPreviewPropertyDetail(input: {
+  address: string;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  lat: number;
+  lng: number;
+  featureAccess: OrganizationFeatureAccess;
+}): PropertyDetail {
+  return {
+    propertyId: previewSelectionKey(input.lat, input.lng),
+    address: input.address,
+    city: input.city,
+    state: input.state,
+    postalCode: input.postalCode,
+    lat: input.lat,
+    lng: input.lng,
+    mapState: "unworked_property",
+    followUpState: "none",
+    visitCount: 0,
+    notHomeCount: 0,
+    lastVisitOutcome: null,
+    lastVisitedAt: null,
+    leadId: null,
+    leadStatus: null,
+    ownerId: null,
+    firstName: null,
+    lastName: null,
+    phone: null,
+    email: null,
+    leadNotes: null,
+    leadNextFollowUpAt: null,
+    appointmentAt: null,
+    priorityScore: 0,
+    priorityBand: "low",
+    prioritySummary: "This location has not been saved yet. Log an outcome or save contact data to keep it.",
+    featureAccess: input.featureAccess,
+    recentVisits: [],
+    recentActivities: [],
+    facts: {
+      beds: null,
+      baths: null,
+      squareFeet: null,
+      lotSizeSqft: null,
+      yearBuilt: null,
+      lastSaleDate: null,
+      lastSalePrice: null,
+      propertyType: null,
+      listingStatus: null,
+      saleType: null,
+      daysOnMarket: null,
+      hoaMonthly: null,
+      dataCompletenessScore: null,
+      solarFitScore: null,
+      roofCapacityScore: null,
+      roofComplexityScore: null,
+      estimatedSystemCapacityKw: null,
+      estimatedYearlyEnergyKwh: null,
+      solarImageryQuality: null,
+      propertyPriorityScore: null,
+      propertyPriorityLabel: null
+    },
+    enrichments: [],
+    sourceRecords: [],
+    isPreview: true
+  };
+}
+
 function markerVisual(mapState: MapProperty["mapState"]) {
   switch (mapState) {
     case "not_home":
@@ -260,7 +332,14 @@ export function LiveFieldMap({
   useEffect(() => {
     if (!session?.access_token || !selectedPropertyId) {
       setPropertyLoading(false);
-      setSelectedProperty(null);
+      if (!selectedProperty?.isPreview) {
+        setSelectedProperty(null);
+      }
+      return;
+    }
+
+    if (selectedPropertyId.startsWith("preview:")) {
+      setPropertyLoading(false);
       return;
     }
 
@@ -315,6 +394,38 @@ export function LiveFieldMap({
     }
   }
 
+  async function ensurePersistedSelectedProperty() {
+    if (!session?.access_token || !selectedProperty?.lat || !selectedProperty?.lng) {
+      throw new Error("This property location could not be saved.");
+    }
+
+    if (!selectedProperty.isPreview && selectedPropertyId && !selectedPropertyId.startsWith("preview:")) {
+      return selectedPropertyId;
+    }
+
+    const response = await authFetch(session.access_token, "/api/properties/resolve", {
+      method: "POST",
+      body: JSON.stringify({
+        lat: selectedProperty.lat,
+        lng: selectedProperty.lng,
+        persist: true
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to save property location.");
+    }
+
+    const json = (await response.json()) as ResolvePropertyResponse;
+    if (!json.propertyId) {
+      throw new Error("Could not persist property location.");
+    }
+
+    setSelectedPropertyId(json.propertyId);
+    await refreshSelectedProperty(json.propertyId);
+    return json.propertyId;
+  }
+
   async function handleMapTap(event: MapLayerMouseEvent) {
     if (!session?.access_token || isResolvingTap) return;
     if (typeof window !== "undefined" && window.innerWidth < 1280 && selectedPropertyId) {
@@ -330,15 +441,28 @@ export function LiveFieldMap({
         method: "POST",
         body: JSON.stringify({
           lat: event.lngLat.lat,
-          lng: event.lngLat.lng
+          lng: event.lngLat.lng,
+          persist: false
         })
       });
 
       if (!response.ok) return;
       const json = (await response.json()) as ResolvePropertyResponse;
-      setSelectedPropertyId(json.propertyId);
+      if (json.propertyId) {
+        setSelectedPropertyId(json.propertyId);
+        setIsDrawerVisible(true);
+        await refreshSelectedProperty(json.propertyId);
+        return;
+      }
+
+      if (!json.preview) return;
+
+      setSelectedPropertyId(previewSelectionKey(json.preview.lat, json.preview.lng));
+      setSelectedProperty(buildPreviewPropertyDetail({
+        ...json.preview,
+        featureAccess
+      }));
       setIsDrawerVisible(true);
-      await refreshSelectedProperty(json.propertyId);
     } finally {
       setIsResolvingTap(false);
     }
@@ -348,10 +472,11 @@ export function LiveFieldMap({
     if (!selectedProperty || !session?.access_token) return;
     try {
       setIsSavingVisit(true);
+      const propertyId = await ensurePersistedSelectedProperty();
       const response = await authFetch(session.access_token, "/api/visits", {
         method: "POST",
         body: JSON.stringify({
-          propertyId: selectedProperty.propertyId,
+          propertyId,
           lat: selectedProperty.lat,
           lng: selectedProperty.lng,
           outcome
@@ -362,7 +487,7 @@ export function LiveFieldMap({
 
       setItems((current) =>
         current.map((item) =>
-          item.propertyId === selectedProperty.propertyId
+          item.propertyId === propertyId
             ? {
                 ...item,
                 visitCount: item.visitCount + 1,
@@ -391,7 +516,7 @@ export function LiveFieldMap({
             : item
         )
       );
-      await refreshSelectedProperty(selectedProperty.propertyId);
+      await refreshSelectedProperty(propertyId);
     } finally {
       setIsSavingVisit(false);
     }
@@ -399,31 +524,41 @@ export function LiveFieldMap({
 
   async function handleSaveLead(input: LeadInput) {
     if (!session?.access_token) return;
+    const propertyId = await ensurePersistedSelectedProperty();
     const response = await authFetch(session.access_token, "/api/leads", {
       method: "POST",
-      body: JSON.stringify(input)
+      body: JSON.stringify({
+        ...input,
+        propertyId
+      })
     });
 
     if (!response.ok) {
       throw new Error("Failed to save lead");
     }
 
-    await refreshSelectedProperty(input.propertyId);
+    await refreshSelectedProperty(propertyId);
   }
 
   async function handleCreateTask(input: TaskInput) {
     if (!session?.access_token) return;
+    const propertyId = selectedProperty?.lat && selectedProperty?.lng
+      ? await ensurePersistedSelectedProperty()
+      : input.propertyId ?? null;
     const response = await authFetch(session.access_token, "/api/tasks", {
       method: "POST",
-      body: JSON.stringify(input)
+      body: JSON.stringify({
+        ...input,
+        propertyId
+      })
     });
 
     if (!response.ok) {
       throw new Error("Failed to save task");
     }
 
-    if (input.propertyId) {
-      await refreshSelectedProperty(input.propertyId);
+    if (propertyId) {
+      await refreshSelectedProperty(propertyId);
     }
   }
 
@@ -539,8 +674,12 @@ export function LiveFieldMap({
           {userLocation ? (
             <Marker latitude={userLocation.latitude} longitude={userLocation.longitude} anchor="center">
               <div className="relative">
-                <span className="absolute inset-0 rounded-full bg-sky-500/30 animate-ping" />
-                <span className="relative block h-5 w-5 rounded-full border-4 border-white bg-sky-500 shadow-lg" />
+                <span className="absolute -inset-3 rounded-full bg-sky-500/20" />
+                <span className="absolute -inset-1 rounded-full bg-sky-500/25 animate-ping" />
+                <div className="relative flex items-center gap-2 rounded-full border border-sky-200 bg-white/95 px-2 py-1 shadow-lg">
+                  <span className="block h-4 w-4 rounded-full border-4 border-white bg-sky-500 shadow" />
+                  <span className="text-xs font-semibold text-sky-700">You</span>
+                </div>
               </div>
             </Marker>
           ) : null}
