@@ -1,14 +1,14 @@
 export const FILTER_OPTIONS = [
-  { key: "all", label: "All" },
-  { key: "high_priority", label: "High Priority" },
-  { key: "not_home", label: "Not Home" },
-  { key: "left_doorhanger", label: "Left Doorhanger" },
-  { key: "opportunity", label: "Opportunity" },
-  { key: "follow_up_overdue", label: "Follow-Up Overdue" },
-  { key: "not_interested", label: "Not Interested" },
-  { key: "disqualified", label: "Disqualified" },
-  { key: "appointment_set", label: "Appointments" },
-  { key: "unworked_property", label: "Untouched" }
+  { key: "all", label: "All", mobileLabel: "All" },
+  { key: "high_priority", label: "High Priority", mobileLabel: "Priority" },
+  { key: "not_home", label: "Not Home", mobileLabel: "Not Home" },
+  { key: "left_doorhanger", label: "Left Doorhanger", mobileLabel: "Doorhanger" },
+  { key: "opportunity", label: "Opportunity", mobileLabel: "Opps" },
+  { key: "follow_up_overdue", label: "Follow-Up Overdue", mobileLabel: "Overdue" },
+  { key: "not_interested", label: "Not Interested", mobileLabel: "No Interest" },
+  { key: "disqualified", label: "Disqualified", mobileLabel: "DQ" },
+  { key: "appointment_set", label: "Appointments", mobileLabel: "Appts" },
+  { key: "unworked_property", label: "Untouched", mobileLabel: "Fresh" }
 ] as const;
 
 export type MapFilterKey = (typeof FILTER_OPTIONS)[number]["key"];
@@ -41,7 +41,8 @@ export function MapToolbar({
                 : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
             }`}
           >
-            {showTeamKnocks ? "Showing Team Knocks" : "Show Team Knocks"}
+            <span className="hidden sm:inline">{showTeamKnocks ? "Showing Team Knocks" : "Show Team Knocks"}</span>
+            <span className="sm:hidden">{showTeamKnocks ? "Team On" : "Team"}</span>
           </button>
         ) : null}
         {FILTER_OPTIONS.filter((option) => showPriorityFilter || option.key !== "high_priority").map((option) => {
@@ -57,7 +58,8 @@ export function MapToolbar({
                   : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
               }`}
             >
-              {option.label}
+              <span className="hidden sm:inline">{option.label}</span>
+              <span className="sm:hidden">{option.mobileLabel}</span>
             </button>
           );
         })}

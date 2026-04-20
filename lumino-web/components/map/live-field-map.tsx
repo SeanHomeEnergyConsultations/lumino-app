@@ -197,7 +197,12 @@ export function LiveFieldMap({
   const [mobileOpenNonce, setMobileOpenNonce] = useState(0);
   const [showTeamKnocks, setShowTeamKnocks] = useState(isManager);
   const [activeRoute, setActiveRoute] = useState<ActiveRouteRunResponse | null>(null);
-  const [routeActionState, setRouteActionState] = useState<"idle" | "loading" | "error">("idle");
+  const [routeActionState, setRouteActionState] = useState<
+    "idle" | "skipping" | "optimizing" | "building" | "error"
+  >("idle");
+  const [routeSelectionMode, setRouteSelectionMode] = useState(false);
+  const [selectedRouteLeadIds, setSelectedRouteLeadIds] = useState<string[]>([]);
+  const [routeBuilderError, setRouteBuilderError] = useState<string | null>(null);
   const [featureAccess, setFeatureAccess] = useState<OrganizationFeatureAccess>({
     mapEnabled: true,
     doorKnockingEnabled: true,
@@ -243,6 +248,16 @@ export function LiveFieldMap({
     }
     return next;
   }, [activeRoute]);
+
+  const routeSelectableItems = useMemo(
+    () => filteredItems.filter((item) => Boolean(item.leadId)),
+    [filteredItems]
+  );
+
+  const selectedRouteItems = useMemo(
+    () => routeSelectableItems.filter((item) => item.leadId && selectedRouteLeadIds.includes(item.leadId)),
+    [routeSelectableItems, selectedRouteLeadIds]
+  );
 
   useEffect(() => {
     setSelectedPropertyId(initialSelectedPropertyId);
@@ -321,6 +336,28 @@ export function LiveFieldMap({
     return json;
   }, [session?.access_token]);
 
+  async function getCurrentPosition() {
+    if (!navigator.geolocation) {
+      throw new Error("Location access is not available on this device.");
+    }
+
+    return new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 15000
+      });
+    });
+  }
+
+  function toggleSelectedRouteLead(leadId: string) {
+    setSelectedRouteLeadIds((current) =>
+      current.includes(leadId)
+        ? current.filter((item) => item !== leadId)
+        : [...current, leadId]
+    );
+  }
+
   async function loadPropertiesForViewport(bounds?: maplibregl.LngLatBoundsLike | null) {
     if (!session?.access_token) return;
 
@@ -362,6 +399,11 @@ export function LiveFieldMap({
   useEffect(() => {
     void loadActiveRoute();
   }, [loadActiveRoute]);
+
+  useEffect(() => {
+    const visibleLeadIds = new Set(routeSelectableItems.map((item) => item.leadId).filter(Boolean) as string[]);
+    setSelectedRouteLeadIds((current) => current.filter((leadId) => visibleLeadIds.has(leadId)));
+  }, [routeSelectableItems]);
 
   useEffect(() => {
     if (!session?.access_token || !selectedPropertyId) {
@@ -413,6 +455,13 @@ export function LiveFieldMap({
       zoom: Math.max(current.zoom, 16)
     }));
   }, [selectedProperty?.lat, selectedProperty?.lng]);
+
+  useEffect(() => {
+    if (!activeRoute) return;
+    setRouteSelectionMode(false);
+    setSelectedRouteLeadIds([]);
+    setRouteBuilderError(null);
+  }, [activeRoute?.routeRunId]);
 
   useEffect(() => {
     if (selectedPropertyId || !activeRoute?.nextStop?.propertyId || !session?.access_token) return;
@@ -473,7 +522,7 @@ export function LiveFieldMap({
   }
 
   async function handleMapTap(event: MapLayerMouseEvent) {
-    if (!session?.access_token || isResolvingTap) return;
+    if (!session?.access_token || isResolvingTap || routeSelectionMode) return;
 
     try {
       setIsResolvingTap(true);
@@ -610,10 +659,116 @@ export function LiveFieldMap({
     }
   }
 
+  async function handleBuildRouteFromMapSelection() {
+    if (!session?.access_token || !selectedRouteLeadIds.length) return;
+
+    try {
+      setRouteActionState("building");
+      setRouteBuilderError(null);
+      const position = await getCurrentPosition();
+      const response = await authFetch(session.access_token, "/api/routes/run", {
+        method: "POST",
+        body: JSON.stringify({
+          leadIds: selectedRouteLeadIds,
+          startedFromLat: position.coords.latitude,
+          startedFromLng: position.coords.longitude,
+          startedFromLabel: "Current Location",
+          optimizationMode: "drive_time"
+        })
+      });
+
+      const json = (await response.json()) as { routeRunId?: string; firstPropertyId?: string | null; error?: string };
+      if (!response.ok) {
+        throw new Error(json.error ?? "Failed to build route from map selection.");
+      }
+
+      setRouteSelectionMode(false);
+      setSelectedRouteLeadIds([]);
+      setRouteBuilderError(null);
+      await loadActiveRoute();
+
+      if (json.firstPropertyId) {
+        openSelectedProperty(json.firstPropertyId);
+        await refreshSelectedProperty(json.firstPropertyId);
+      }
+    } catch (error) {
+      setRouteBuilderError(
+        error instanceof Error ? error.message : "Could not build a route from the current selection."
+      );
+      setRouteActionState("error");
+      return;
+    }
+
+    setRouteActionState("idle");
+  }
+
+  async function handleOptimizeRemainingStops() {
+    if (!session?.access_token || !activeRoute?.routeRunId) return;
+
+    try {
+      setRouteActionState("optimizing");
+      setRouteBuilderError(null);
+      const nextStop = activeRoute.nextStop;
+      const nextStopOrigin =
+        nextStop && nextStop.lat !== null && nextStop.lng !== null
+          ? {
+              latitude: nextStop.lat,
+              longitude: nextStop.lng
+            }
+          : null;
+
+      const origin =
+        userLocation ??
+        (nextStopOrigin ??
+          (activeRoute.startedFromLat !== null && activeRoute.startedFromLng !== null
+            ? {
+                latitude: activeRoute.startedFromLat,
+                longitude: activeRoute.startedFromLng
+              }
+            : null));
+
+      if (!origin) {
+        throw new Error("We need a current location before re-optimizing the remaining route.");
+      }
+
+      const response = await authFetch(
+        session.access_token,
+        `/api/routes/run/${activeRoute.routeRunId}/optimize`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            originLat: origin.latitude,
+            originLng: origin.longitude,
+            optimizationMode: activeRoute.optimizationMode
+          })
+        }
+      );
+
+      const json = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(json.error ?? "Could not optimize the remaining route.");
+      }
+
+      const refreshedRoute = await loadActiveRoute();
+      if (refreshedRoute?.nextStop?.propertyId) {
+        openSelectedProperty(refreshedRoute.nextStop.propertyId);
+        await refreshSelectedProperty(refreshedRoute.nextStop.propertyId);
+      }
+    } catch (error) {
+      setRouteBuilderError(
+        error instanceof Error ? error.message : "Could not optimize the remaining route."
+      );
+      setRouteActionState("error");
+      return;
+    }
+
+    setRouteActionState("idle");
+  }
+
   async function handleSkipRouteStop() {
     if (!session?.access_token || !activeRoute?.nextStop) return;
     try {
-      setRouteActionState("loading");
+      setRouteActionState("skipping");
       const response = await authFetch(
         session.access_token,
         `/api/routes/run/${activeRoute.routeRunId}/stops/${activeRoute.nextStop.routeRunStopId}`,
@@ -704,6 +859,9 @@ export function LiveFieldMap({
         onSelect={(propertyId) => {
           openSelectedProperty(propertyId);
         }}
+        routeSelectionMode={routeSelectionMode}
+        selectedRouteLeadIds={new Set(selectedRouteLeadIds)}
+        onToggleRouteLead={toggleSelectedRouteLead}
         showPriority={featureAccess.priorityScoringEnabled}
         className={`relative z-20 shrink-0 border-r border-slate-200/80 bg-white/80 backdrop-blur ${isResultsPanelVisible ? "hidden w-80 xl:block" : "hidden xl:hidden"}`}
       />
@@ -738,7 +896,7 @@ export function LiveFieldMap({
                     {activeRoute.pendingStops} stop{activeRoute.pendingStops === 1 ? "" : "s"} left
                   </div>
                   <div className="mt-1 text-sm text-slate-600">
-                    {activeRoute.completedStops} completed · {activeRoute.skippedStops} skipped
+                    Stop {activeRoute.nextStop?.sequenceNumber ?? "—"} of {activeRoute.totalStops} · {activeRoute.completedStops} completed · {activeRoute.skippedStops} skipped
                   </div>
                 </div>
                 <div className="rounded-2xl bg-slate-50 px-3 py-2 text-center ring-1 ring-slate-200">
@@ -759,7 +917,7 @@ export function LiveFieldMap({
                     </div>
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-3 grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => {
@@ -780,15 +938,30 @@ export function LiveFieldMap({
                       >
                         Navigate
                       </a>
-                    ) : null}
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-2 text-center text-sm font-semibold text-slate-400">
+                        Directions unavailable
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void handleOptimizeRemainingStops()}
+                      disabled={routeActionState === "optimizing"}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                    >
+                      {routeActionState === "optimizing" ? "Optimizing..." : "Optimize Remaining"}
+                    </button>
                     <button
                       type="button"
                       onClick={() => void handleSkipRouteStop()}
-                      disabled={routeActionState === "loading"}
+                      disabled={routeActionState === "skipping"}
                       className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 disabled:opacity-60"
                     >
-                      {routeActionState === "loading" ? "Skipping..." : "Skip"}
+                      {routeActionState === "skipping" ? "Skipping..." : "Skip"}
                     </button>
+                  </div>
+                  <div className="mt-3 rounded-[1.15rem] border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    Open the stop, log the outcome, and the route will advance automatically.
                   </div>
 
                   <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
@@ -824,6 +997,81 @@ export function LiveFieldMap({
               )}
             </div>
           </div>
+        ) : routeSelectionMode ? (
+          <div className="absolute left-4 right-4 top-20 z-20 xl:left-4 xl:right-auto xl:w-[24rem]">
+            <div className="rounded-[1.75rem] border border-slate-200 bg-white/96 p-4 shadow-2xl backdrop-blur">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Route Selection</div>
+                  <div className="mt-2 text-lg font-semibold text-ink">
+                    {selectedRouteLeadIds.length} stop{selectedRouteLeadIds.length === 1 ? "" : "s"} selected
+                  </div>
+                  <div className="mt-1 text-sm text-slate-600">
+                    Tap pins or list rows with active leads, then build the cleanest order from your current location.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRouteSelectionMode(false);
+                    setSelectedRouteLeadIds([]);
+                    setRouteBuilderError(null);
+                  }}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <div className="mt-4 rounded-[1.35rem] bg-[linear-gradient(135deg,#f8fafc_0%,#eef4ff_100%)] p-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">Ready in View</div>
+                <div className="mt-2 text-sm font-semibold text-ink">
+                  {routeSelectableItems.length} mapped lead{routeSelectableItems.length === 1 ? "" : "s"} can be routed from this screen
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  If a property has no lead yet, work it first and it can join a route afterward.
+                </div>
+              </div>
+
+              {selectedRouteItems.length ? (
+                <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                  {selectedRouteItems.slice(0, 6).map((item) => (
+                    <button
+                      key={item.leadId}
+                      type="button"
+                      onClick={() => openSelectedProperty(item.propertyId)}
+                      className="min-w-[7rem] rounded-[1.15rem] border border-field bg-field/10 px-3 py-2 text-left text-ink"
+                    >
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-field">Selected</div>
+                      <div className="mt-1 truncate text-sm font-semibold">{item.address.split(",")[0]}</div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleBuildRouteFromMapSelection()}
+                  disabled={!selectedRouteLeadIds.length || routeActionState === "building"}
+                  className="rounded-2xl bg-ink px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {routeActionState === "building" ? "Building..." : "Build Route"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedRouteLeadIds([])}
+                  disabled={!selectedRouteLeadIds.length}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  Clear
+                </button>
+              </div>
+              <div className="mt-3 text-xs text-slate-500">
+                {routeBuilderError ?? "This works best for due-now stops, revisits, and live opportunities already in the CRM."}
+              </div>
+            </div>
+          </div>
         ) : null}
 
         <MapView
@@ -849,11 +1097,19 @@ export function LiveFieldMap({
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
+                    if (routeSelectionMode && item.leadId) {
+                      toggleSelectedRouteLead(item.leadId);
+                      return;
+                    }
                     openSelectedProperty(item.propertyId);
                   }}
                   title={`${item.address} · ${item.mapState}`}
                   className={`flex h-11 w-11 items-center justify-center rounded-full border-2 shadow-lg transition focus:outline-none focus:ring-2 focus:ring-ink/30 ${
-                    selectedPropertyId === item.propertyId ? "border-ink bg-white scale-110" : "border-white bg-white/95 hover:scale-105"
+                    routeSelectionMode && item.leadId && selectedRouteLeadIds.includes(item.leadId)
+                      ? "border-field bg-white scale-110"
+                      : selectedPropertyId === item.propertyId
+                        ? "border-ink bg-white scale-110"
+                        : "border-white bg-white/95 hover:scale-105"
                   }`}
                 >
                   <span className={`flex h-6 w-6 items-center justify-center rounded-full ${visual.className}`}>
@@ -894,7 +1150,9 @@ export function LiveFieldMap({
               ? "Opening property..."
               : activeRoute
                 ? "Active route live. Work the next stop, then keep moving."
-                : "Pan the map, tap any property, log the outcome"}
+                : routeSelectionMode
+                  ? "Route selection is on. Tap route-ready pins to add them."
+                  : "Pan the map, tap any property, log the outcome"}
         </div>
         {userLocation ? (
           <button
@@ -922,6 +1180,29 @@ export function LiveFieldMap({
           <MapIcon className="h-4 w-4" />
           List
         </button>
+        {!activeRoute ? (
+          <button
+            type="button"
+            onClick={() => {
+              setRouteBuilderError(null);
+              setRouteSelectionMode((current) => {
+                const next = !current;
+                if (!next) {
+                  setSelectedRouteLeadIds([]);
+                }
+                return next;
+              });
+            }}
+            className={`absolute left-4 top-20 z-20 flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold shadow-panel transition xl:left-auto xl:right-4 xl:top-4 ${
+              routeSelectionMode
+                ? "border-ink bg-ink text-white"
+                : "border-slate-200 bg-white/95 text-slate-700"
+            }`}
+          >
+            <MapPinned className="h-4 w-4" />
+            {routeSelectionMode ? "Close Route Select" : "Route Select"}
+          </button>
+        ) : null}
         {selectedMapItem ? (
           <div className="absolute right-4 top-4 xl:hidden">
             <button
@@ -989,6 +1270,9 @@ export function LiveFieldMap({
                 setSelectedPropertyId(propertyId);
                 setIsResultsOpen(false);
               }}
+              routeSelectionMode={routeSelectionMode}
+              selectedRouteLeadIds={new Set(selectedRouteLeadIds)}
+              onToggleRouteLead={toggleSelectedRouteLead}
               showPriority={featureAccess.priorityScoringEnabled}
               className="block max-h-[calc(70vh-4.5rem)] w-full overflow-y-auto bg-white"
               showHeader={false}

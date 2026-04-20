@@ -47,6 +47,33 @@ function optimizeStops<T extends { lat: number; lng: number }>(
   return ordered;
 }
 
+async function getOwnedActiveRouteRun(input: {
+  routeRunId: string;
+  context: AuthSessionContext;
+}) {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("route_runs")
+    .select("id,organization_id,rep_id,status,optimization_mode")
+    .eq("id", input.routeRunId)
+    .eq("organization_id", input.context.organizationId)
+    .eq("rep_id", input.context.appUser.id)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) {
+    throw new Error("This route is not available to the current user.");
+  }
+
+  return data as {
+    id: string;
+    organization_id: string;
+    rep_id: string;
+    status: "active" | "paused" | "completed" | "cancelled";
+    optimization_mode: "drive_time" | "mileage";
+  };
+}
+
 export async function createRouteRun(
   input: {
     leadIds: string[];
@@ -244,20 +271,114 @@ async function assertRouteRunAccess(input: {
   routeRunStopId: string;
   context: AuthSessionContext;
 }) {
+  await getOwnedActiveRouteRun({
+    routeRunId: input.routeRunId,
+    context: input.context
+  });
+
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
     .from("route_run_stops")
-    .select("id,route_run_id,route_runs!inner(id,organization_id,rep_id,status)")
+    .select("id,route_run_id")
     .eq("id", input.routeRunStopId)
     .eq("route_run_id", input.routeRunId)
-    .eq("route_runs.organization_id", input.context.organizationId)
-    .eq("route_runs.rep_id", input.context.appUser.id)
     .maybeSingle();
 
   if (error) throw error;
   if (!data) {
     throw new Error("This route stop is not available to the current user.");
   }
+}
+
+export async function optimizeRemainingRouteRunStops(input: {
+  routeRunId: string;
+  originLat: number;
+  originLng: number;
+  optimizationMode?: "drive_time" | "mileage";
+  context: AuthSessionContext;
+}) {
+  const supabase = createServerSupabaseClient();
+  const routeRun = await getOwnedActiveRouteRun({
+    routeRunId: input.routeRunId,
+    context: input.context
+  });
+
+  if (routeRun.status !== "active") {
+    throw new Error("Only active routes can be re-optimized.");
+  }
+
+  const { data: pendingStops, error: pendingStopsError } = await supabase
+    .from("route_run_stops")
+    .select("id,lat,lng,sequence_number")
+    .eq("route_run_id", input.routeRunId)
+    .eq("stop_status", "pending")
+    .order("sequence_number", { ascending: true });
+  if (pendingStopsError) throw pendingStopsError;
+
+  const pendingStopItems = ((pendingStops ?? []) as Array<Record<string, unknown>>)
+    .map((row) => ({
+      routeRunStopId: row.id as string,
+      lat: Number(row.lat ?? NaN),
+      lng: Number(row.lng ?? NaN),
+      sequenceNumber: Number(row.sequence_number ?? 0)
+    }))
+    .filter((stop) => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
+
+  if (pendingStopItems.length <= 1) {
+    return {
+      routeRunId: input.routeRunId,
+      updatedStops: pendingStopItems.length
+    };
+  }
+
+  const reorderedStops = optimizeStops(
+    {
+      lat: input.originLat,
+      lng: input.originLng
+    },
+    pendingStopItems
+  );
+
+  const startingSequence = Math.min(...reorderedStops.map((stop) => stop.sequenceNumber));
+  for (let index = 0; index < reorderedStops.length; index += 1) {
+    const stop = reorderedStops[index];
+    const { error: updateStopError } = await supabase
+      .from("route_run_stops")
+      .update({
+        sequence_number: startingSequence + index,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", stop.routeRunStopId)
+      .eq("route_run_id", input.routeRunId);
+    if (updateStopError) throw updateStopError;
+  }
+
+  const { error: updateRunError } = await supabase
+    .from("route_runs")
+    .update({
+      optimization_mode: input.optimizationMode ?? routeRun.optimization_mode,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", input.routeRunId);
+  if (updateRunError) throw updateRunError;
+
+  const { error: routeEventError } = await supabase.from("route_run_events").insert({
+    route_run_id: input.routeRunId,
+    event_type: "remaining_stops_optimized",
+    created_by: input.context.appUser.id,
+    event_payload: {
+      pendingStopCount: reorderedStops.length,
+      originLat: input.originLat,
+      originLng: input.originLng,
+      optimizationMode: input.optimizationMode ?? routeRun.optimization_mode
+    }
+  });
+  if (routeEventError) throw routeEventError;
+
+  return {
+    routeRunId: input.routeRunId,
+    updatedStops: reorderedStops.length
+  };
 }
 
 async function finalizeRouteIfDone(routeRunId: string) {

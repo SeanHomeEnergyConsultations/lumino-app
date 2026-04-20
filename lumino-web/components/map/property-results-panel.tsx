@@ -82,6 +82,9 @@ export function PropertyResultsPanel({
   items,
   selectedPropertyId,
   onSelect,
+  routeSelectionMode = false,
+  selectedRouteLeadIds = new Set<string>(),
+  onToggleRouteLead,
   className = "relative z-20 hidden w-80 shrink-0 border-r border-slate-200/80 bg-white/80 backdrop-blur xl:block",
   showHeader = true,
   showPriority = true
@@ -89,6 +92,9 @@ export function PropertyResultsPanel({
   items: MapProperty[];
   selectedPropertyId: string | null;
   onSelect: (propertyId: string) => void;
+  routeSelectionMode?: boolean;
+  selectedRouteLeadIds?: Set<string>;
+  onToggleRouteLead?: (leadId: string) => void;
   className?: string;
   showHeader?: boolean;
   showPriority?: boolean;
@@ -209,9 +215,14 @@ export function PropertyResultsPanel({
     <aside className={className}>
       {showHeader ? (
         <div className="border-b border-slate-200/80 px-4 py-3">
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Nearby Targets</div>
-          <div className="mt-1 text-sm text-slate-600">{items.length} properties in view</div>
-          <div className="mt-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Nearby Targets</div>
+        <div className="mt-1 text-sm text-slate-600">{items.length} properties in view</div>
+        {routeSelectionMode ? (
+          <div className="mt-2 rounded-2xl border border-ink/10 bg-ink px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white">
+            Route selection on · tap pins or list rows to build a run
+          </div>
+        ) : null}
+        <div className="mt-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
             <Search className="h-4 w-4 text-slate-400" />
             <input
               value={query}
@@ -232,22 +243,49 @@ export function PropertyResultsPanel({
             const matchingMapItem = items.find((candidate) => candidate.propertyId === item.propertyId) ?? null;
             const visual = matchingMapItem ? mapStateVisual(matchingMapItem.mapState) : mapStateVisual("imported_target");
             const Icon = visual.icon;
+            const isRouteEligible = Boolean(matchingMapItem?.leadId);
+            const isRouteSelected = Boolean(matchingMapItem?.leadId && selectedRouteLeadIds.has(matchingMapItem.leadId));
 
             return (
               <button
                 key={item.propertyId}
                 type="button"
-                onClick={() => onSelect(item.propertyId)}
+                onClick={() => {
+                  if (routeSelectionMode && matchingMapItem?.leadId) {
+                    onToggleRouteLead?.(matchingMapItem.leadId);
+                    return;
+                  }
+                  onSelect(item.propertyId);
+                }}
                 className={`w-full rounded-2xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-ink/30 ${
-                  selectedPropertyId === item.propertyId
+                  routeSelectionMode && isRouteSelected
+                    ? "border-field bg-field/10 shadow-panel"
+                    : selectedPropertyId === item.propertyId
                     ? "border-ink bg-ink text-white shadow-panel"
                     : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
                 }`}
               >
                 <div className="flex items-start gap-3">
+                  {routeSelectionMode ? (
+                    <span
+                      className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-xs font-bold ${
+                        isRouteSelected
+                          ? "border-field bg-field text-white"
+                          : isRouteEligible
+                            ? "border-slate-300 bg-white text-transparent"
+                            : "border-slate-200 bg-slate-100 text-slate-300"
+                      }`}
+                    >
+                      ✓
+                    </span>
+                  ) : null}
                   <span
                     className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                      selectedPropertyId === item.propertyId ? "bg-white/15 text-white" : visual.className
+                      routeSelectionMode && isRouteSelected
+                        ? "bg-field text-white"
+                        : selectedPropertyId === item.propertyId
+                          ? "bg-white/15 text-white"
+                          : visual.className
                     }`}
                   >
                     <Icon className="h-4 w-4" strokeWidth={2.2} />
@@ -257,6 +295,15 @@ export function PropertyResultsPanel({
                     <div className={`mt-1 text-xs ${selectedPropertyId === item.propertyId ? "text-slate-200" : "text-slate-500"}`}>
                       {item.subtitle}
                     </div>
+                    {routeSelectionMode ? (
+                      <div className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        {isRouteEligible
+                          ? isRouteSelected
+                            ? "Selected for route"
+                            : "Tap to add to route"
+                          : "Needs a lead before it can be routed"}
+                      </div>
+                    ) : null}
                     {showPriority && item.priorityScore !== undefined ? (
                       <div className="mt-2 flex items-center gap-2">
                         <span

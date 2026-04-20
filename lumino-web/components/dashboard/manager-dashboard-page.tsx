@@ -23,6 +23,18 @@ export function ManagerDashboardPage() {
   const { session } = useAuth();
   const [dashboard, setDashboard] = useState<ManagerDashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const appointmentConversionRate =
+    dashboard?.summary.opportunitiesToday && dashboard.summary.opportunitiesToday > 0
+      ? Math.round((dashboard.summary.appointmentsToday / dashboard.summary.opportunitiesToday) * 100)
+      : 0;
+  const territoryCoverage =
+    dashboard?.territories.length
+      ? Math.round(
+          (dashboard.territories.filter((territory) => territory.health === "strong").length /
+            dashboard.territories.length) *
+            100
+        )
+      : 0;
 
   const loadDashboard = useCallback(async () => {
     if (!session?.access_token) return null;
@@ -53,7 +65,7 @@ export function ManagerDashboardPage() {
           See who is working, whether field activity is creating real opportunities, and where follow-up is starting to leak.
         </p>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-5">
+      <div className="mt-6 grid gap-3 md:grid-cols-5">
           {[
             { label: "Active Reps", value: dashboard?.summary.activeReps ?? 0, icon: Users, href: "/queue" },
             { label: "Knocks Today", value: dashboard?.summary.knocksToday ?? 0, icon: MapPinned, href: "/map" },
@@ -72,6 +84,37 @@ export function ManagerDashboardPage() {
               </Link>
             );
           })}
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-4">
+          {[
+            {
+              label: "Rep Activity",
+              value: `${dashboard?.summary.activeReps ?? 0} live`,
+              detail: `${dashboard?.repScorecards.reduce((sum, rep) => sum + rep.knocks, 0) ?? 0} knocks tracked today`
+            },
+            {
+              label: "Follow-Up Aging",
+              value: `${dashboard?.leakage.overdueCount ?? 0} overdue`,
+              detail: `${dashboard?.leakage.staleOpportunityCount ?? 0} stale opportunities leaking`
+            },
+            {
+              label: "Appointment Conversion",
+              value: `${loading ? "…" : appointmentConversionRate}%`,
+              detail: `${dashboard?.summary.appointmentsToday ?? 0} appointments from ${dashboard?.summary.opportunitiesToday ?? 0} opportunities`
+            },
+            {
+              label: "Territory Performance",
+              value: `${loading ? "…" : territoryCoverage}%`,
+              detail: `${dashboard?.territories.filter((territory) => territory.health === "strong").length ?? 0} strong territories in rotation`
+            }
+          ].map((item) => (
+            <div key={item.label} className="rounded-3xl border border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#eef4ff_100%)] p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">{item.label}</div>
+              <div className="mt-2 text-2xl font-semibold text-ink">{item.value}</div>
+              <div className="mt-1 text-xs text-slate-500">{item.detail}</div>
+            </div>
+          ))}
         </div>
       </div>
 
