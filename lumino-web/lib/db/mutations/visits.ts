@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
+import { completeRouteRunStop } from "@/lib/db/mutations/routes";
 import { ensureOutcomeTask } from "@/lib/db/mutations/tasks";
 import type { AuthSessionContext } from "@/types/auth";
 import type { VisitInput } from "@/types/entities";
@@ -26,7 +27,7 @@ export async function createVisit(input: VisitInput, context: AuthSessionContext
     p_lat: input.lat ?? null,
     p_lng: input.lng ?? null,
     p_captured_at: input.capturedAt ?? null,
-    p_route_run_id: null,
+    p_route_run_id: input.routeRunId ?? null,
     p_follow_up_at: null
   });
 
@@ -94,6 +95,16 @@ export async function createVisit(input: VisitInput, context: AuthSessionContext
       type: "appointment_confirm",
       dueAt: baseDue.toISOString(),
       notes: "Auto-created from Appointment outcome."
+    });
+  }
+
+  if (input.routeRunId && input.routeRunStopId) {
+    await completeRouteRunStop({
+      routeRunId: input.routeRunId,
+      routeRunStopId: input.routeRunStopId,
+      disposition: input.outcome,
+      notes: input.notes ?? null,
+      context
     });
   }
 

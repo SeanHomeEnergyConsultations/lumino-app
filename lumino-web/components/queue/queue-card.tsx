@@ -20,11 +20,17 @@ function toDateTimeLocal(value: string | null) {
 export function QueueCard({
   item,
   accessToken,
-  onUpdated
+  onUpdated,
+  selectable = false,
+  selected = false,
+  onToggleSelected
 }: {
   item: RepQueueItem;
   accessToken: string | null;
   onUpdated: () => Promise<unknown>;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelected?: (leadId: string) => void;
 }) {
   const [nextFollowUpAt, setNextFollowUpAt] = useState(toDateTimeLocal(item.nextFollowUpAt));
   const [appointmentAt, setAppointmentAt] = useState(toDateTimeLocal(item.appointmentAt));
@@ -104,14 +110,35 @@ export function QueueCard({
   }
 
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-panel">
+    <div
+      className={`rounded-3xl border bg-white p-4 shadow-panel transition ${
+        selected ? "border-ink ring-2 ring-ink/10" : "border-slate-200"
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="flex items-start gap-3">
+          {selectable ? (
+            <button
+              type="button"
+              onClick={() => onToggleSelected?.(item.leadId)}
+              className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-xs font-bold transition ${
+                selected
+                  ? "border-ink bg-ink text-white"
+                  : "border-slate-300 bg-white text-transparent"
+              }`}
+              aria-pressed={selected}
+              aria-label={selected ? "Deselect lead from route" : "Select lead for route"}
+            >
+              ✓
+            </button>
+          ) : null}
+          <div>
           <div className="text-sm font-semibold text-ink">{item.address}</div>
           <div className="mt-1 text-xs text-slate-500">
             {item.lastVisitOutcome ?? "No last outcome"} · {item.visitCount} visits
             {item.notHomeCount > 1 ? ` · ${item.notHomeCount} not-home tries` : ""}
           </div>
+        </div>
         </div>
         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600">
           {item.leadStatus ?? "New"}

@@ -7,5 +7,7 @@ export const visitInputSchema = z.object({
   interestLevel: z.enum(["low", "medium", "high"]).nullable().optional(),
   lat: z.number().nullable().optional(),
   lng: z.number().nullable().optional(),
-  capturedAt: z.string().datetime().nullable().optional()
+  capturedAt: z.string().datetime().nullable().optional(),
+  routeRunId: z.string().uuid().nullable().optional(),
+  routeRunStopId: z.string().uuid().nullable().optional()
 });

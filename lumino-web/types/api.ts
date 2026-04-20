@@ -132,6 +132,48 @@ export interface RepQueueResponse {
   needsAttention: RepQueueItem[];
 }
 
+export interface RouteRunStopItem {
+  routeRunStopId: string;
+  leadId: string | null;
+  propertyId: string | null;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  sequenceNumber: number;
+  stopStatus: "pending" | "completed" | "skipped" | "failed";
+  disposition: string | null;
+  skippedReason: string | null;
+  notes: string | null;
+  homeownerName: string | null;
+  phone: string | null;
+  email: string | null;
+  leadStatus: string | null;
+  appointmentAt: string | null;
+}
+
+export interface ActiveRouteRunResponse {
+  routeRunId: string;
+  status: "active" | "paused" | "completed" | "cancelled";
+  optimizationMode: "drive_time" | "mileage";
+  startedAt: string;
+  startedFromLat: number | null;
+  startedFromLng: number | null;
+  startedFromLabel: string | null;
+  totalStops: number;
+  completedStops: number;
+  pendingStops: number;
+  skippedStops: number;
+  nextStop: RouteRunStopItem | null;
+  stops: RouteRunStopItem[];
+  nextStopDirectionsUrl: string | null;
+}
+
+export interface CreateRouteRunResponse {
+  routeRunId: string;
+  totalStops: number;
+  firstPropertyId: string | null;
+}
+
 export interface ManagerKpiSummary {
   activeReps: number;
   knocksToday: number;

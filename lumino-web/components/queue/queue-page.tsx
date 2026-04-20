@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CalendarCheck2, Clock3, ListTodo, Sparkles, TriangleAlert } from "lucide-react";
-import type { RepQueueResponse } from "@/types/api";
+import type { CreateRouteRunResponse, RepQueueResponse } from "@/types/api";
 import { QueueSection } from "@/components/queue/queue-section";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
@@ -13,13 +13,16 @@ export function QueuePage({
   initialOwnerId?: string | null;
   repName?: string | null;
 }) {
-  const { session } = useAuth();
+  const { session, appContext } = useAuth();
   const [queue, setQueue] = useState<RepQueueResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [ownerId] = useState<string | null>(initialOwnerId);
   const [activeMobileSection, setActiveMobileSection] = useState<
     "dueNow" | "revisits" | "appointments" | "opportunities" | "needsAttention"
   >("dueNow");
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [routeState, setRouteState] = useState<"idle" | "locating" | "saving" | "error">("idle");
+  const [routeError, setRouteError] = useState<string | null>(null);
 
   const loadQueue = useCallback(async () => {
     if (!session?.access_token) return null;
@@ -47,6 +50,85 @@ export function QueuePage({
       cancelled = true;
     };
   }, [loadQueue]);
+
+  useEffect(() => {
+    const visibleLeadIds = new Set(
+      [
+        ...(queue?.dueNow ?? []),
+        ...(queue?.revisits ?? []),
+        ...(queue?.appointments ?? []),
+        ...(queue?.opportunities ?? []),
+        ...(queue?.needsAttention ?? [])
+      ].map((item) => item.leadId)
+    );
+    setSelectedLeadIds((current) => current.filter((leadId) => visibleLeadIds.has(leadId)));
+  }, [queue]);
+
+  const canCreateRoute =
+    !ownerId || ownerId === appContext?.appUser.id;
+
+  function toggleSelectedLead(leadId: string) {
+    setSelectedLeadIds((current) =>
+      current.includes(leadId) ? current.filter((item) => item !== leadId) : [...current, leadId]
+    );
+  }
+
+  async function getCurrentPosition() {
+    if (!navigator.geolocation) {
+      throw new Error("Location access is not available on this device.");
+    }
+
+    return new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 15000
+      });
+    });
+  }
+
+  async function handleBuildRoute() {
+    if (!session?.access_token || !selectedLeadIds.length) return;
+
+    try {
+      setRouteError(null);
+      setRouteState("locating");
+      const position = await getCurrentPosition();
+
+      setRouteState("saving");
+      const response = await authFetch(session.access_token, "/api/routes/run", {
+        method: "POST",
+        body: JSON.stringify({
+          leadIds: selectedLeadIds,
+          startedFromLat: position.coords.latitude,
+          startedFromLng: position.coords.longitude,
+          startedFromLabel: "Current Location",
+          optimizationMode: "drive_time"
+        })
+      });
+
+      const json = (await response.json()) as CreateRouteRunResponse | { error?: string };
+      if (!response.ok) {
+        throw new Error("error" in json && json.error ? json.error : "Failed to create route");
+      }
+
+      const nextUrl =
+        "firstPropertyId" in json && json.firstPropertyId
+          ? `/map?propertyId=${encodeURIComponent(json.firstPropertyId)}`
+          : "/map";
+      window.location.assign(nextUrl);
+    } catch (error) {
+      setRouteState("error");
+      setRouteError(
+        error instanceof Error
+          ? error.message
+          : "Could not build a route from your selected leads."
+      );
+      return;
+    }
+
+    setRouteState("idle");
+  }
 
   const sections = [
     {
@@ -149,6 +231,50 @@ export function QueuePage({
             </div>
           </div>
         </div>
+
+        {canCreateRoute ? (
+          <div className="mt-5 rounded-[1.6rem] border border-slate-200 bg-slate-950 p-4 text-white">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">Route Builder</div>
+                <div className="mt-2 text-lg font-semibold">
+                  {selectedLeadIds.length ? `${selectedLeadIds.length} lead${selectedLeadIds.length === 1 ? "" : "s"} selected` : "Select stops from your queue"}
+                </div>
+                <p className="mt-1 text-sm text-white/70">
+                  Build an optimized stop order from your current location, then work it on the map.
+                </p>
+              </div>
+              {selectedLeadIds.length ? (
+                <button
+                  type="button"
+                  onClick={() => setSelectedLeadIds([])}
+                  className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-white/80"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                onClick={() => void handleBuildRoute()}
+                disabled={!selectedLeadIds.length || routeState === "locating" || routeState === "saving"}
+                className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {routeState === "locating"
+                  ? "Getting location..."
+                  : routeState === "saving"
+                    ? "Building route..."
+                    : "Build Route"}
+              </button>
+              <div className="text-xs text-white/70">
+                {routeError
+                  ? routeError
+                  : "Best for today's revisits, overdue follow-ups, and fresh opportunities."}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-6 md:hidden">
@@ -179,6 +305,9 @@ export function QueuePage({
           items={activeSection.items}
           accessToken={session?.access_token ?? null}
           onUpdated={loadQueue}
+          selectable={canCreateRoute}
+          selectedLeadIds={new Set(selectedLeadIds)}
+          onToggleSelected={toggleSelectedLead}
         />
       </div>
 
@@ -191,9 +320,37 @@ export function QueuePage({
             items={section.items}
             accessToken={session?.access_token ?? null}
             onUpdated={loadQueue}
+            selectable={canCreateRoute}
+            selectedLeadIds={new Set(selectedLeadIds)}
+            onToggleSelected={toggleSelectedLead}
           />
         ))}
       </div>
+
+      {canCreateRoute && selectedLeadIds.length ? (
+        <div className="fixed inset-x-0 bottom-20 z-20 px-4 md:hidden">
+          <div className="mx-auto flex max-w-md items-center justify-between gap-3 rounded-[1.4rem] border border-slate-200 bg-white/95 p-3 shadow-2xl backdrop-blur">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">Route Ready</div>
+              <div className="mt-1 text-sm font-semibold text-ink">
+                {selectedLeadIds.length} stop{selectedLeadIds.length === 1 ? "" : "s"} selected
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleBuildRoute()}
+              disabled={routeState === "locating" || routeState === "saving"}
+              className="rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {routeState === "locating"
+                ? "Locating..."
+                : routeState === "saving"
+                  ? "Building..."
+                  : "Build Route"}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

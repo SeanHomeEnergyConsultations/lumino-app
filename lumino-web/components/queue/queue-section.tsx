@@ -6,13 +6,19 @@ export function QueueSection({
   description,
   items,
   accessToken,
-  onUpdated
+  onUpdated,
+  selectable = false,
+  selectedLeadIds = new Set<string>(),
+  onToggleSelected
 }: {
   title: string;
   description: string;
   items: RepQueueItem[];
   accessToken: string | null;
   onUpdated: () => Promise<unknown>;
+  selectable?: boolean;
+  selectedLeadIds?: Set<string>;
+  onToggleSelected?: (leadId: string) => void;
 }) {
   return (
     <section className="rounded-[2rem] border border-slate-200/80 bg-white/70 p-5 shadow-panel backdrop-blur">
@@ -29,7 +35,15 @@ export function QueueSection({
       <div className="mt-5 grid gap-4 xl:grid-cols-2">
         {items.length ? (
           items.map((item) => (
-            <QueueCard key={`${title}-${item.leadId}`} item={item} accessToken={accessToken} onUpdated={onUpdated} />
+            <QueueCard
+              key={`${title}-${item.leadId}`}
+              item={item}
+              accessToken={accessToken}
+              onUpdated={onUpdated}
+              selectable={selectable}
+              selected={selectedLeadIds.has(item.leadId)}
+              onToggleSelected={onToggleSelected}
+            />
           ))
         ) : (
           <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">

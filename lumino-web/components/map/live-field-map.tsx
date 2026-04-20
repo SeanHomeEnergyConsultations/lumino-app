@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   BadgeHelp,
@@ -25,14 +25,14 @@ import {
   X,
   XCircle
 } from "lucide-react";
-import Map, {
+import MapView, {
   Marker,
   NavigationControl,
   type MapLayerMouseEvent,
   type MapRef,
   type ViewStateChangeEvent
 } from "react-map-gl/maplibre";
-import type { ResolvePropertyResponse } from "@/types/api";
+import type { ActiveRouteRunResponse, ResolvePropertyResponse } from "@/types/api";
 import type { LeadInput, MapProperty, OrganizationFeatureAccess, PropertyDetail, TaskInput } from "@/types/entities";
 import { MapToolbar, type MapFilterKey } from "@/components/map/map-toolbar";
 import { PropertyResultsPanel, mapStateVisual } from "@/components/map/property-results-panel";
@@ -196,6 +196,8 @@ export function LiveFieldMap({
   const [isDrawerVisible, setIsDrawerVisible] = useState(true);
   const [mobileOpenNonce, setMobileOpenNonce] = useState(0);
   const [showTeamKnocks, setShowTeamKnocks] = useState(isManager);
+  const [activeRoute, setActiveRoute] = useState<ActiveRouteRunResponse | null>(null);
+  const [routeActionState, setRouteActionState] = useState<"idle" | "loading" | "error">("idle");
   const [featureAccess, setFeatureAccess] = useState<OrganizationFeatureAccess>({
     mapEnabled: true,
     doorKnockingEnabled: true,
@@ -231,6 +233,16 @@ export function LiveFieldMap({
       return false;
     });
   }, [activeFilters, featureAccess.priorityScoringEnabled, items]);
+
+  const activeRouteStopSequenceByPropertyId = useMemo(() => {
+    const next = new Map<string, number>();
+    for (const stop of activeRoute?.stops ?? []) {
+      if (stop.propertyId && stop.stopStatus === "pending") {
+        next.set(stop.propertyId, stop.sequenceNumber);
+      }
+    }
+    return next;
+  }, [activeRoute]);
 
   useEffect(() => {
     setSelectedPropertyId(initialSelectedPropertyId);
@@ -292,6 +304,23 @@ export function LiveFieldMap({
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
+  const loadActiveRoute = useCallback(async () => {
+    if (!session?.access_token) {
+      setActiveRoute(null);
+      return null;
+    }
+
+    const response = await authFetch(session.access_token, "/api/routes/active");
+    if (!response.ok) {
+      setActiveRoute(null);
+      return null;
+    }
+
+    const json = (await response.json()) as ActiveRouteRunResponse | null;
+    setActiveRoute(json);
+    return json;
+  }, [session?.access_token]);
+
   async function loadPropertiesForViewport(bounds?: maplibregl.LngLatBoundsLike | null) {
     if (!session?.access_token) return;
 
@@ -329,6 +358,10 @@ export function LiveFieldMap({
     void loadPropertiesForViewport(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.access_token, ownerIdFilter, cityFilter, stateFilter, showTeamKnocks]);
+
+  useEffect(() => {
+    void loadActiveRoute();
+  }, [loadActiveRoute]);
 
   useEffect(() => {
     if (!session?.access_token || !selectedPropertyId) {
@@ -380,6 +413,13 @@ export function LiveFieldMap({
       zoom: Math.max(current.zoom, 16)
     }));
   }, [selectedProperty?.lat, selectedProperty?.lng]);
+
+  useEffect(() => {
+    if (selectedPropertyId || !activeRoute?.nextStop?.propertyId || !session?.access_token) return;
+    openSelectedProperty(activeRoute.nextStop.propertyId);
+    void refreshSelectedProperty(activeRoute.nextStop.propertyId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRoute?.nextStop?.propertyId, selectedPropertyId, session?.access_token]);
 
   async function refreshSelectedProperty(propertyId: string) {
     if (!session?.access_token) return;
@@ -467,6 +507,10 @@ export function LiveFieldMap({
 
   async function handleLogOutcome(outcome: string) {
     if (!selectedProperty || !session?.access_token) return;
+    const matchingRouteStop =
+      selectedProperty.propertyId && activeRoute?.nextStop?.propertyId === selectedProperty.propertyId
+        ? activeRoute.nextStop
+        : null;
     try {
       setIsSavingVisit(true);
       const propertyId = await ensurePersistedSelectedProperty();
@@ -476,7 +520,9 @@ export function LiveFieldMap({
           propertyId,
           lat: selectedProperty.lat,
           lng: selectedProperty.lng,
-          outcome
+          outcome,
+          routeRunId: matchingRouteStop ? activeRoute?.routeRunId ?? null : null,
+          routeRunStopId: matchingRouteStop?.routeRunStopId ?? null
         })
       });
 
@@ -514,6 +560,11 @@ export function LiveFieldMap({
         )
       );
       await refreshSelectedProperty(propertyId);
+      const refreshedRoute = await loadActiveRoute();
+      if (refreshedRoute?.nextStop?.propertyId && refreshedRoute.nextStop.propertyId !== propertyId) {
+        openSelectedProperty(refreshedRoute.nextStop.propertyId);
+        await refreshSelectedProperty(refreshedRoute.nextStop.propertyId);
+      }
     } finally {
       setIsSavingVisit(false);
     }
@@ -559,6 +610,40 @@ export function LiveFieldMap({
     }
   }
 
+  async function handleSkipRouteStop() {
+    if (!session?.access_token || !activeRoute?.nextStop) return;
+    try {
+      setRouteActionState("loading");
+      const response = await authFetch(
+        session.access_token,
+        `/api/routes/run/${activeRoute.routeRunId}/stops/${activeRoute.nextStop.routeRunStopId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            action: "skip",
+            skippedReason: "Skipped from active route"
+          })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to skip route stop");
+      }
+
+      const refreshedRoute = await loadActiveRoute();
+      if (refreshedRoute?.nextStop?.propertyId) {
+        openSelectedProperty(refreshedRoute.nextStop.propertyId);
+        await refreshSelectedProperty(refreshedRoute.nextStop.propertyId);
+      } else {
+        setSelectedPropertyId(null);
+        setSelectedProperty(null);
+      }
+      setRouteActionState("idle");
+    } catch {
+      setRouteActionState("error");
+    }
+  }
+
   function handleMoveEnd(event: ViewStateChangeEvent) {
     setViewState(event.viewState);
     void loadPropertiesForViewport(event.target.getBounds());
@@ -582,6 +667,24 @@ export function LiveFieldMap({
   }
 
   const selectedVisual = selectedMapItem ? mapStateVisual(selectedMapItem.mapState) : null;
+  const pendingRouteStops = activeRoute?.stops.filter((stop) => stop.stopStatus === "pending") ?? [];
+  const nextStopDirectionsUrl = activeRoute?.nextStop
+    ? (() => {
+        const params = new URLSearchParams({
+          api: "1",
+          destination: activeRoute.nextStop.address
+        });
+        if (userLocation) {
+          params.set("origin", `${userLocation.latitude},${userLocation.longitude}`);
+        } else if (
+          activeRoute.startedFromLat !== null &&
+          activeRoute.startedFromLng !== null
+        ) {
+          params.set("origin", `${activeRoute.startedFromLat},${activeRoute.startedFromLng}`);
+        }
+        return `https://www.google.com/maps/dir/?${params.toString()}`;
+      })()
+    : null;
 
   return (
     <div className="flex min-h-[calc(100vh-7.5rem)] flex-col">
@@ -625,7 +728,105 @@ export function LiveFieldMap({
           </button>
         </div>
 
-        <Map
+        {activeRoute ? (
+          <div className="absolute left-4 right-4 top-20 z-20 xl:left-4 xl:right-auto xl:w-[24rem]">
+            <div className="rounded-[1.75rem] border border-slate-200 bg-white/96 p-4 shadow-2xl backdrop-blur">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Active Route</div>
+                  <div className="mt-2 text-lg font-semibold text-ink">
+                    {activeRoute.pendingStops} stop{activeRoute.pendingStops === 1 ? "" : "s"} left
+                  </div>
+                  <div className="mt-1 text-sm text-slate-600">
+                    {activeRoute.completedStops} completed · {activeRoute.skippedStops} skipped
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 px-3 py-2 text-center ring-1 ring-slate-200">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-mist">Next</div>
+                  <div className="mt-1 text-lg font-semibold text-ink">
+                    {activeRoute.nextStop?.sequenceNumber ?? "—"}
+                  </div>
+                </div>
+              </div>
+
+              {activeRoute.nextStop ? (
+                <>
+                  <div className="mt-4 rounded-[1.35rem] bg-[linear-gradient(135deg,#f8fafc_0%,#eef4ff_100%)] p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">Next Stop</div>
+                    <div className="mt-2 text-sm font-semibold text-ink">{activeRoute.nextStop.address}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {activeRoute.nextStop.homeownerName || activeRoute.nextStop.leadStatus || "Ready to work"}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!activeRoute.nextStop?.propertyId) return;
+                        openSelectedProperty(activeRoute.nextStop.propertyId);
+                        void refreshSelectedProperty(activeRoute.nextStop.propertyId);
+                      }}
+                      className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white"
+                    >
+                      Open Stop
+                    </button>
+                    {nextStopDirectionsUrl ? (
+                      <a
+                        href={nextStopDirectionsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-ink"
+                      >
+                        Navigate
+                      </a>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void handleSkipRouteStop()}
+                      disabled={routeActionState === "loading"}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 disabled:opacity-60"
+                    >
+                      {routeActionState === "loading" ? "Skipping..." : "Skip"}
+                    </button>
+                  </div>
+
+                  <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                    {pendingRouteStops.slice(0, 6).map((stop) => (
+                      <button
+                        key={stop.routeRunStopId}
+                        type="button"
+                        onClick={() => {
+                          if (!stop.propertyId) return;
+                          openSelectedProperty(stop.propertyId);
+                          void refreshSelectedProperty(stop.propertyId);
+                        }}
+                        className={`min-w-[7rem] rounded-[1.15rem] border px-3 py-2 text-left transition ${
+                          activeRoute.nextStop?.routeRunStopId === stop.routeRunStopId
+                            ? "border-ink bg-ink text-white"
+                            : "border-slate-200 bg-white text-ink"
+                        }`}
+                      >
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] opacity-70">
+                          Stop {stop.sequenceNumber}
+                        </div>
+                        <div className="mt-1 truncate text-sm font-semibold">
+                          {stop.address.split(",")[0]}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="mt-4 rounded-[1.35rem] bg-slate-50 p-4 text-sm text-slate-600">
+                  This route has no pending stops left.
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        <MapView
           ref={mapRef}
           {...viewState}
           onMove={(event) => setViewState(event.viewState)}
@@ -640,6 +841,7 @@ export function LiveFieldMap({
             const visual = markerVisual(item.mapState);
             const Icon = visual.icon;
             const badge = markerBadge(item);
+            const routeSequence = activeRouteStopSequenceByPropertyId.get(item.propertyId);
 
             return (
               <Marker key={item.propertyId} latitude={item.lat} longitude={item.lng} anchor="center">
@@ -657,6 +859,11 @@ export function LiveFieldMap({
                   <span className={`flex h-6 w-6 items-center justify-center rounded-full ${visual.className}`}>
                     <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
                   </span>
+                  {routeSequence ? (
+                    <span className="absolute -left-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-ink px-1 text-[10px] font-bold text-white shadow">
+                      {routeSequence}
+                    </span>
+                  ) : null}
                   {badge ? (
                     <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-slate-700 shadow">
                       {badge}
@@ -678,14 +885,16 @@ export function LiveFieldMap({
               </div>
             </Marker>
           ) : null}
-        </Map>
+        </MapView>
 
         <div className="absolute bottom-24 left-4 right-4 rounded-2xl border border-slate-200 bg-white/92 px-4 py-3 text-sm text-slate-600 shadow-panel sm:right-auto sm:rounded-full sm:py-2 xl:bottom-4">
           {isSavingVisit
             ? "Saving visit..."
             : isResolvingTap
               ? "Opening property..."
-              : "Pan the map, tap any property, log the outcome"}
+              : activeRoute
+                ? "Active route live. Work the next stop, then keep moving."
+                : "Pan the map, tap any property, log the outcome"}
         </div>
         {userLocation ? (
           <button

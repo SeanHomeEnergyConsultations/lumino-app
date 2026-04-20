@@ -66,6 +66,8 @@ export interface VisitInput {
   lat?: number | null;
   lng?: number | null;
   capturedAt?: string | null;
+  routeRunId?: string | null;
+  routeRunStopId?: string | null;
 }
 
 export interface LeadInput {
