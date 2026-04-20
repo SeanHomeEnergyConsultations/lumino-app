@@ -236,7 +236,7 @@ export function LiveFieldMap({
 
     const response = await authFetch(
       session.access_token,
-      `/api/map/properties?minLat=${minLat}&maxLat=${maxLat}&minLng=${minLng}&maxLng=${maxLng}&limit=250${
+      `/api/map/properties?minLat=${minLat}&maxLat=${maxLat}&minLng=${minLng}&maxLng=${maxLng}&limit=1000${
         ownerIdFilter ? `&ownerId=${encodeURIComponent(ownerIdFilter)}` : ""
       }${cityFilter ? `&city=${encodeURIComponent(cityFilter)}` : ""}${
         stateFilter ? `&state=${encodeURIComponent(stateFilter)}` : ""

@@ -84,7 +84,7 @@ export async function getMapPropertiesForViewport(
 
   const featureResolution = await getOrganizationFeatureAccess(context.organizationId);
   const featureAccess = featureResolution.effective;
-  const limit = filters.limit ?? 250;
+  const limit = Math.min(filters.limit ?? 1000, 2000);
   const isManager = context.memberships.some((membership) => ["owner", "admin", "manager"].includes(membership.role));
   const showTeamKnocks = filters.showTeamKnocks ?? isManager;
 
