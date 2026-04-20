@@ -22,6 +22,21 @@ export interface PlatformOrganizationChecklist {
   firstTerritoryCreated: boolean;
 }
 
+export interface PlatformOrganizationDatasetEntitlements {
+  sold_properties: {
+    cities: string[];
+    zips: string[];
+  };
+  solar_permits: {
+    cities: string[];
+    zips: string[];
+  };
+  roofing_permits: {
+    cities: string[];
+    zips: string[];
+  };
+}
+
 export interface PlatformOrganizationOverviewItem {
   organizationId: string;
   name: string;
@@ -41,6 +56,7 @@ export interface PlatformOrganizationOverviewItem {
   lastActivityAt: string;
   featureOverrides: OrganizationFeatureOverrides;
   effectiveFeatures: OrganizationFeatureAccess;
+  datasetEntitlements: PlatformOrganizationDatasetEntitlements;
   checklist: PlatformOrganizationChecklist;
 }
 
@@ -609,6 +625,10 @@ export interface PlatformDatasetItem {
   sourceOrganizationName: string;
   listType: "general_canvass_list" | "homeowner_leads" | "sold_properties" | "solar_permits" | "roofing_permits" | "custom";
   rowCount: number;
+  coverage: {
+    cities: string[];
+    zips: string[];
+  };
   status: "active" | "archived";
   createdAt: string;
   grants: PlatformDatasetOrganizationGrant[];
@@ -630,4 +650,8 @@ export interface SharedDatasetAccessListItem {
 
 export interface PlatformDatasetsResponse {
   items: PlatformDatasetItem[];
+}
+
+export interface PlatformOrganizationDatasetEntitlementsResponse {
+  item: PlatformOrganizationDatasetEntitlements;
 }

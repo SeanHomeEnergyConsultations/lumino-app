@@ -1,5 +1,10 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { hasPlatformAccess } from "@/lib/auth/permissions";
+import {
+  displayDatasetEntitlementValue,
+  emptyDatasetEntitlements,
+  normalizeDatasetEntitlementValue
+} from "@/lib/platform/dataset-entitlements";
 import { resolveOrganizationFeatures } from "@/lib/platform/features";
 import type {
   PlatformOverviewResponse,
@@ -72,7 +77,8 @@ export async function getPlatformOrganizationOverview(
     { data: imports, error: importsError },
     { data: territories, error: territoriesError },
     { data: securityEvents, error: securityEventsError },
-    { data: featureRows, error: featureRowsError }
+    { data: featureRows, error: featureRowsError },
+    { data: entitlementRows, error: entitlementRowsError }
   ] = await Promise.all([
     supabase
       .from("organizations")
@@ -96,7 +102,11 @@ export async function getPlatformOrganizationOverview(
       .from("organization_features")
       .select(
         "organization_id,enrichment_enabled,priority_scoring_enabled,advanced_imports_enabled,security_console_enabled"
-      )
+      ),
+    supabase
+      .from("organization_dataset_entitlements")
+      .select("organization_id,dataset_type,geography_type,geography_value_normalized,status")
+      .eq("status", "active")
   ]);
 
   if (organizationsError) throw organizationsError;
@@ -105,6 +115,7 @@ export async function getPlatformOrganizationOverview(
   if (territoriesError) throw territoriesError;
   if (securityEventsError) throw securityEventsError;
   if (featureRowsError) throw featureRowsError;
+  if (entitlementRowsError) throw entitlementRowsError;
 
   const membershipsByOrg = new Map<
     string,
@@ -177,6 +188,23 @@ export async function getPlatformOrganizationOverview(
   const featureRowByOrg = new Map(
     (featureRows ?? []).map((row) => [row.organization_id as string, row as Record<string, unknown>])
   );
+  const entitlementsByOrg = new Map<string, ReturnType<typeof emptyDatasetEntitlements>>();
+
+  for (const row of entitlementRows ?? []) {
+    const organizationId = row.organization_id as string | null;
+    const datasetType = row.dataset_type as keyof ReturnType<typeof emptyDatasetEntitlements> | null;
+    const geographyType = row.geography_type as "city" | "zip" | null;
+    const value = row.geography_value_normalized as string | null;
+    if (!organizationId || !datasetType || !geographyType || !value) continue;
+    const current = entitlementsByOrg.get(organizationId) ?? emptyDatasetEntitlements();
+    const bucket = current[datasetType][geographyType === "zip" ? "zips" : "cities"];
+    const displayValue = displayDatasetEntitlementValue(
+      geographyType,
+      normalizeDatasetEntitlementValue(geographyType, value)
+    );
+    if (!bucket.includes(displayValue)) bucket.push(displayValue);
+    entitlementsByOrg.set(organizationId, current);
+  }
 
   const organizationRows = ((organizations as OrganizationRow[] | null) ?? []);
 
@@ -222,6 +250,7 @@ export async function getPlatformOrganizationOverview(
       lastActivityAt,
       featureOverrides: featureResolution.overrides,
       effectiveFeatures: featureResolution.effective,
+      datasetEntitlements: entitlementsByOrg.get(organization.id) ?? emptyDatasetEntitlements(),
       checklist: {
         firstAdminInvited: membershipStats.adminCount > 0,
         brandingConfigured: Boolean(organization.brand_name),

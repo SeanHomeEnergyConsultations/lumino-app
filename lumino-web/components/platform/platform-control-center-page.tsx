@@ -3,15 +3,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { Building2, CheckCircle2, ExternalLink, RefreshCw, ShieldAlert, ShieldCheck, Sparkles } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
+import { coverageMatchesEntitlements } from "@/lib/platform/dataset-entitlements";
 import { ORGANIZATION_BILLING_PLANS } from "@/lib/platform/features";
 import type {
   PlatformDatasetItem,
   PlatformDatasetsResponse,
+  PlatformOrganizationDatasetEntitlements,
   PlatformOrganizationOverviewItem,
   PlatformOverviewResponse,
   PlatformSecurityEventItem,
   PlatformSecurityEventsResponse
 } from "@/types/api";
+
+type DatasetEntitlementDraft = {
+  sold_properties: { cities: string; zips: string };
+  solar_permits: { cities: string; zips: string };
+  roofing_permits: { cities: string; zips: string };
+};
 
 type FeatureDraft = {
   billingPlan: PlatformOrganizationOverviewItem["billingPlan"];
@@ -19,6 +27,7 @@ type FeatureDraft = {
   priorityScoringEnabled: boolean | null;
   advancedImportsEnabled: boolean | null;
   securityConsoleEnabled: boolean | null;
+  datasetEntitlements: DatasetEntitlementDraft;
 };
 
 function formatBillingPlan(plan: PlatformOrganizationOverviewItem["billingPlan"]) {
@@ -33,6 +42,50 @@ function formatDateTime(value: string | null) {
   return new Date(value).toLocaleString();
 }
 
+function entitlementsToDraft(input: PlatformOrganizationDatasetEntitlements): DatasetEntitlementDraft {
+  return {
+    sold_properties: {
+      cities: input.sold_properties.cities.join(", "),
+      zips: input.sold_properties.zips.join(", ")
+    },
+    solar_permits: {
+      cities: input.solar_permits.cities.join(", "),
+      zips: input.solar_permits.zips.join(", ")
+    },
+    roofing_permits: {
+      cities: input.roofing_permits.cities.join(", "),
+      zips: input.roofing_permits.zips.join(", ")
+    }
+  };
+}
+
+function draftToEntitlements(input: DatasetEntitlementDraft): PlatformOrganizationDatasetEntitlements {
+  const parseList = (value: string) =>
+    Array.from(
+      new Set(
+        value
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+      )
+    );
+
+  return {
+    sold_properties: {
+      cities: parseList(input.sold_properties.cities),
+      zips: parseList(input.sold_properties.zips)
+    },
+    solar_permits: {
+      cities: parseList(input.solar_permits.cities),
+      zips: parseList(input.solar_permits.zips)
+    },
+    roofing_permits: {
+      cities: parseList(input.roofing_permits.cities),
+      zips: parseList(input.roofing_permits.zips)
+    }
+  };
+}
+
 function buildInitialDrafts(items: PlatformOrganizationOverviewItem[]) {
   return Object.fromEntries(
     items.map((item) => [
@@ -42,10 +95,57 @@ function buildInitialDrafts(items: PlatformOrganizationOverviewItem[]) {
         enrichmentEnabled: item.featureOverrides.enrichmentEnabled,
         priorityScoringEnabled: item.featureOverrides.priorityScoringEnabled,
         advancedImportsEnabled: item.featureOverrides.advancedImportsEnabled,
-        securityConsoleEnabled: item.featureOverrides.securityConsoleEnabled
+        securityConsoleEnabled: item.featureOverrides.securityConsoleEnabled,
+        datasetEntitlements: entitlementsToDraft(item.datasetEntitlements)
       } satisfies FeatureDraft
     ])
   ) as Record<string, FeatureDraft>;
+}
+
+function describeDatasetAccessStatus(dataset: PlatformDatasetItem, organization: PlatformOrganizationOverviewItem) {
+  if (organization.organizationId === dataset.sourceOrganizationId) {
+    return {
+      label: "Platform Source",
+      tone: "bg-slate-900 text-white"
+    };
+  }
+
+  if (organization.billingPlan === "intelligence") {
+    return {
+      label: "Included by Intelligence",
+      tone: "bg-emerald-100 text-emerald-700"
+    };
+  }
+
+  if (!organization.effectiveFeatures.datasetMarketplaceEnabled) {
+    return {
+      label: "No Access",
+      tone: "bg-slate-200 text-slate-700"
+    };
+  }
+
+  if (!["sold_properties", "solar_permits", "roofing_permits"].includes(dataset.listType)) {
+    return {
+      label: "Marketplace Eligible",
+      tone: "bg-sky-100 text-sky-700"
+    };
+  }
+
+  const matches = coverageMatchesEntitlements(
+    dataset.listType,
+    dataset.coverage,
+    organization.datasetEntitlements
+  );
+
+  return matches
+    ? {
+        label: "Marketplace Eligible",
+        tone: "bg-sky-100 text-sky-700"
+      }
+    : {
+        label: "No Access",
+        tone: "bg-slate-200 text-slate-700"
+      };
 }
 
 export function PlatformControlCenterPage() {
@@ -208,7 +308,7 @@ export function PlatformControlCenterPage() {
     setError(null);
 
     try {
-      const [organizationResponse, featuresResponse] = await Promise.all([
+      const [organizationResponse, featuresResponse, entitlementsResponse] = await Promise.all([
         authFetch(session.access_token, `/api/platform/organizations/${item.organizationId}`, {
           method: "PATCH",
           body: JSON.stringify({ billingPlan: draft.billingPlan })
@@ -221,19 +321,27 @@ export function PlatformControlCenterPage() {
             advancedImportsEnabled: draft.advancedImportsEnabled,
             securityConsoleEnabled: draft.securityConsoleEnabled
           })
+        }),
+        authFetch(session.access_token, `/api/platform/organizations/${item.organizationId}/dataset-entitlements`, {
+          method: "PATCH",
+          body: JSON.stringify(draftToEntitlements(draft.datasetEntitlements))
         })
       ]);
 
       const organizationJson = (await organizationResponse.json()) as { error?: string };
       const featuresJson = (await featuresResponse.json()) as { error?: string };
+      const entitlementsJson = (await entitlementsResponse.json()) as { error?: string };
       if (!organizationResponse.ok) {
         throw new Error(organizationJson.error || "Failed to update billing plan.");
       }
       if (!featuresResponse.ok) {
         throw new Error(featuresJson.error || "Failed to update organization features.");
       }
+      if (!entitlementsResponse.ok) {
+        throw new Error(entitlementsJson.error || "Failed to update marketplace entitlements.");
+      }
 
-      await loadOverview();
+      await Promise.all([loadOverview(), loadDatasets()]);
       if (selectedOrganizationId === item.organizationId || selectedOrganizationId === "all") {
         await loadSecurityEvents();
       }
@@ -463,7 +571,7 @@ export function PlatformControlCenterPage() {
                     </div>
                   </div>
 
-                  <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr,1fr,1fr]">
+                  <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr,1fr,1fr,1.1fr]">
                     <div className="rounded-3xl border border-slate-200 bg-white p-4">
                       <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Setup Checklist</div>
                       <div className="mt-3 space-y-3">
@@ -616,6 +724,84 @@ export function PlatformControlCenterPage() {
                         ))}
                       </div>
                     </div>
+
+                    <div className="rounded-3xl border border-slate-200 bg-white p-4">
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Marketplace Access</div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        Owner-managed city and zip entitlements for sold homes and permit datasets.
+                      </div>
+                      <div className="mt-3 space-y-3">
+                        {[
+                          ["sold_properties", "Sold Homes"],
+                          ["solar_permits", "Solar Permits"],
+                          ["roofing_permits", "Roofing Permits"]
+                        ].map(([datasetType, label]) => (
+                          <div key={datasetType} className="rounded-2xl bg-slate-50 px-3 py-3">
+                            <div className="text-sm font-medium text-slate-700">{label}</div>
+                            <div className="mt-3 space-y-2">
+                              <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-mist">
+                                Cities
+                                <input
+                                  type="text"
+                                  disabled={!canMutate}
+                                  value={draft?.datasetEntitlements[datasetType as keyof DatasetEntitlementDraft].cities ?? ""}
+                                  onChange={(event) =>
+                                    setDrafts((current) => ({
+                                      ...current,
+                                      [item.organizationId]: {
+                                        ...(current[item.organizationId] ?? buildInitialDrafts([item])[item.organizationId]),
+                                        datasetEntitlements: {
+                                          ...(current[item.organizationId]?.datasetEntitlements ??
+                                            buildInitialDrafts([item])[item.organizationId].datasetEntitlements),
+                                          [datasetType]: {
+                                            ...((current[item.organizationId]?.datasetEntitlements ??
+                                              buildInitialDrafts([item])[item.organizationId].datasetEntitlements)[
+                                              datasetType as keyof DatasetEntitlementDraft
+                                            ]),
+                                            cities: event.target.value
+                                          }
+                                        }
+                                      }
+                                    }))
+                                  }
+                                  placeholder="Framingham, Worcester"
+                                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-700"
+                                />
+                              </label>
+                              <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-mist">
+                                Zip Codes
+                                <input
+                                  type="text"
+                                  disabled={!canMutate}
+                                  value={draft?.datasetEntitlements[datasetType as keyof DatasetEntitlementDraft].zips ?? ""}
+                                  onChange={(event) =>
+                                    setDrafts((current) => ({
+                                      ...current,
+                                      [item.organizationId]: {
+                                        ...(current[item.organizationId] ?? buildInitialDrafts([item])[item.organizationId]),
+                                        datasetEntitlements: {
+                                          ...(current[item.organizationId]?.datasetEntitlements ??
+                                            buildInitialDrafts([item])[item.organizationId].datasetEntitlements),
+                                          [datasetType]: {
+                                            ...((current[item.organizationId]?.datasetEntitlements ??
+                                              buildInitialDrafts([item])[item.organizationId].datasetEntitlements)[
+                                              datasetType as keyof DatasetEntitlementDraft
+                                            ]),
+                                            zips: event.target.value
+                                          }
+                                        }
+                                      }
+                                    }))
+                                  }
+                                  placeholder="01701, 01826"
+                                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-700"
+                                />
+                              </label>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
 
                   <div className="mt-4 flex justify-end">
@@ -745,6 +931,34 @@ export function PlatformControlCenterPage() {
                         <div className="text-sm text-slate-500">No orgs have access yet.</div>
                       )}
                     </div>
+                  </div>
+
+                  <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Org Access Status</div>
+                    <div className="mt-2 text-xs text-slate-500">
+                      Owner-defined packaging status for this shared dataset by organization.
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {items.map((organization) => {
+                        const status = describeDatasetAccessStatus(dataset, organization);
+                        return (
+                          <span
+                            key={`${dataset.datasetId}-${organization.organizationId}`}
+                            className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] ${status.tone}`}
+                          >
+                            {organization.name} · {status.label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {(dataset.coverage.cities.length || dataset.coverage.zips.length) ? (
+                      <div className="mt-3 text-xs text-slate-500">
+                        Coverage:
+                        {dataset.coverage.cities.length ? ` Cities: ${dataset.coverage.cities.slice(0, 6).join(", ")}` : ""}
+                        {dataset.coverage.cities.length && dataset.coverage.zips.length ? " ·" : ""}
+                        {dataset.coverage.zips.length ? ` Zips: ${dataset.coverage.zips.slice(0, 8).join(", ")}` : ""}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               );

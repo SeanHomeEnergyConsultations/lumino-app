@@ -27,3 +27,20 @@ export const organizationFeatureUpdateSchema = z.object({
   advancedImportsEnabled: z.boolean().nullable().optional(),
   securityConsoleEnabled: z.boolean().nullable().optional()
 });
+
+const geographyListSchema = z.array(z.string().trim().min(1).max(120)).max(200);
+
+export const organizationDatasetEntitlementsUpdateSchema = z.object({
+  sold_properties: z.object({
+    cities: geographyListSchema,
+    zips: geographyListSchema
+  }),
+  solar_permits: z.object({
+    cities: geographyListSchema,
+    zips: geographyListSchema
+  }),
+  roofing_permits: z.object({
+    cities: geographyListSchema,
+    zips: geographyListSchema
+  })
+});

@@ -2,8 +2,14 @@ import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { hasPlatformAccess } from "@/lib/auth/permissions";
 import {
   reconcileOrganizationDatasetAccess,
+  syncMarketplaceDatasetsToOrganization,
   syncPlatformDatasetsToIntelligenceOrganization
 } from "@/lib/db/mutations/platform-datasets";
+import {
+  type DatasetEntitlementCollection,
+  DATASET_ENTITLEMENT_TYPES,
+  normalizeDatasetEntitlementValue
+} from "@/lib/platform/dataset-entitlements";
 import { getOrganizationFeatureAccess } from "@/lib/db/queries/platform";
 import { resolveOrganizationFeatures } from "@/lib/platform/features";
 import type { PlatformOrganizationOverviewItem } from "@/types/api";
@@ -52,6 +58,8 @@ export async function updatePlatformOrganization(
 
     if (resolved.datasetPolicy.autoReleaseAllPublishedDatasets) {
       await syncPlatformDatasetsToIntelligenceOrganization(organizationId, context);
+    } else if (resolved.datasetPolicy.manualReleaseAllowed) {
+      await syncMarketplaceDatasetsToOrganization(organizationId, context);
     }
   }
 
@@ -91,4 +99,52 @@ export async function updateOrganizationFeatures(
 
   if (error) throw error;
   return getOrganizationFeatureAccess(organizationId);
+}
+
+export async function replaceOrganizationDatasetEntitlements(
+  organizationId: string,
+  input: DatasetEntitlementCollection,
+  context: AuthSessionContext
+) {
+  assertPlatformAccess(context);
+  const supabase = createServerSupabaseClient();
+
+  const rows = DATASET_ENTITLEMENT_TYPES.flatMap((datasetType) => {
+    const config = input[datasetType];
+    return [
+      ...config.cities.map((value) => ({
+        organization_id: organizationId,
+        dataset_type: datasetType,
+        geography_type: "city" as const,
+        geography_value: value,
+        geography_value_normalized: normalizeDatasetEntitlementValue("city", value),
+        status: "active" as const,
+        updated_by: context.appUser.id
+      })),
+      ...config.zips.map((value) => ({
+        organization_id: organizationId,
+        dataset_type: datasetType,
+        geography_type: "zip" as const,
+        geography_value: value,
+        geography_value_normalized: normalizeDatasetEntitlementValue("zip", value),
+        status: "active" as const,
+        updated_by: context.appUser.id
+      }))
+    ];
+  }).filter((row) => row.geography_value_normalized);
+
+  const { error: deleteError } = await supabase
+    .from("organization_dataset_entitlements")
+    .delete()
+    .eq("organization_id", organizationId);
+  if (deleteError) throw deleteError;
+
+  if (rows.length) {
+    const { error: insertError } = await supabase.from("organization_dataset_entitlements").insert(rows);
+    if (insertError) throw insertError;
+  }
+
+  await reconcileOrganizationDatasetAccess(organizationId, context);
+  await syncMarketplaceDatasetsToOrganization(organizationId, context);
+  return input;
 }

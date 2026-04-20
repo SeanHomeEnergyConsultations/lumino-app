@@ -61,7 +61,7 @@ export async function getPlatformDatasets(
         .order("granted_at", { ascending: false }),
       supabase
         .from("platform_dataset_records")
-        .select("platform_dataset_id")
+        .select("platform_dataset_id,city,postal_code")
     ]);
 
   if (datasetsError) throw datasetsError;
@@ -77,9 +77,16 @@ export async function getPlatformDatasets(
   const { grantedOrgMap, teamMap, userMap } = await loadGrantLookups((grants ?? []) as Record<string, unknown>[]);
   const sourceOrgMap = new Map((sourceOrgs ?? []).map((row) => [row.id as string, (row.name as string | null) ?? "Unknown org"]));
   const rowCountMap = new Map<string, number>();
+  const coverageMap = new Map<string, { cities: Set<string>; zips: Set<string> }>();
   for (const row of counts ?? []) {
     const datasetId = row.platform_dataset_id as string;
     rowCountMap.set(datasetId, (rowCountMap.get(datasetId) ?? 0) + 1);
+    const coverage = coverageMap.get(datasetId) ?? { cities: new Set<string>(), zips: new Set<string>() };
+    const city = (row.city as string | null | undefined)?.trim();
+    const postalCode = (row.postal_code as string | null | undefined)?.trim();
+    if (city) coverage.cities.add(city);
+    if (postalCode) coverage.zips.add(postalCode);
+    coverageMap.set(datasetId, coverage);
   }
 
   const grantsByDataset = new Map<string, PlatformDatasetItem["grants"]>();
@@ -107,6 +114,10 @@ export async function getPlatformDatasets(
     sourceOrganizationName: sourceOrgMap.get(dataset.source_organization_id as string) ?? "Unknown org",
     listType: (dataset.list_type as PlatformDatasetItem["listType"]) ?? "general_canvass_list",
     rowCount: rowCountMap.get(dataset.id as string) ?? 0,
+    coverage: {
+      cities: Array.from(coverageMap.get(dataset.id as string)?.cities ?? []).sort((a, b) => a.localeCompare(b)),
+      zips: Array.from(coverageMap.get(dataset.id as string)?.zips ?? []).sort((a, b) => a.localeCompare(b))
+    },
     status: (dataset.status as PlatformDatasetItem["status"]) ?? "active",
     createdAt: dataset.created_at as string,
     grants: grantsByDataset.get(dataset.id as string) ?? []

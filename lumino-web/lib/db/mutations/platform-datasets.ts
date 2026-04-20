@@ -1,6 +1,11 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { hasPlatformAccess } from "@/lib/auth/permissions";
 import { getOrganizationFeatureAccess } from "@/lib/db/queries/platform";
+import {
+  coverageMatchesEntitlements,
+  emptyDatasetEntitlements,
+  normalizeDatasetEntitlementValue
+} from "@/lib/platform/dataset-entitlements";
 import { normalizeOrganizationBillingPlan } from "@/lib/platform/features";
 import type { AuthSessionContext } from "@/types/auth";
 
@@ -28,6 +33,84 @@ async function assertOrganizationCanReceiveDataset(organizationId: string, listT
   }
 
   return featureAccess;
+}
+
+async function loadOrganizationDatasetEntitlements(organizationId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("organization_dataset_entitlements")
+    .select("dataset_type,geography_type,geography_value_normalized")
+    .eq("organization_id", organizationId)
+    .eq("status", "active");
+  if (error) throw error;
+
+  const entitlements = emptyDatasetEntitlements();
+  for (const row of data ?? []) {
+    const datasetType = row.dataset_type as keyof typeof entitlements | null;
+    const geographyType = row.geography_type as "city" | "zip" | null;
+    const value = row.geography_value_normalized as string | null;
+    if (!datasetType || !geographyType || !value) continue;
+    const bucket = geographyType === "zip" ? entitlements[datasetType].zips : entitlements[datasetType].cities;
+    const normalized = normalizeDatasetEntitlementValue(geographyType, value);
+    if (normalized && !bucket.includes(normalized)) bucket.push(normalized);
+  }
+
+  return entitlements;
+}
+
+async function loadDatasetCoverage(datasetId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("platform_dataset_records")
+    .select("city,postal_code")
+    .eq("platform_dataset_id", datasetId);
+  if (error) throw error;
+
+  const cities = Array.from(
+    new Set(
+      (data ?? [])
+        .map((row) => normalizeDatasetEntitlementValue("city", (row.city as string | null | undefined) ?? ""))
+        .filter(Boolean)
+    )
+  );
+  const zips = Array.from(
+    new Set(
+      (data ?? [])
+        .map((row) => normalizeDatasetEntitlementValue("zip", (row.postal_code as string | null | undefined) ?? ""))
+        .filter(Boolean)
+    )
+  );
+
+  return { cities, zips };
+}
+
+async function organizationShouldReceiveDataset(organizationId: string, input: { datasetId: string; listType: string }) {
+  const featureResolution = await getOrganizationFeatureAccess(organizationId);
+  const billingPlan = featureResolution.billingPlan;
+  const featureAccess = featureResolution.effective;
+
+  if (billingPlan === "intelligence") {
+    return true;
+  }
+
+  if (!featureAccess.datasetMarketplaceEnabled) {
+    return false;
+  }
+
+  if (input.listType === "solar_permits" && !featureAccess.solarCheckEnabled) {
+    return false;
+  }
+
+  if (!["sold_properties", "solar_permits", "roofing_permits"].includes(input.listType)) {
+    return true;
+  }
+
+  const [coverage, entitlements] = await Promise.all([
+    loadDatasetCoverage(input.datasetId),
+    loadOrganizationDatasetEntitlements(organizationId)
+  ]);
+
+  return coverageMatchesEntitlements(input.listType, coverage, entitlements);
 }
 
 async function syncPlatformDatasetRecords(datasetId: string, sourceBatchId: string) {
@@ -199,6 +282,47 @@ async function autoReleaseDatasetToIntelligenceOrganizations(datasetId: string, 
   }
 }
 
+export async function syncMarketplaceDatasetsToOrganization(
+  organizationId: string,
+  context: AuthSessionContext
+) {
+  const supabase = createServerSupabaseClient();
+  const { data: datasets, error } = await supabase
+    .from("platform_datasets")
+    .select("id,list_type,source_organization_id,status")
+    .eq("status", "active")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  for (const dataset of datasets ?? []) {
+    const datasetId = dataset.id as string;
+    const listType = (dataset.list_type as string | null | undefined) ?? "general_canvass_list";
+    const sourceOrganizationId = dataset.source_organization_id as string | null | undefined;
+    if (sourceOrganizationId === organizationId) continue;
+    if (!["sold_properties", "solar_permits", "roofing_permits"].includes(listType)) continue;
+
+    const shouldReceive = await organizationShouldReceiveDataset(organizationId, { datasetId, listType });
+    try {
+      await grantPlatformDatasetToOrganization(
+        {
+          datasetId,
+          organizationId,
+          visibilityScope: "organization",
+          status: shouldReceive ? "active" : "revoked"
+        },
+        context
+      );
+    } catch (errorToIgnore) {
+      console.error("Failed to sync marketplace dataset access", {
+        organizationId,
+        datasetId,
+        error: errorToIgnore
+      });
+    }
+  }
+}
+
 export async function syncPlatformDatasetsToIntelligenceOrganization(
   organizationId: string,
   context: AuthSessionContext
@@ -331,6 +455,23 @@ export async function publishImportBatchAsPlatformDataset(
 
   await syncPlatformDatasetRecords(data.id as string, input.batchId);
   await autoReleaseDatasetToIntelligenceOrganizations(data.id as string, context);
+  const { data: organizations } = await supabase
+    .from("organizations")
+    .select("id,billing_plan,status")
+    .eq("status", "active");
+  for (const organization of organizations ?? []) {
+    const organizationId = organization.id as string;
+    if (organizationId === context.organizationId) continue;
+    const resolvedPlan = normalizeOrganizationBillingPlan((organization.billing_plan as string | null | undefined) ?? null);
+    if (resolvedPlan !== "pro") continue;
+    await syncMarketplaceDatasetsToOrganization(organizationId, context).catch((errorToIgnore) => {
+      console.error("Failed to sync published dataset to pro organization entitlements", {
+        organizationId,
+        datasetId: data.id,
+        error: errorToIgnore
+      });
+    });
+  }
   return { datasetId: data.id as string, alreadyPublished: false };
 }
 
@@ -362,10 +503,14 @@ export async function grantPlatformDatasetToOrganization(
   const status = input.status ?? "active";
 
   if (status === "active") {
-    await assertOrganizationCanReceiveDataset(
-      input.organizationId,
-      (dataset.list_type as string | null) ?? "general_canvass_list"
-    );
+    const listType = (dataset.list_type as string | null) ?? "general_canvass_list";
+    const shouldReceive = await organizationShouldReceiveDataset(input.organizationId, {
+      datasetId: input.datasetId,
+      listType
+    });
+    if (!shouldReceive) {
+      throw new Error("This organization does not currently have access to this shared dataset.");
+    }
   }
 
   const { error: grantError } = await supabase.from("organization_dataset_access").upsert(
