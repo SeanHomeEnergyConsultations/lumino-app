@@ -6,23 +6,29 @@ import { usePathname } from "next/navigation";
 import { Map, LayoutDashboard, ListTodo, CheckSquare2, Users, CalendarCheck2, ContactRound, Upload, Building2 } from "lucide-react";
 import { LogoMark } from "@/components/shared/logo-mark";
 import { useAuth } from "@/lib/auth/client";
-import { hasManagerAccess, hasPlatformAccess } from "@/lib/auth/permissions";
+import { hasFeatureAccess, hasManagerAccess, hasPlatformAccess } from "@/lib/auth/permissions";
+import type { OrganizationFeatureAccess } from "@/types/entities";
 
-const nav = [
-  { href: "/map", label: "Map", icon: Map },
-  { href: "/queue", label: "Queue", icon: ListTodo },
-  { href: "/leads", label: "Leads", icon: ContactRound },
-  { href: "/appointments", label: "Appointments", icon: CalendarCheck2 },
-  { href: "/imports", label: "Imports", icon: Upload },
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/tasks", label: "Tasks", icon: CheckSquare2 },
-  { href: "/team", label: "Team", icon: Users },
-  { href: "/platform", label: "Platform", icon: Building2 }
-] as const satisfies ReadonlyArray<{
+type NavItem = {
   href: Route;
   label: string;
   icon: typeof Map;
-}>;
+  requiredFeature?: keyof OrganizationFeatureAccess;
+  managerOnly?: boolean;
+  platformOnly?: boolean;
+};
+
+const nav: readonly NavItem[] = [
+  { href: "/map", label: "Map", icon: Map, requiredFeature: "mapEnabled" },
+  { href: "/queue", label: "Queue", icon: ListTodo, requiredFeature: "visitLoggingEnabled" },
+  { href: "/leads", label: "Leads", icon: ContactRound, requiredFeature: "leadsEnabled" },
+  { href: "/appointments", label: "Appointments", icon: CalendarCheck2, requiredFeature: "appointmentsEnabled" },
+  { href: "/imports", label: "Imports", icon: Upload, requiredFeature: "selfImportsEnabled", managerOnly: true },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, managerOnly: true },
+  { href: "/tasks", label: "Tasks", icon: CheckSquare2, requiredFeature: "tasksEnabled" },
+  { href: "/team", label: "Team", icon: Users, requiredFeature: "teamManagementEnabled", managerOnly: true },
+  { href: "/platform", label: "Platform", icon: Building2, platformOnly: true }
+] as const;
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -33,13 +39,16 @@ export function AppSidebar() {
   const canManage = appContext ? hasManagerAccess(appContext) : false;
   const canAccessPlatform = appContext ? hasPlatformAccess(appContext) : false;
   const filteredNav = nav.filter((item) => {
-    if (["/imports", "/dashboard", "/team"].includes(item.href)) {
-      return canManage;
-    }
-    if (item.href === "/platform") {
+    if (item.platformOnly) {
       return canAccessPlatform;
     }
-    return true;
+    if (item.managerOnly && !canManage) {
+      return false;
+    }
+    if (item.requiredFeature && appContext && !hasFeatureAccess(appContext, item.requiredFeature)) {
+      return false;
+    }
+    return !item.requiredFeature || Boolean(appContext);
   });
 
   return (

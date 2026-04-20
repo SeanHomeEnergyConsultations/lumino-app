@@ -1,4 +1,5 @@
 import type { AuthSessionContext } from "@/types/auth";
+import type { OrganizationFeatureAccess } from "@/types/entities";
 
 export const ADMIN_ROLES = ["owner", "admin"] as const;
 export const MANAGER_ROLES = ["owner", "admin", "manager"] as const;
@@ -18,4 +19,12 @@ export function hasManagerAccess(context: AuthSessionContext) {
 
 export function hasPlatformAccess(context: AuthSessionContext) {
   return context.isPlatformOwner || context.isPlatformSupport;
+}
+
+export function hasFeatureAccess(
+  context: AuthSessionContext,
+  feature: keyof OrganizationFeatureAccess
+) {
+  if (context.isPlatformOwner) return true;
+  return Boolean(context.featureAccess?.[feature]);
 }

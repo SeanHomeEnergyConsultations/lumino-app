@@ -3,17 +3,20 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell/app-shell";
-import { hasAnyRole, hasPlatformAccess } from "@/lib/auth/permissions";
+import { hasAnyRole, hasFeatureAccess, hasPlatformAccess } from "@/lib/auth/permissions";
 import { useAuth } from "@/lib/auth/client";
+import type { OrganizationFeatureAccess } from "@/types/entities";
 
 export function ProtectedAppShell({
   children,
   allowedRoles,
-  platformOnly = false
+  platformOnly = false,
+  requiredFeature
 }: {
   children: React.ReactNode;
   allowedRoles?: string[];
   platformOnly?: boolean;
+  requiredFeature?: keyof OrganizationFeatureAccess;
 }) {
   const router = useRouter();
   const { session, loading, envReady, appContext } = useAuth();
@@ -52,6 +55,15 @@ export function ProtectedAppShell({
       }
     }
   }, [allowedRoles, appContext?.memberships, loading, router, session]);
+
+  useEffect(() => {
+    if (!loading && session && requiredFeature) {
+      const allowed = appContext ? hasFeatureAccess(appContext, requiredFeature) : false;
+      if (!allowed) {
+        router.replace("/map");
+      }
+    }
+  }, [appContext, loading, requiredFeature, router, session]);
 
   if (mounted && !envReady) {
     return (
@@ -106,6 +118,10 @@ export function ProtectedAppShell({
   }
   if (allowedRoles?.length) {
     const allowed = appContext ? hasAnyRole(appContext, allowedRoles) : false;
+    if (!allowed) return null;
+  }
+  if (requiredFeature) {
+    const allowed = appContext ? hasFeatureAccess(appContext, requiredFeature) : false;
     if (!allowed) return null;
   }
 

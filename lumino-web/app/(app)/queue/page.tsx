@@ -9,7 +9,7 @@ export default async function QueueRoute({
   const resolvedSearchParams = (await searchParams) ?? {};
 
   return (
-    <ProtectedAppShell>
+    <ProtectedAppShell requiredFeature="visitLoggingEnabled">
       <QueuePage initialOwnerId={resolvedSearchParams.ownerId ?? null} repName={resolvedSearchParams.repName ?? null} />
     </ProtectedAppShell>
   );

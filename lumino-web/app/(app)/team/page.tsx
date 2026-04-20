@@ -3,7 +3,7 @@ import { TerritoryAdminPage } from "@/components/team/territory-admin-page";
 
 export default function TeamPage() {
   return (
-    <ProtectedAppShell allowedRoles={["owner", "admin", "manager"]}>
+    <ProtectedAppShell allowedRoles={["owner", "admin", "manager"]} requiredFeature="teamManagementEnabled">
       <TerritoryAdminPage />
     </ProtectedAppShell>
   );

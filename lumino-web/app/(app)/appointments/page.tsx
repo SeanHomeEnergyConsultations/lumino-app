@@ -3,7 +3,7 @@ import { AppointmentsPage } from "@/components/appointments/appointments-page";
 
 export default function AppointmentsRoute() {
   return (
-    <ProtectedAppShell>
+    <ProtectedAppShell requiredFeature="appointmentsEnabled">
       <AppointmentsPage />
     </ProtectedAppShell>
   );

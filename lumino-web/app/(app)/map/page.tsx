@@ -17,7 +17,7 @@ export default async function MapPage({
   const initialFilters = (resolvedSearchParams.filters?.split(",").filter(Boolean) ?? []) as MapFilterKey[];
 
   return (
-    <ProtectedAppShell>
+    <ProtectedAppShell requiredFeature="mapEnabled">
       <LiveFieldMap
         initialItems={[]}
         initialSelectedPropertyId={resolvedSearchParams.propertyId ?? null}

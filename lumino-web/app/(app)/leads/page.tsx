@@ -3,7 +3,7 @@ import { LeadsPage } from "@/components/lead/leads-page";
 
 export default function LeadsRoute() {
   return (
-    <ProtectedAppShell>
+    <ProtectedAppShell requiredFeature="leadsEnabled">
       <LeadsPage />
     </ProtectedAppShell>
   );

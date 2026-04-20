@@ -3,7 +3,7 @@ import { ImportsPage } from "@/components/imports/imports-page";
 
 export default function ImportsRoute() {
   return (
-    <ProtectedAppShell allowedRoles={["owner", "admin", "manager"]}>
+    <ProtectedAppShell allowedRoles={["owner", "admin", "manager"]} requiredFeature="selfImportsEnabled">
       <ImportsPage />
     </ProtectedAppShell>
   );

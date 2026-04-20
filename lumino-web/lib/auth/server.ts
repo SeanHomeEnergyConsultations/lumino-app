@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
+import { getOrganizationFeatureAccess } from "@/lib/db/queries/platform";
 import { CURRENT_AGREEMENT_VERSION } from "@/lib/legal/clickwrap";
 import { getSupabasePublicEnv } from "@/lib/utils/env";
 import type { AuthSessionContext } from "@/types/auth";
@@ -133,6 +134,9 @@ export async function getRequestSessionContext(
   if (organizationError) return null;
 
   const organizationStatus = (organization?.status as string | null) ?? null;
+  const featureAccess = organizationId
+    ? (await getOrganizationFeatureAccess(organizationId).catch(() => null))?.effective ?? null
+    : null;
   const hasActiveMembership = normalizedMemberships.length > 0 && Boolean(organizationId);
   const organizationDisabled = organizationStatus === "suspended" || organizationStatus === "cancelled";
   const hasActiveAccess = Boolean(appUser.is_active) && ((hasActiveMembership && !organizationDisabled) || isPlatformOwner || isPlatformSupport);
@@ -158,6 +162,7 @@ export async function getRequestSessionContext(
     },
     organizationId,
     organizationStatus,
+    featureAccess,
     memberships: normalizedMemberships,
     accessBlockedReason,
     hasActiveAccess,

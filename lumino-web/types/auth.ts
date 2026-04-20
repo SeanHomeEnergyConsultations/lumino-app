@@ -1,3 +1,5 @@
+import type { OrganizationFeatureAccess } from "@/types/entities";
+
 export interface AuthAppUser {
   id: string;
   email: string | null;
@@ -19,6 +21,7 @@ export interface AuthSessionContext {
   appUser: AuthAppUser;
   organizationId: string | null;
   organizationStatus: string | null;
+  featureAccess: OrganizationFeatureAccess | null;
   memberships: AuthMembership[];
   accessBlockedReason: "user_disabled" | "organization_disabled" | "no_active_membership" | null;
   hasActiveAccess: boolean;

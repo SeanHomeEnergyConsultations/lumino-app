@@ -3,7 +3,7 @@ import { TasksPage } from "@/components/tasks/tasks-page";
 
 export default function TasksRoute() {
   return (
-    <ProtectedAppShell>
+    <ProtectedAppShell requiredFeature="tasksEnabled">
       <TasksPage />
     </ProtectedAppShell>
   );
