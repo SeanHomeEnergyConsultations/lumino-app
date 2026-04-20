@@ -20,6 +20,83 @@ function authUserIsActivated(user: { last_sign_in_at?: string | null; email_conf
   return Boolean(user.last_sign_in_at || user.email_confirmed_at);
 }
 
+type InviteCandidateUserRow = {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+  external_auth_id: string | null;
+  default_organization_id: string | null;
+  created_at: string | null;
+  is_active?: boolean | null;
+};
+
+async function resolveInviteCandidateUser(input: {
+  supabase: ReturnType<typeof createServerSupabaseClient>;
+  organizationId: string;
+  authUserId: string;
+  emailCandidates: InviteCandidateUserRow[];
+}) {
+  const { supabase, organizationId, authUserId, emailCandidates } = input;
+
+  if (!emailCandidates.length) return null;
+  if (emailCandidates.length === 1) return emailCandidates[0];
+
+  const candidateIds = emailCandidates.map((item) => item.id);
+  const { data: memberships, error: membershipsError } = await supabase
+    .from("organization_members")
+    .select("organization_id,user_id,is_active")
+    .in("user_id", candidateIds);
+
+  if (membershipsError) throw membershipsError;
+
+  const membershipCountByUser = new Map<string, number>();
+  const activeMembershipCountByUser = new Map<string, number>();
+  let currentOrgUserId: string | null = null;
+
+  for (const membership of memberships ?? []) {
+    const userId = membership.user_id as string | null;
+    if (!userId) continue;
+    membershipCountByUser.set(userId, (membershipCountByUser.get(userId) ?? 0) + 1);
+    if (membership.is_active) {
+      activeMembershipCountByUser.set(userId, (activeMembershipCountByUser.get(userId) ?? 0) + 1);
+    }
+    if ((membership.organization_id as string | null) === organizationId) {
+      currentOrgUserId = userId;
+    }
+  }
+
+  if (currentOrgUserId) {
+    return emailCandidates.find((item) => item.id === currentOrgUserId) ?? null;
+  }
+
+  const authLinkedCandidate = emailCandidates.find((item) => item.external_auth_id === authUserId);
+  if (authLinkedCandidate) return authLinkedCandidate;
+
+  const orphanCandidates = emailCandidates
+    .filter((item) => (membershipCountByUser.get(item.id) ?? 0) === 0)
+    .sort((left, right) => {
+      const leftDate = left.created_at ?? "";
+      const rightDate = right.created_at ?? "";
+      return leftDate.localeCompare(rightDate);
+    });
+  if (orphanCandidates.length) {
+    return orphanCandidates[0] ?? null;
+  }
+
+  const inactiveOnlyCandidates = emailCandidates
+    .filter((item) => (activeMembershipCountByUser.get(item.id) ?? 0) === 0)
+    .sort((left, right) => {
+      const leftDate = left.created_at ?? "";
+      const rightDate = right.created_at ?? "";
+      return leftDate.localeCompare(rightDate);
+    });
+  if (inactiveOnlyCandidates.length === 1) {
+    return inactiveOnlyCandidates[0];
+  }
+
+  throw new Error("Multiple stale user records exist for this email. Use Team cleanup before reinviting.");
+}
+
 export async function inviteTeamMember(
   input: { email: string; fullName: string; role: "owner" | "admin" | "manager" | "rep" | "setter" },
   context: AuthSessionContext,
@@ -39,8 +116,8 @@ export async function inviteTeamMember(
       supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }),
       supabase
         .from("app_users")
-        .select("id,email,full_name,external_auth_id,default_organization_id,created_at")
-        .eq("email", normalizedEmail)
+        .select("id,email,full_name,external_auth_id,default_organization_id,created_at,is_active")
+        .ilike("email", normalizedEmail)
         .order("created_at", { ascending: true })
     ]);
 
@@ -74,34 +151,24 @@ export async function inviteTeamMember(
 
   const { data: appUserFromAuth, error: appUserFromAuthError } = await supabase
     .from("app_users")
-    .select("id,email,full_name,external_auth_id,default_organization_id,created_at")
+    .select("id,email,full_name,external_auth_id,default_organization_id,created_at,is_active")
     .eq("external_auth_id", authUserId)
     .maybeSingle();
 
   if (appUserFromAuthError) throw appUserFromAuthError;
 
-  let selectedUser = appUserFromAuth;
-  const emailCandidates = (existingUsers ?? []).filter(Boolean);
+  let selectedUser: InviteCandidateUserRow | null = (appUserFromAuth as InviteCandidateUserRow | null) ?? null;
+  const emailCandidates = ((existingUsers ?? []).filter(Boolean) as InviteCandidateUserRow[]).filter(
+    (item) => item.email?.trim().toLowerCase() === normalizedEmail
+  );
 
   if (!selectedUser) {
-    if (emailCandidates.length === 1) {
-      selectedUser = emailCandidates[0];
-    } else if (emailCandidates.length > 1) {
-      const { data: orgMemberships, error: orgMembershipsError } = await supabase
-        .from("organization_members")
-        .select("id,user_id")
-        .eq("organization_id", context.organizationId)
-        .in("user_id", emailCandidates.map((item) => item.id as string));
-
-      if (orgMembershipsError) throw orgMembershipsError;
-
-      const currentOrgUserId = orgMemberships?.[0]?.user_id as string | undefined;
-      if (currentOrgUserId) {
-        selectedUser = emailCandidates.find((item) => item.id === currentOrgUserId) ?? null;
-      } else {
-        throw new Error("Multiple stale user records exist for this email. Use Team cleanup before reinviting.");
-      }
-    }
+    selectedUser = await resolveInviteCandidateUser({
+      supabase,
+      organizationId: context.organizationId,
+      authUserId,
+      emailCandidates
+    });
   }
 
   let userId: string;

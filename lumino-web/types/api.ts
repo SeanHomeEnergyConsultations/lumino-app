@@ -44,6 +44,7 @@ export interface PlatformOrganizationOverviewItem {
   slug: string | null;
   status: string;
   billingPlan: OrganizationBillingPlan;
+  isPlatformSource: boolean;
   createdAt: string;
   teamMemberCount: number;
   activeTeamMemberCount: number;

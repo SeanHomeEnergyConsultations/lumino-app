@@ -37,6 +37,13 @@ function formatBillingPlan(plan: PlatformOrganizationOverviewItem["billingPlan"]
   return "Intelligence";
 }
 
+function getOrganizationSaveLabel(item: PlatformOrganizationOverviewItem, canMutate: boolean, saving: boolean) {
+  if (item.isPlatformSource) return "Platform Source Locked";
+  if (!canMutate) return "Platform Owner Only";
+  if (saving) return "Saving…";
+  return "Save Plan & Features";
+}
+
 function formatDateTime(value: string | null) {
   if (!value) return "Not yet";
   return new Date(value).toLocaleString();
@@ -450,6 +457,7 @@ export function PlatformControlCenterPage() {
           ) : items.length ? (
             items.map((item) => {
               const draft = drafts[item.organizationId];
+              const platformLocked = item.isPlatformSource;
               return (
                 <div key={item.organizationId} className="rounded-[1.75rem] border border-slate-200 bg-slate-50/90 p-5">
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -464,11 +472,21 @@ export function PlatformControlCenterPage() {
                         <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-700">
                           {formatBillingPlan(item.billingPlan)}
                         </span>
+                        {item.isPlatformSource ? (
+                          <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-white">
+                            Platform Source
+                          </span>
+                        ) : null}
                       </div>
                       <div className="mt-2 text-sm text-slate-500">
                         {item.appName}
                         {item.slug ? ` · ${item.slug}` : ""}
                       </div>
+                      {item.isPlatformSource ? (
+                        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600">
+                          This organization is locked as the platform source org. Shared datasets are published from here, and customer plan controls do not apply.
+                        </div>
+                      ) : null}
                       <div className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-2 xl:grid-cols-4">
                         <div>
                           <div className="text-xs font-semibold uppercase tracking-[0.14em] text-mist">Team</div>
@@ -578,7 +596,7 @@ export function PlatformControlCenterPage() {
                         <label className="text-xs font-semibold uppercase tracking-[0.14em] text-mist">Billing Plan</label>
                         <select
                           value={draft?.billingPlan ?? item.billingPlan}
-                          disabled={!canMutate}
+                          disabled={!canMutate || platformLocked}
                           onChange={(event) =>
                             setDrafts((current) => ({
                               ...current,
@@ -606,7 +624,9 @@ export function PlatformControlCenterPage() {
                         </span>
                       </div>
                       <div className="mt-2 text-xs text-slate-500">
-                        {item.billingPlan === "intelligence"
+                        {item.isPlatformSource
+                          ? "Locked as the platform source organization with full platform dataset access."
+                          : item.billingPlan === "intelligence"
                           ? "New shared datasets auto-release into this org."
                           : item.effectiveFeatures.datasetMarketplaceEnabled
                             ? "This org can receive shared datasets through marketplace release."
@@ -645,7 +665,8 @@ export function PlatformControlCenterPage() {
                                     key={option.value}
                                     type="button"
                                     onClick={() =>
-                                      canMutate &&
+                                    canMutate &&
+                                      !platformLocked &&
                                       setDrafts((current) => ({
                                         ...current,
                                         [item.organizationId]: {
@@ -659,7 +680,7 @@ export function PlatformControlCenterPage() {
                                         }
                                       }))
                                     }
-                                    disabled={!canMutate}
+                                    disabled={!canMutate || platformLocked}
                                     className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] transition ${
                                       active
                                         ? "bg-ink text-white"
@@ -693,7 +714,7 @@ export function PlatformControlCenterPage() {
                               <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-mist">
                                 Cities
                                 <textarea
-                                  disabled={!canMutate}
+                                  disabled={!canMutate || platformLocked}
                                   value={draft?.datasetEntitlements[datasetType as keyof DatasetEntitlementDraft].cities ?? ""}
                                   onChange={(event) =>
                                     setDrafts((current) => ({
@@ -722,7 +743,7 @@ export function PlatformControlCenterPage() {
                               <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-mist">
                                 Zip Codes
                                 <textarea
-                                  disabled={!canMutate}
+                                  disabled={!canMutate || platformLocked}
                                   value={draft?.datasetEntitlements[datasetType as keyof DatasetEntitlementDraft].zips ?? ""}
                                   onChange={(event) =>
                                     setDrafts((current) => ({
@@ -762,10 +783,10 @@ export function PlatformControlCenterPage() {
                     <button
                       type="button"
                       onClick={() => saveOrganization(item)}
-                      disabled={savingOrgId === item.organizationId || !canMutate}
+                      disabled={savingOrgId === item.organizationId || !canMutate || platformLocked}
                       className="rounded-full border border-slate-900 bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-black disabled:cursor-wait disabled:opacity-70"
                     >
-                      {!canMutate ? "Platform Owner Only" : savingOrgId === item.organizationId ? "Saving…" : "Save Plan & Features"}
+                      {getOrganizationSaveLabel(item, canMutate, savingOrgId === item.organizationId)}
                     </button>
                   </div>
                 </div>
@@ -785,7 +806,7 @@ export function PlatformControlCenterPage() {
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Shared Datasets</div>
             <p className="mt-1 text-sm text-slate-500">
-              Publish and analyze once in Lumino, then grant active access to customer orgs without cloning or reanalyzing batches.
+              Publish and analyze once in the platform source org, then grant active access to customer orgs without cloning or reanalyzing batches.
             </p>
           </div>
         </div>

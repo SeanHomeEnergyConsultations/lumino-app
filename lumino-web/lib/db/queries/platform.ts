@@ -19,6 +19,7 @@ type OrganizationRow = {
   slug: string | null;
   status: string | null;
   billing_plan: string | null;
+  is_platform_source?: boolean | null;
   brand_name?: string | null;
   created_at: string;
 };
@@ -38,12 +39,22 @@ function parseFeatureOverrideRow(row: Record<string, unknown> | undefined) {
   };
 }
 
+function resolveOrganizationBillingPlanForAccess(organization: {
+  billing_plan?: string | null;
+  is_platform_source?: boolean | null;
+} | null | undefined) {
+  if (organization?.is_platform_source) {
+    return "intelligence";
+  }
+  return (organization?.billing_plan as string | null | undefined) ?? null;
+}
+
 export async function getOrganizationFeatureAccess(organizationId: string) {
   const supabase = createServerSupabaseClient();
 
   const { data: organization, error: organizationError } = await supabase
     .from("organizations")
-    .select("billing_plan")
+    .select("billing_plan,is_platform_source")
     .eq("id", organizationId)
     .maybeSingle();
 
@@ -60,7 +71,7 @@ export async function getOrganizationFeatureAccess(organizationId: string) {
   if (featureError) throw featureError;
 
   return resolveOrganizationFeatures({
-    billingPlan: (organization?.billing_plan as string | null | undefined) ?? null,
+    billingPlan: resolveOrganizationBillingPlanForAccess(organization),
     overrides: parseFeatureOverrideRow(featureRow as Record<string, unknown> | undefined)
   });
 }
@@ -82,7 +93,7 @@ export async function getPlatformOrganizationOverview(
   ] = await Promise.all([
     supabase
       .from("organizations")
-      .select("id,name,slug,status,billing_plan,brand_name,created_at")
+      .select("id,name,slug,status,billing_plan,is_platform_source,brand_name,created_at")
       .order("created_at", { ascending: false }),
     supabase
       .from("organization_members")
@@ -221,7 +232,7 @@ export async function getPlatformOrganizationOverview(
     };
     const overrides = parseFeatureOverrideRow(featureRowByOrg.get(organization.id));
     const featureResolution = resolveOrganizationFeatures({
-      billingPlan: organization.billing_plan,
+      billingPlan: resolveOrganizationBillingPlanForAccess(organization),
       overrides
     });
     const lastSecurityEventAt = lastSecurityEventByOrg.get(organization.id) ?? null;
@@ -238,6 +249,7 @@ export async function getPlatformOrganizationOverview(
       slug: organization.slug ?? null,
       status: organization.status ?? "active",
       billingPlan: featureResolution.billingPlan,
+      isPlatformSource: Boolean(organization.is_platform_source),
       createdAt: organization.created_at,
       teamMemberCount: membershipStats.teamMemberCount,
       activeTeamMemberCount: membershipStats.activeTeamMemberCount,

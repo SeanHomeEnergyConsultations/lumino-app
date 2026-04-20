@@ -21,6 +21,19 @@ function assertPlatformAccess(context: AuthSessionContext) {
   }
 }
 
+async function getPlatformOrganizationRecord(organizationId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("organizations")
+    .select("id,billing_plan,status,is_platform_source")
+    .eq("id", organizationId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw new Error("Organization not found.");
+  return data;
+}
+
 export async function updatePlatformOrganization(
   organizationId: string,
   input: {
@@ -31,6 +44,11 @@ export async function updatePlatformOrganization(
 ): Promise<Pick<PlatformOrganizationOverviewItem, "organizationId" | "billingPlan" | "status">> {
   assertPlatformAccess(context);
   const supabase = createServerSupabaseClient();
+  const organization = await getPlatformOrganizationRecord(organizationId);
+
+  if (organization.is_platform_source) {
+    throw new Error("The platform source organization is locked and cannot be moved between customer plans.");
+  }
 
   const payload: Record<string, unknown> = {
     updated_at: new Date().toISOString()
@@ -43,14 +61,14 @@ export async function updatePlatformOrganization(
     .from("organizations")
     .update(payload)
     .eq("id", organizationId)
-    .select("id,billing_plan,status")
+    .select("id,billing_plan,status,is_platform_source")
     .maybeSingle();
 
   if (error) throw error;
   if (!data) throw new Error("Organization not found.");
 
   const resolved = resolveOrganizationFeatures({
-    billingPlan: (data.billing_plan as string | null | undefined) ?? null
+    billingPlan: data.is_platform_source ? "intelligence" : ((data.billing_plan as string | null | undefined) ?? null)
   });
 
   if (input.billingPlan) {
@@ -81,6 +99,10 @@ export async function updateOrganizationFeatures(
   context: AuthSessionContext
 ) {
   assertPlatformAccess(context);
+  const organization = await getPlatformOrganizationRecord(organizationId);
+  if (organization.is_platform_source) {
+    throw new Error("The platform source organization is locked and does not use customer feature overrides.");
+  }
   const supabase = createServerSupabaseClient();
 
   const payload = {
@@ -107,6 +129,10 @@ export async function replaceOrganizationDatasetEntitlements(
   context: AuthSessionContext
 ) {
   assertPlatformAccess(context);
+  const organization = await getPlatformOrganizationRecord(organizationId);
+  if (organization.is_platform_source) {
+    throw new Error("The platform source organization does not use marketplace entitlements.");
+  }
   const supabase = createServerSupabaseClient();
 
   const rows = DATASET_ENTITLEMENT_TYPES.flatMap((datasetType) => {
