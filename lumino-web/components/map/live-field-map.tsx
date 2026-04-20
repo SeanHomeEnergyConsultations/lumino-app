@@ -403,12 +403,11 @@ export function LiveFieldMap({
       return selectedPropertyId;
     }
 
-    const response = await authFetch(session.access_token, "/api/properties/resolve", {
+    const response = await authFetch(session.access_token, "/api/properties/resolve?commit=1", {
       method: "POST",
       body: JSON.stringify({
         lat: selectedProperty.lat,
-        lng: selectedProperty.lng,
-        persist: true
+        lng: selectedProperty.lng
       })
     });
 
@@ -441,8 +440,7 @@ export function LiveFieldMap({
         method: "POST",
         body: JSON.stringify({
           lat: event.lngLat.lat,
-          lng: event.lngLat.lng,
-          persist: false
+          lng: event.lngLat.lng
         })
       });
 

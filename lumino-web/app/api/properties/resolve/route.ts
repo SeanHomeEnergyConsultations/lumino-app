@@ -5,13 +5,8 @@ import { maybeEscalateRepeatedSecurityEvent } from "@/lib/security/anomaly";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { recordSecurityEvent } from "@/lib/security/security-events";
 import { resolvePropertyInputSchema } from "@/lib/validation/properties";
-import { z } from "zod";
 
 export const dynamic = "force-dynamic";
-
-const propertyResolveRequestSchema = resolvePropertyInputSchema.extend({
-  persist: z.boolean().optional()
-});
 
 export async function POST(request: Request) {
   let context = null;
@@ -36,8 +31,10 @@ export async function POST(request: Request) {
       );
     }
 
+    const { searchParams } = new URL(request.url);
+    const persistRequested = searchParams.get("commit") === "1";
     const json = await request.json();
-    const parsed = propertyResolveRequestSchema.safeParse(json);
+    const parsed = resolvePropertyInputSchema.safeParse(json);
 
     if (!parsed.success) {
       await recordSecurityEvent({
@@ -67,7 +64,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await resolveOrCreateProperty(parsed.data, context);
+    const result = await resolveOrCreateProperty(
+      {
+        ...parsed.data,
+        persist: persistRequested
+      },
+      context
+    );
     return NextResponse.json(result);
   } catch (error) {
     await recordSecurityEvent({
