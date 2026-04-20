@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Building2, CheckCircle2, ExternalLink, RefreshCw, ShieldAlert, ShieldCheck, Sparkles } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
-import { coverageMatchesEntitlements } from "@/lib/platform/dataset-entitlements";
+import { parseDatasetEntitlementInput } from "@/lib/platform/dataset-entitlements";
 import { ORGANIZATION_BILLING_PLANS } from "@/lib/platform/features";
 import type {
   PlatformDatasetItem,
@@ -60,28 +60,18 @@ function entitlementsToDraft(input: PlatformOrganizationDatasetEntitlements): Da
 }
 
 function draftToEntitlements(input: DatasetEntitlementDraft): PlatformOrganizationDatasetEntitlements {
-  const parseList = (value: string) =>
-    Array.from(
-      new Set(
-        value
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean)
-      )
-    );
-
   return {
     sold_properties: {
-      cities: parseList(input.sold_properties.cities),
-      zips: parseList(input.sold_properties.zips)
+      cities: parseDatasetEntitlementInput(input.sold_properties.cities, "city"),
+      zips: parseDatasetEntitlementInput(input.sold_properties.zips, "zip")
     },
     solar_permits: {
-      cities: parseList(input.solar_permits.cities),
-      zips: parseList(input.solar_permits.zips)
+      cities: parseDatasetEntitlementInput(input.solar_permits.cities, "city"),
+      zips: parseDatasetEntitlementInput(input.solar_permits.zips, "zip")
     },
     roofing_permits: {
-      cities: parseList(input.roofing_permits.cities),
-      zips: parseList(input.roofing_permits.zips)
+      cities: parseDatasetEntitlementInput(input.roofing_permits.cities, "city"),
+      zips: parseDatasetEntitlementInput(input.roofing_permits.zips, "zip")
     }
   };
 }
@@ -102,50 +92,11 @@ function buildInitialDrafts(items: PlatformOrganizationOverviewItem[]) {
   ) as Record<string, FeatureDraft>;
 }
 
-function describeDatasetAccessStatus(dataset: PlatformDatasetItem, organization: PlatformOrganizationOverviewItem) {
-  if (organization.organizationId === dataset.sourceOrganizationId) {
-    return {
-      label: "Platform Source",
-      tone: "bg-slate-900 text-white"
-    };
-  }
-
-  if (organization.billingPlan === "intelligence") {
-    return {
-      label: "Included by Intelligence",
-      tone: "bg-emerald-100 text-emerald-700"
-    };
-  }
-
-  if (!organization.effectiveFeatures.datasetMarketplaceEnabled) {
-    return {
-      label: "No Access",
-      tone: "bg-slate-200 text-slate-700"
-    };
-  }
-
-  if (!["sold_properties", "solar_permits", "roofing_permits"].includes(dataset.listType)) {
-    return {
-      label: "Marketplace Eligible",
-      tone: "bg-sky-100 text-sky-700"
-    };
-  }
-
-  const matches = coverageMatchesEntitlements(
-    dataset.listType,
-    dataset.coverage,
-    organization.datasetEntitlements
-  );
-
-  return matches
-    ? {
-        label: "Marketplace Eligible",
-        tone: "bg-sky-100 text-sky-700"
-      }
-    : {
-        label: "No Access",
-        tone: "bg-slate-200 text-slate-700"
-      };
+function toneForDatasetStatus(label: PlatformDatasetItem["organizationStatuses"][number]["label"]) {
+  if (label === "Platform Source") return "bg-slate-900 text-white";
+  if (label === "Included by Intelligence") return "bg-emerald-100 text-emerald-700";
+  if (label === "Marketplace Eligible") return "bg-sky-100 text-sky-700";
+  return "bg-slate-200 text-slate-700";
 }
 
 export function PlatformControlCenterPage() {
@@ -741,8 +692,7 @@ export function PlatformControlCenterPage() {
                             <div className="mt-3 space-y-2">
                               <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-mist">
                                 Cities
-                                <input
-                                  type="text"
+                                <textarea
                                   disabled={!canMutate}
                                   value={draft?.datasetEntitlements[datasetType as keyof DatasetEntitlementDraft].cities ?? ""}
                                   onChange={(event) =>
@@ -765,13 +715,13 @@ export function PlatformControlCenterPage() {
                                     }))
                                   }
                                   placeholder="Framingham, Worcester"
+                                  rows={3}
                                   className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-700"
                                 />
                               </label>
                               <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-mist">
                                 Zip Codes
-                                <input
-                                  type="text"
+                                <textarea
                                   disabled={!canMutate}
                                   value={draft?.datasetEntitlements[datasetType as keyof DatasetEntitlementDraft].zips ?? ""}
                                   onChange={(event) =>
@@ -794,9 +744,13 @@ export function PlatformControlCenterPage() {
                                     }))
                                   }
                                   placeholder="01701, 01826"
+                                  rows={3}
                                   className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-700"
                                 />
                               </label>
+                              <div className="text-[11px] normal-case tracking-normal text-slate-500">
+                                Enter multiple values separated by commas or new lines.
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -939,14 +893,14 @@ export function PlatformControlCenterPage() {
                       Owner-defined packaging status for this shared dataset by organization.
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {items.map((organization) => {
-                        const status = describeDatasetAccessStatus(dataset, organization);
+                      {dataset.organizationStatuses.map((status) => {
                         return (
                           <span
-                            key={`${dataset.datasetId}-${organization.organizationId}`}
-                            className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] ${status.tone}`}
+                            key={`${dataset.datasetId}-${status.organizationId}`}
+                            className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] ${toneForDatasetStatus(status.label)}`}
                           >
-                            {organization.name} · {status.label}
+                            {status.organizationName} · {status.label}
+                            {status.matchingTargetCount > 0 ? ` · ${status.matchingTargetCount} targets` : ""}
                           </span>
                         );
                       })}

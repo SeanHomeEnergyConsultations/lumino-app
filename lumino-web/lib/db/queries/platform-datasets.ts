@@ -1,5 +1,11 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { hasPlatformAccess } from "@/lib/auth/permissions";
+import {
+  countMatchingDatasetTargets,
+  emptyDatasetEntitlements,
+  normalizeDatasetEntitlementValue
+} from "@/lib/platform/dataset-entitlements";
+import { resolveOrganizationFeatures } from "@/lib/platform/features";
 import type {
   PlatformDatasetItem,
   PlatformDatasetsResponse,
@@ -69,15 +75,36 @@ export async function getPlatformDatasets(
   if (countsError) throw countsError;
 
   const sourceOrganizationIds = [...new Set((datasets ?? []).map((row) => row.source_organization_id as string))];
-  const { data: sourceOrgs, error: sourceOrgsError } = sourceOrganizationIds.length
-    ? await supabase.from("organizations").select("id,name").in("id", sourceOrganizationIds)
-    : { data: [], error: null };
-  if (sourceOrgsError) throw sourceOrgsError;
+  const { data: organizations, error: organizationsError } =
+    await supabase.from("organizations").select("id,name,billing_plan");
+  if (organizationsError) throw organizationsError;
+
+  const { data: entitlementRows, error: entitlementRowsError } = await supabase
+    .from("organization_dataset_entitlements")
+    .select("organization_id,dataset_type,geography_type,geography_value_normalized")
+    .eq("status", "active");
+  if (entitlementRowsError) throw entitlementRowsError;
+
+  const sourceOrgs = (organizations ?? []).filter((row) => sourceOrganizationIds.includes(row.id as string));
+  const organizationEntitlements = new Map<string, ReturnType<typeof emptyDatasetEntitlements>>();
+  for (const row of entitlementRows ?? []) {
+    const organizationId = row.organization_id as string | null;
+    const datasetType = row.dataset_type as keyof ReturnType<typeof emptyDatasetEntitlements> | null;
+    const geographyType = row.geography_type as "city" | "zip" | null;
+    const value = row.geography_value_normalized as string | null;
+    if (!organizationId || !datasetType || !geographyType || !value) continue;
+    const current = organizationEntitlements.get(organizationId) ?? emptyDatasetEntitlements();
+    const bucket = geographyType === "zip" ? current[datasetType].zips : current[datasetType].cities;
+    const normalized = normalizeDatasetEntitlementValue(geographyType, value);
+    if (normalized && !bucket.includes(normalized)) bucket.push(normalized);
+    organizationEntitlements.set(organizationId, current);
+  }
 
   const { grantedOrgMap, teamMap, userMap } = await loadGrantLookups((grants ?? []) as Record<string, unknown>[]);
   const sourceOrgMap = new Map((sourceOrgs ?? []).map((row) => [row.id as string, (row.name as string | null) ?? "Unknown org"]));
   const rowCountMap = new Map<string, number>();
   const coverageMap = new Map<string, { cities: Set<string>; zips: Set<string> }>();
+  const recordMap = new Map<string, Array<{ city: string | null; zip: string | null }>>();
   for (const row of counts ?? []) {
     const datasetId = row.platform_dataset_id as string;
     rowCountMap.set(datasetId, (rowCountMap.get(datasetId) ?? 0) + 1);
@@ -87,6 +114,9 @@ export async function getPlatformDatasets(
     if (city) coverage.cities.add(city);
     if (postalCode) coverage.zips.add(postalCode);
     coverageMap.set(datasetId, coverage);
+    const records = recordMap.get(datasetId) ?? [];
+    records.push({ city: city ?? null, zip: postalCode ?? null });
+    recordMap.set(datasetId, records);
   }
 
   const grantsByDataset = new Map<string, PlatformDatasetItem["grants"]>();
@@ -105,23 +135,85 @@ export async function getPlatformDatasets(
     grantsByDataset.set(datasetId, current);
   }
 
-  return (datasets ?? []).map((dataset) => ({
-    datasetId: dataset.id as string,
-    name: dataset.name as string,
-    description: (dataset.description as string | null) ?? null,
-    sourceBatchId: dataset.source_batch_id as string,
-    sourceOrganizationId: dataset.source_organization_id as string,
-    sourceOrganizationName: sourceOrgMap.get(dataset.source_organization_id as string) ?? "Unknown org",
-    listType: (dataset.list_type as PlatformDatasetItem["listType"]) ?? "general_canvass_list",
-    rowCount: rowCountMap.get(dataset.id as string) ?? 0,
-    coverage: {
-      cities: Array.from(coverageMap.get(dataset.id as string)?.cities ?? []).sort((a, b) => a.localeCompare(b)),
-      zips: Array.from(coverageMap.get(dataset.id as string)?.zips ?? []).sort((a, b) => a.localeCompare(b))
-    },
-    status: (dataset.status as PlatformDatasetItem["status"]) ?? "active",
-    createdAt: dataset.created_at as string,
-    grants: grantsByDataset.get(dataset.id as string) ?? []
-  }));
+  return (datasets ?? []).map((dataset) => {
+    const datasetId = dataset.id as string;
+    const rowCount = rowCountMap.get(datasetId) ?? 0;
+    const organizationStatuses = (organizations ?? []).map((organization) => {
+      const organizationId = organization.id as string;
+      const organizationName = (organization.name as string | null) ?? "Unknown org";
+      if (organizationId === (dataset.source_organization_id as string)) {
+        return {
+          organizationId,
+          organizationName,
+          label: "Platform Source" as const,
+          matchingTargetCount: rowCount
+        };
+      }
+
+      const featureResolution = resolveOrganizationFeatures({
+        billingPlan: (organization.billing_plan as string | null | undefined) ?? null
+      });
+
+      if (featureResolution.billingPlan === "intelligence") {
+        return {
+          organizationId,
+          organizationName,
+          label: "Included by Intelligence" as const,
+          matchingTargetCount: rowCount
+        };
+      }
+
+      if (!featureResolution.effective.datasetMarketplaceEnabled) {
+        return {
+          organizationId,
+          organizationName,
+          label: "No Access" as const,
+          matchingTargetCount: 0
+        };
+      }
+
+      if (!["sold_properties", "solar_permits", "roofing_permits"].includes((dataset.list_type as string | null) ?? "")) {
+        return {
+          organizationId,
+          organizationName,
+          label: "Marketplace Eligible" as const,
+          matchingTargetCount: rowCount
+        };
+      }
+
+      const matchingTargetCount = countMatchingDatasetTargets(
+        (dataset.list_type as string | null) ?? "",
+        recordMap.get(datasetId) ?? [],
+        organizationEntitlements.get(organizationId) ?? emptyDatasetEntitlements()
+      );
+
+      return {
+        organizationId,
+        organizationName,
+        label: matchingTargetCount > 0 ? ("Marketplace Eligible" as const) : ("No Access" as const),
+        matchingTargetCount
+      };
+    });
+
+    return {
+      datasetId: dataset.id as string,
+      name: dataset.name as string,
+      description: (dataset.description as string | null) ?? null,
+      sourceBatchId: dataset.source_batch_id as string,
+      sourceOrganizationId: dataset.source_organization_id as string,
+      sourceOrganizationName: sourceOrgMap.get(dataset.source_organization_id as string) ?? "Unknown org",
+      listType: (dataset.list_type as PlatformDatasetItem["listType"]) ?? "general_canvass_list",
+      rowCount,
+      coverage: {
+        cities: Array.from(coverageMap.get(datasetId)?.cities ?? []).sort((a, b) => a.localeCompare(b)),
+        zips: Array.from(coverageMap.get(datasetId)?.zips ?? []).sort((a, b) => a.localeCompare(b))
+      },
+      organizationStatuses,
+      status: (dataset.status as PlatformDatasetItem["status"]) ?? "active",
+      createdAt: dataset.created_at as string,
+      grants: grantsByDataset.get(dataset.id as string) ?? []
+    };
+  });
 }
 
 export async function getOrganizationSharedDatasetAccess(

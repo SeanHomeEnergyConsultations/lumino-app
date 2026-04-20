@@ -18,6 +18,11 @@ export interface DatasetCoverageSummary {
   zips: string[];
 }
 
+export interface DatasetRecordGeography {
+  city: string | null;
+  zip: string | null;
+}
+
 export function emptyDatasetEntitlements(): DatasetEntitlementCollection {
   return {
     sold_properties: { cities: [], zips: [] },
@@ -53,7 +58,7 @@ export function parseDatasetEntitlementInput(value: string, geographyType: Datas
   const seen = new Set<string>();
   const items: string[] = [];
 
-  for (const part of value.split(",")) {
+  for (const part of value.split(/[\n,]+/)) {
     const normalized = normalizeDatasetEntitlementValue(geographyType, part);
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
@@ -79,4 +84,29 @@ export function coverageMatchesEntitlements(
   const zipMatch = coverage.zips.some((value) => zipSet.has(normalizeDatasetEntitlementValue("zip", value)));
   const cityMatch = coverage.cities.some((value) => citySet.has(normalizeDatasetEntitlementValue("city", value)));
   return zipMatch || cityMatch;
+}
+
+export function countMatchingDatasetTargets(
+  datasetType: string,
+  records: DatasetRecordGeography[],
+  entitlements: DatasetEntitlementCollection
+) {
+  if (!DATASET_ENTITLEMENT_TYPES.includes(datasetType as DatasetEntitlementType)) {
+    return 0;
+  }
+
+  const relevant = entitlements[datasetType as DatasetEntitlementType];
+  const zipSet = new Set(relevant.zips.map((value) => normalizeDatasetEntitlementValue("zip", value)));
+  const citySet = new Set(relevant.cities.map((value) => normalizeDatasetEntitlementValue("city", value)));
+
+  let count = 0;
+  for (const record of records) {
+    const city = normalizeDatasetEntitlementValue("city", record.city ?? "");
+    const zip = normalizeDatasetEntitlementValue("zip", record.zip ?? "");
+    if ((zip && zipSet.has(zip)) || (city && citySet.has(city))) {
+      count += 1;
+    }
+  }
+
+  return count;
 }

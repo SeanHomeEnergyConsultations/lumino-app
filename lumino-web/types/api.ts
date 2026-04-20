@@ -616,6 +616,13 @@ export interface PlatformDatasetOrganizationGrant {
   grantedAt: string;
 }
 
+export interface PlatformDatasetOrganizationStatus {
+  organizationId: string;
+  organizationName: string;
+  label: "Platform Source" | "Included by Intelligence" | "Marketplace Eligible" | "No Access";
+  matchingTargetCount: number;
+}
+
 export interface PlatformDatasetItem {
   datasetId: string;
   name: string;
@@ -629,6 +636,7 @@ export interface PlatformDatasetItem {
     cities: string[];
     zips: string[];
   };
+  organizationStatuses: PlatformDatasetOrganizationStatus[];
   status: "active" | "archived";
   createdAt: string;
   grants: PlatformDatasetOrganizationGrant[];
