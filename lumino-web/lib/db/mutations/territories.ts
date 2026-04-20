@@ -1,6 +1,34 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import type { AuthSessionContext } from "@/types/auth";
 
+async function ensureTerritoryInOrganization(
+  territoryId: string,
+  organizationId: string
+) {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("territories")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("id", territoryId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw new Error("Territory not found.");
+}
+
+async function ensurePropertyExists(propertyId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("properties")
+    .select("id")
+    .eq("id", propertyId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw new Error("Property not found.");
+}
+
 export async function createTerritory(
   input: { name: string; status: "active" | "archived" },
   context: AuthSessionContext
@@ -29,6 +57,7 @@ export async function updateTerritory(
 ) {
   const supabase = createServerSupabaseClient();
   if (!context.organizationId) throw new Error("No active organization found for this user.");
+  await ensureTerritoryInOrganization(territoryId, context.organizationId);
 
   const { error } = await supabase
     .from("territories")
@@ -51,6 +80,8 @@ export async function assignPropertyToTerritory(
 ) {
   const supabase = createServerSupabaseClient();
   if (!context.organizationId) throw new Error("No active organization found for this user.");
+  await ensureTerritoryInOrganization(territoryId, context.organizationId);
+  await ensurePropertyExists(propertyId);
 
   const { error } = await supabase
     .from("property_territories")
@@ -70,6 +101,7 @@ export async function removePropertyFromTerritory(
 ) {
   const supabase = createServerSupabaseClient();
   if (!context.organizationId) throw new Error("No active organization found for this user.");
+  await ensureTerritoryInOrganization(territoryId, context.organizationId);
 
   const { error } = await supabase
     .from("property_territories")

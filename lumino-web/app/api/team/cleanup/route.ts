@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { hasAdminAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { deleteOrphanAppUser } from "@/lib/db/mutations/team";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { recordSecurityEvent } from "@/lib/security/security-events";
 import { teamCleanupSchema } from "@/lib/validation/team";
 
@@ -13,6 +14,21 @@ export async function POST(request: Request) {
     if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!hasAdminAccess(context)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const rateLimit = await enforceRateLimit({
+      request,
+      context,
+      bucket: "team_cleanup",
+      limit: 20,
+      windowSeconds: 3600,
+      logEventType: "team_cleanup_rate_limit_exceeded"
+    });
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many cleanup actions. Please wait before trying again." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+      );
     }
 
     const json = await request.json();
@@ -32,7 +48,8 @@ export async function POST(request: Request) {
         eventType: "team_cleanup_orphan_user",
         severity: "high",
         metadata: {
-          userId: parsed.data.userId
+          userId: parsed.data.userId,
+          archived: result.archived ?? false
         }
       });
       return NextResponse.json(result);
