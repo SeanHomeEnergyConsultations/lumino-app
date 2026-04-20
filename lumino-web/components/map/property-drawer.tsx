@@ -100,7 +100,7 @@ export function PropertyDrawer({
     setTaskDueAt("");
     setTaskNotes("");
     setTaskState("idle");
-    setMobileExpanded(false);
+    setMobileExpanded(Boolean(property?.isPreview));
   }, [property]);
 
   const content = loading ? (

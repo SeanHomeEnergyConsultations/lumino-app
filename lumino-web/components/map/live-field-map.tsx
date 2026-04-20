@@ -427,12 +427,6 @@ export function LiveFieldMap({
 
   async function handleMapTap(event: MapLayerMouseEvent) {
     if (!session?.access_token || isResolvingTap) return;
-    if (typeof window !== "undefined" && window.innerWidth < 1280 && selectedPropertyId) {
-      setSelectedPropertyId(null);
-      setSelectedProperty(null);
-      setIsResultsOpen(false);
-      return;
-    }
 
     try {
       setIsResolvingTap(true);
