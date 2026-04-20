@@ -45,7 +45,8 @@ export function PropertyDrawer({
   onDismiss,
   onCloseDesktop,
   desktopVisible = true,
-  isOpen = false
+  isOpen = false,
+  mobileOpenNonce = 0
 }: {
   property: PropertyDetail | null;
   loading: boolean;
@@ -57,6 +58,7 @@ export function PropertyDrawer({
   onCloseDesktop?: () => void;
   desktopVisible?: boolean;
   isOpen?: boolean;
+  mobileOpenNonce?: number;
 }) {
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const [firstName, setFirstName] = useState("");
@@ -102,6 +104,11 @@ export function PropertyDrawer({
     setTaskState("idle");
     setMobileExpanded(Boolean(property?.isPreview));
   }, [property]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setMobileExpanded(true);
+  }, [isOpen, mobileOpenNonce]);
 
   const content = loading ? (
     <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-panel">

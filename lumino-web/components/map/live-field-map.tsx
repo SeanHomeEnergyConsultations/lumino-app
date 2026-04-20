@@ -194,6 +194,7 @@ export function LiveFieldMap({
   const [isResultsOpen, setIsResultsOpen] = useState(false);
   const [isResultsPanelVisible, setIsResultsPanelVisible] = useState(true);
   const [isDrawerVisible, setIsDrawerVisible] = useState(true);
+  const [mobileOpenNonce, setMobileOpenNonce] = useState(0);
   const [showTeamKnocks, setShowTeamKnocks] = useState(isManager);
   const [featureAccess, setFeatureAccess] = useState<OrganizationFeatureAccess>({
     mapEnabled: true,
@@ -394,6 +395,12 @@ export function LiveFieldMap({
     }
   }
 
+  function openSelectedProperty(propertyId: string) {
+    setSelectedPropertyId(propertyId);
+    setIsDrawerVisible(true);
+    setMobileOpenNonce((current) => current + 1);
+  }
+
   async function ensurePersistedSelectedProperty() {
     if (!session?.access_token || !selectedProperty?.lat || !selectedProperty?.lng) {
       throw new Error("This property location could not be saved.");
@@ -441,20 +448,18 @@ export function LiveFieldMap({
       if (!response.ok) return;
       const json = (await response.json()) as ResolvePropertyResponse;
       if (json.propertyId) {
-        setSelectedPropertyId(json.propertyId);
-        setIsDrawerVisible(true);
+        openSelectedProperty(json.propertyId);
         await refreshSelectedProperty(json.propertyId);
         return;
       }
 
       if (!json.preview) return;
 
-      setSelectedPropertyId(previewSelectionKey(json.preview.lat, json.preview.lng));
+      openSelectedProperty(previewSelectionKey(json.preview.lat, json.preview.lng));
       setSelectedProperty(buildPreviewPropertyDetail({
         ...json.preview,
         featureAccess
       }));
-      setIsDrawerVisible(true);
     } finally {
       setIsResolvingTap(false);
     }
@@ -594,8 +599,7 @@ export function LiveFieldMap({
         items={filteredItems}
         selectedPropertyId={selectedPropertyId}
         onSelect={(propertyId) => {
-          setSelectedPropertyId(propertyId);
-          setIsDrawerVisible(true);
+          openSelectedProperty(propertyId);
         }}
         showPriority={featureAccess.priorityScoringEnabled}
         className={`relative z-20 shrink-0 border-r border-slate-200/80 bg-white/80 backdrop-blur ${isResultsPanelVisible ? "hidden w-80 xl:block" : "hidden xl:hidden"}`}
@@ -643,8 +647,7 @@ export function LiveFieldMap({
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
-                    setSelectedPropertyId(item.propertyId);
-                    setIsDrawerVisible(true);
+                    openSelectedProperty(item.propertyId);
                   }}
                   title={`${item.address} · ${item.mapState}`}
                   className={`flex h-11 w-11 items-center justify-center rounded-full border-2 shadow-lg transition focus:outline-none focus:ring-2 focus:ring-ink/30 ${
@@ -743,6 +746,7 @@ export function LiveFieldMap({
         desktopVisible={isDrawerVisible}
         onCloseDesktop={() => setIsDrawerVisible(false)}
         isOpen={Boolean(selectedPropertyId)}
+        mobileOpenNonce={mobileOpenNonce}
         onDismiss={() => {
           setSelectedPropertyId(null);
           setSelectedProperty(null);
