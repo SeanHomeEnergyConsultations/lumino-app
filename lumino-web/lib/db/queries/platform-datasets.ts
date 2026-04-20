@@ -128,23 +128,29 @@ export async function getOrganizationSharedDatasetAccess(
   if (grantsError) throw grantsError;
 
   const datasetIds = [...new Set((grants ?? []).map((row) => row.platform_dataset_id as string))];
-  if (!datasetIds.length) return [];
-
-  const [{ data: datasets, error: datasetsError }, { data: counts, error: countsError }] = await Promise.all([
+  const [{ data: sourceDatasets, error: sourceDatasetsError }, { data: datasets, error: datasetsError }, { data: counts, error: countsError }] = await Promise.all([
     supabase
       .from("platform_datasets")
-      .select("id,name,description,source_organization_id,list_type,status")
-      .in("id", datasetIds)
+      .select("id,name,description,source_organization_id,list_type,status,created_at")
+      .eq("source_organization_id", context.organizationId)
       .eq("status", "active"),
     supabase
-      .from("organization_dataset_targets")
+      .from("platform_datasets")
+      .select("id,name,description,source_organization_id,list_type,status,created_at")
+      .in("id", datasetIds.length ? datasetIds : ["00000000-0000-0000-0000-000000000000"])
+      .eq("status", "active"),
+    supabase
+      .from("platform_dataset_records")
       .select("platform_dataset_id")
-      .eq("organization_id", context.organizationId)
   ]);
+  if (sourceDatasetsError) throw sourceDatasetsError;
   if (datasetsError) throw datasetsError;
   if (countsError) throw countsError;
 
-  const sourceOrgIds = [...new Set((datasets ?? []).map((row) => row.source_organization_id as string))];
+  const combinedDatasets = [...(datasets ?? []), ...(sourceDatasets ?? [])];
+  if (!combinedDatasets.length) return [];
+
+  const sourceOrgIds = [...new Set(combinedDatasets.map((row) => row.source_organization_id as string))];
   const { data: sourceOrgs } = sourceOrgIds.length
     ? await supabase.from("organizations").select("id,name").in("id", sourceOrgIds)
     : { data: [] };
@@ -153,14 +159,14 @@ export async function getOrganizationSharedDatasetAccess(
     for (const row of sourceOrgs) sourceOrgMap.set(row.id as string, (row.name as string | null) ?? "Unknown org");
   }
 
-  const datasetMap = new Map((datasets ?? []).map((row) => [row.id as string, row]));
+  const datasetMap = new Map(combinedDatasets.map((row) => [row.id as string, row]));
   const rowCountMap = new Map<string, number>();
   for (const row of counts ?? []) {
     const datasetId = row.platform_dataset_id as string;
     rowCountMap.set(datasetId, (rowCountMap.get(datasetId) ?? 0) + 1);
   }
 
-  return (grants ?? [])
+  const grantItems = (grants ?? [])
     .map((grant) => {
       const dataset = datasetMap.get(grant.platform_dataset_id as string);
       if (!dataset) return null;
@@ -179,4 +185,25 @@ export async function getOrganizationSharedDatasetAccess(
       } satisfies SharedDatasetAccessListItem;
     })
     .filter((item): item is SharedDatasetAccessListItem => Boolean(item));
+
+  const grantedIds = new Set(grantItems.map((item) => item.datasetId));
+  const sourceItems = (sourceDatasets ?? [])
+    .filter((dataset) => !grantedIds.has(dataset.id as string))
+    .map((dataset) => ({
+      datasetId: dataset.id as string,
+      name: dataset.name as string,
+      description: (dataset.description as string | null) ?? null,
+      sourceOrganizationName: sourceOrgMap.get(dataset.source_organization_id as string) ?? "Unknown org",
+      listType: (dataset.list_type as SharedDatasetAccessListItem["listType"]) ?? "general_canvass_list",
+      rowCount: rowCountMap.get(dataset.id as string) ?? 0,
+      visibilityScope: "organization" as const,
+      assignedTeamName: null,
+      assignedUserName: null,
+      grantedAt: (dataset.created_at as string | null) ?? new Date(0).toISOString(),
+      status: "active" as const
+    }));
+
+  return [...sourceItems, ...grantItems].sort(
+    (left, right) => new Date(right.grantedAt).getTime() - new Date(left.grantedAt).getTime()
+  );
 }

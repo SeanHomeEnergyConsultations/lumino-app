@@ -232,6 +232,56 @@ export async function syncPlatformDatasetsToIntelligenceOrganization(
   }
 }
 
+export async function reconcileOrganizationDatasetAccess(
+  organizationId: string,
+  context: AuthSessionContext
+) {
+  assertPlatformAccess(context);
+  const supabase = createServerSupabaseClient();
+
+  const { data: grants, error: grantsError } = await supabase
+    .from("organization_dataset_access")
+    .select("platform_dataset_id,status,visibility_scope,assigned_team_id,assigned_user_id,platform_datasets!inner(list_type)")
+    .eq("organization_id", organizationId);
+  if (grantsError) throw grantsError;
+
+  for (const grant of grants ?? []) {
+    const dataset = grant.platform_datasets as { list_type?: string | null } | null;
+    const listType = dataset?.list_type ?? "general_canvass_list";
+
+    let shouldBeActive = true;
+    try {
+      await assertOrganizationCanReceiveDataset(organizationId, listType);
+    } catch {
+      shouldBeActive = false;
+    }
+
+    const nextStatus = shouldBeActive
+      ? ((grant.status as "active" | "paused" | "revoked" | null) ?? "active")
+      : "revoked";
+
+    const { error: updateError } = await supabase
+      .from("organization_dataset_access")
+      .update({
+        status: nextStatus,
+        updated_at: new Date().toISOString()
+      })
+      .eq("organization_id", organizationId)
+      .eq("platform_dataset_id", grant.platform_dataset_id as string);
+    if (updateError) throw updateError;
+
+    await syncOrganizationDatasetTargets({
+      datasetId: grant.platform_dataset_id as string,
+      organizationId,
+      visibilityScope:
+        ((grant.visibility_scope as DatasetGrantScope | null | undefined) ?? "organization"),
+      assignedTeamId: (grant.assigned_team_id as string | null | undefined) ?? null,
+      assignedUserId: (grant.assigned_user_id as string | null | undefined) ?? null,
+      status: nextStatus
+    });
+  }
+}
+
 export async function publishImportBatchAsPlatformDataset(
   input: {
     batchId: string;

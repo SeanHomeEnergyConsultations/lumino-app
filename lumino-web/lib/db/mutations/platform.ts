@@ -1,6 +1,9 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { hasPlatformAccess } from "@/lib/auth/permissions";
-import { syncPlatformDatasetsToIntelligenceOrganization } from "@/lib/db/mutations/platform-datasets";
+import {
+  reconcileOrganizationDatasetAccess,
+  syncPlatformDatasetsToIntelligenceOrganization
+} from "@/lib/db/mutations/platform-datasets";
 import { getOrganizationFeatureAccess } from "@/lib/db/queries/platform";
 import { resolveOrganizationFeatures } from "@/lib/platform/features";
 import type { PlatformOrganizationOverviewItem } from "@/types/api";
@@ -44,8 +47,12 @@ export async function updatePlatformOrganization(
     billingPlan: (data.billing_plan as string | null | undefined) ?? null
   });
 
-  if (input.billingPlan && resolved.datasetPolicy.autoReleaseAllPublishedDatasets) {
-    await syncPlatformDatasetsToIntelligenceOrganization(organizationId, context);
+  if (input.billingPlan) {
+    await reconcileOrganizationDatasetAccess(organizationId, context);
+
+    if (resolved.datasetPolicy.autoReleaseAllPublishedDatasets) {
+      await syncPlatformDatasetsToIntelligenceOrganization(organizationId, context);
+    }
   }
 
   return {
