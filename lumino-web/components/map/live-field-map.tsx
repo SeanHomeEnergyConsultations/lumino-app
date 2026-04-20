@@ -15,12 +15,14 @@ import {
   House,
   LocateFixed,
   MapPinned,
+  Map as MapIcon,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   PhoneCall,
   UserRoundCheck,
+  X,
   XCircle
 } from "lucide-react";
 import Map, {
@@ -544,7 +546,7 @@ export function LiveFieldMap({
           ) : null}
         </Map>
 
-        <div className="absolute bottom-4 left-4 rounded-full border border-slate-200 bg-white/90 px-4 py-2 text-sm text-slate-600 shadow-panel">
+        <div className="absolute bottom-24 left-4 right-4 rounded-2xl border border-slate-200 bg-white/92 px-4 py-3 text-sm text-slate-600 shadow-panel sm:right-auto sm:rounded-full sm:py-2 xl:bottom-4">
           {isSavingVisit
             ? "Saving visit..."
             : isResolvingTap
@@ -562,27 +564,11 @@ export function LiveFieldMap({
                 zoom: Math.max(current.zoom, 18)
               }))
             }
-            className="absolute bottom-20 right-4 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-700 shadow-panel transition hover:bg-white"
+            className="absolute bottom-40 right-4 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-700 shadow-panel transition hover:bg-white sm:bottom-20"
             aria-label="Center on my location"
           >
             <LocateFixed className="h-5 w-5" />
           </button>
-        ) : null}
-
-        {selectedMapItem ? (
-          <div className="absolute right-4 top-4 rounded-2xl border border-slate-200 bg-white/92 px-4 py-3 text-sm text-slate-700 shadow-panel xl:hidden">
-            <div className="flex items-center gap-3">
-              {selectedVisual ? (
-                <span className={`flex h-8 w-8 items-center justify-center rounded-full ${selectedVisual.className}`}>
-                  <selectedVisual.icon className="h-4 w-4" strokeWidth={2.2} />
-                </span>
-              ) : null}
-              <div>
-                <div className="font-semibold text-ink">{selectedMapItem.address}</div>
-                <div className="mt-1 text-xs text-slate-500">{selectedMapItem.visitCount} visits</div>
-              </div>
-            </div>
-          </div>
         ) : null}
 
         <button
@@ -590,9 +576,30 @@ export function LiveFieldMap({
           onClick={() => setIsResultsOpen(true)}
           className="absolute left-4 top-4 flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel xl:hidden"
         >
-          <MapPinned className="h-4 w-4" />
-          Nearby
+          <MapIcon className="h-4 w-4" />
+          List
         </button>
+        {selectedMapItem ? (
+          <div className="absolute right-4 top-4 xl:hidden">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedPropertyId(null);
+                setSelectedProperty(null);
+                setPropertyLoading(false);
+              }}
+              className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-2 text-sm font-semibold text-slate-700 shadow-panel"
+            >
+              {selectedVisual ? (
+                <span className={`flex h-7 w-7 items-center justify-center rounded-full ${selectedVisual.className}`}>
+                  <selectedVisual.icon className="h-4 w-4" strokeWidth={2.2} />
+                </span>
+              ) : null}
+              <span className="max-w-[10rem] truncate">{selectedMapItem.address}</span>
+              <X className="h-4 w-4 text-slate-400" />
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <PropertyDrawer

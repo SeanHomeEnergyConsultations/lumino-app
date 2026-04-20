@@ -619,19 +619,29 @@ export function PropertyDrawer({
               {content}
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => setMobileExpanded(true)}
-              className="pointer-events-auto mx-auto flex w-full max-w-md items-center justify-between rounded-[1.5rem] border border-slate-200 bg-white/95 px-4 py-3 text-left shadow-2xl backdrop-blur"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-ink">{property?.address ?? "Selected property"}</div>
-                <div className="mt-1 text-xs text-slate-500">
-                  {property?.lastVisitOutcome ?? property?.leadStatus ?? "Tap to open property actions"}
+            <div className="pointer-events-auto mx-auto flex w-full max-w-md items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setMobileExpanded(true)}
+                className="flex min-w-0 flex-1 items-center justify-between rounded-[1.25rem] border border-slate-200 bg-white/95 px-4 py-3 text-left shadow-2xl backdrop-blur"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-ink">{property?.address ?? "Selected property"}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {property?.lastVisitOutcome ?? property?.leadStatus ?? "Tap to open property actions"}
+                  </div>
                 </div>
-              </div>
-              <div className="ml-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Open</div>
-            </button>
+                <div className="ml-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Open</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => onDismiss?.()}
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-600 shadow-2xl backdrop-blur"
+                aria-label="Hide property panel"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           )}
         </div>
       ) : null}

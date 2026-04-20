@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { AppSidebar } from "@/components/app-shell/app-sidebar";
+import { MobileBottomNav } from "@/components/app-shell/mobile-bottom-nav";
 import { AppTopbar } from "@/components/app-shell/app-topbar";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -36,8 +37,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       ) : null}
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <AppTopbar onOpenNav={() => setMobileNavOpen(true)} />
-        <main className="min-h-0 flex-1">{children}</main>
+        <main className="min-h-0 flex-1 pb-24 xl:pb-0">{children}</main>
       </div>
+      <MobileBottomNav onOpenMenu={() => setMobileNavOpen(true)} />
     </div>
   );
 }

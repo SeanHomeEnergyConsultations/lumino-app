@@ -69,10 +69,11 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
         <button
           type="button"
           onClick={onOpenNav}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 xl:hidden"
-          aria-label="Open navigation"
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 xl:hidden"
+          aria-label="Open app menu"
         >
           <Menu className="h-5 w-5" />
+          <span className="text-sm font-semibold">Menu</span>
         </button>
         <div className="min-w-0">
           <div className="text-xs font-semibold uppercase tracking-[0.22em]" style={{ color: accentColor }}>

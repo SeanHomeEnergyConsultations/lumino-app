@@ -3,7 +3,17 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname } from "next/navigation";
-import { Map, LayoutDashboard, ListTodo, CheckSquare2, Users, CalendarCheck2, ContactRound, Upload, Building2 } from "lucide-react";
+import {
+  Map,
+  LayoutDashboard,
+  ListTodo,
+  CheckSquare2,
+  Users,
+  CalendarCheck2,
+  ContactRound,
+  Upload,
+  Building2
+} from "lucide-react";
 import { LogoMark } from "@/components/shared/logo-mark";
 import { useAuth } from "@/lib/auth/client";
 import { hasFeatureAccess, hasManagerAccess, hasPlatformAccess } from "@/lib/auth/permissions";
@@ -18,7 +28,7 @@ type NavItem = {
   platformOnly?: boolean;
 };
 
-const nav: readonly NavItem[] = [
+export const appNavItems: readonly NavItem[] = [
   { href: "/map", label: "Map", icon: Map, requiredFeature: "mapEnabled" },
   { href: "/queue", label: "Queue", icon: ListTodo, requiredFeature: "visitLoggingEnabled" },
   { href: "/leads", label: "Leads", icon: ContactRound, requiredFeature: "leadsEnabled" },
@@ -30,15 +40,14 @@ const nav: readonly NavItem[] = [
   { href: "/platform", label: "Platform", icon: Building2, platformOnly: true }
 ] as const;
 
-export function AppSidebar() {
-  const pathname = usePathname();
-  const { organizationBranding, appContext } = useAuth();
-  const appName = organizationBranding?.appName ?? "Lumino";
-  const primaryColor = organizationBranding?.primaryColor ?? "#0b1220";
-  const accentColor = organizationBranding?.accentColor ?? "#94a3b8";
+export function getVisibleAppNav(input: {
+  appContext: ReturnType<typeof useAuth>["appContext"];
+}) {
+  const { appContext } = input;
   const canManage = appContext ? hasManagerAccess(appContext) : false;
   const canAccessPlatform = appContext ? hasPlatformAccess(appContext) : false;
-  const filteredNav = nav.filter((item) => {
+
+  return appNavItems.filter((item) => {
     if (item.platformOnly) {
       return canAccessPlatform;
     }
@@ -50,6 +59,15 @@ export function AppSidebar() {
     }
     return !item.requiredFeature || Boolean(appContext);
   });
+}
+
+export function AppSidebar() {
+  const pathname = usePathname();
+  const { organizationBranding, appContext } = useAuth();
+  const appName = organizationBranding?.appName ?? "Lumino";
+  const primaryColor = organizationBranding?.primaryColor ?? "#0b1220";
+  const accentColor = organizationBranding?.accentColor ?? "#94a3b8";
+  const filteredNav = getVisibleAppNav({ appContext });
 
   return (
     <aside className="w-72 shrink-0 border-r border-slate-200/80 bg-white/70 px-5 py-6 backdrop-blur">
