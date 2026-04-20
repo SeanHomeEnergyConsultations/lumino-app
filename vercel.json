@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "cd lumino-web && npm install",
+  "buildCommand": "cd lumino-web && npm run build"
+}
