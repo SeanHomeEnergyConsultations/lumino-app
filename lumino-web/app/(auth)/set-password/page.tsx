@@ -13,12 +13,72 @@ export default function SetPasswordPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [recoveryReady, setRecoveryReady] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const nextMode = new URLSearchParams(window.location.search).get("mode") ?? "recovery";
     setMode(nextMode);
   }, []);
+
+  useEffect(() => {
+    if (!supabase || typeof window === "undefined") return;
+    const supabaseClient = supabase;
+
+    let cancelled = false;
+
+    async function hydrateRecoverySession() {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+      const hashParams = new URLSearchParams(window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "");
+
+      const code = params.get("code");
+      const tokenHash = params.get("token_hash");
+      const type = params.get("type") ?? hashParams.get("type");
+      const accessToken = hashParams.get("access_token");
+      const refreshToken = hashParams.get("refresh_token");
+
+      try {
+        if (code) {
+          const { error: exchangeError } = await supabaseClient.auth.exchangeCodeForSession(code);
+          if (exchangeError) throw exchangeError;
+        } else if (tokenHash && type === "recovery") {
+          const { error: verifyError } = await supabaseClient.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: "recovery"
+          });
+          if (verifyError) throw verifyError;
+        } else if (accessToken && refreshToken) {
+          const { error: setSessionError } = await supabaseClient.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+          if (setSessionError) throw setSessionError;
+        }
+
+        if (cancelled) return;
+        if (code || tokenHash || accessToken) {
+          window.history.replaceState({}, document.title, `${window.location.pathname}?mode=${mode}`);
+        }
+        setRecoveryReady(true);
+        setError(null);
+      } catch (recoveryError) {
+        if (cancelled) return;
+        setRecoveryReady(false);
+        setError(
+          recoveryError instanceof Error
+            ? recoveryError.message
+            : "This password reset link is invalid or has expired."
+        );
+      }
+    }
+
+    void hydrateRecoverySession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, supabase]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -75,6 +135,11 @@ export default function SetPasswordPage() {
         {!loading && !session ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             This link is invalid or has expired. Ask your manager to resend the invite or password reset.
+          </div>
+        ) : null}
+        {!loading && recoveryReady && session ? (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            Recovery verified. Choose your new password below.
           </div>
         ) : null}
 

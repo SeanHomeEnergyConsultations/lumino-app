@@ -14,10 +14,72 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resetState, setResetState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [recoveryRedirecting, setRecoveryRedirecting] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!supabase || typeof window === "undefined") return;
+    const supabaseClient = supabase;
+
+    let cancelled = false;
+
+    async function handleRecoveryFromLogin() {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+      const hashParams = new URLSearchParams(window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "");
+
+      const code = params.get("code");
+      const tokenHash = params.get("token_hash");
+      const type = params.get("type") ?? hashParams.get("type");
+      const accessToken = hashParams.get("access_token");
+      const refreshToken = hashParams.get("refresh_token");
+
+      const hasRecoveryPayload =
+        Boolean(code) || Boolean(accessToken && refreshToken) || Boolean(tokenHash && type === "recovery");
+
+      if (!hasRecoveryPayload) return;
+
+      setRecoveryRedirecting(true);
+      try {
+        if (code) {
+          const { error: exchangeError } = await supabaseClient.auth.exchangeCodeForSession(code);
+          if (exchangeError) throw exchangeError;
+        } else if (tokenHash && type === "recovery") {
+          const { error: verifyError } = await supabaseClient.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: "recovery"
+          });
+          if (verifyError) throw verifyError;
+        } else if (accessToken && refreshToken) {
+          const { error: setSessionError } = await supabaseClient.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+          if (setSessionError) throw setSessionError;
+        }
+
+        if (cancelled) return;
+        router.replace("/set-password?mode=recovery");
+      } catch (recoveryError) {
+        if (cancelled) return;
+        setRecoveryRedirecting(false);
+        setError(
+          recoveryError instanceof Error
+            ? recoveryError.message
+            : "This password reset link is invalid or has expired."
+        );
+      }
+    }
+
+    void handleRecoveryFromLogin();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, supabase]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -86,6 +148,11 @@ export default function LoginPage() {
         {mounted && !envReady ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             Supabase environment variables are missing. Add them to <code>.env.local</code>.
+          </div>
+        ) : null}
+        {recoveryRedirecting ? (
+          <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
+            Reset link verified. Redirecting you to set a new password…
           </div>
         ) : null}
 
