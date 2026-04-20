@@ -61,6 +61,7 @@ export function PropertyDrawer({
   mobileOpenNonce?: number;
 }) {
   const [mobileExpanded, setMobileExpanded] = useState(false);
+  const [mobileSection, setMobileSection] = useState<"actions" | "lead" | "history">("actions");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -102,6 +103,7 @@ export function PropertyDrawer({
     setTaskDueAt("");
     setTaskNotes("");
     setTaskState("idle");
+    setMobileSection(property?.leadId ? "lead" : "actions");
     if (property?.isPreview) {
       setMobileExpanded(true);
     }
@@ -111,6 +113,10 @@ export function PropertyDrawer({
     if (!isOpen) return;
     setMobileExpanded(true);
   }, [isOpen, mobileOpenNonce]);
+
+  const showActions = mobileSection === "actions";
+  const showLead = mobileSection === "lead";
+  const showHistory = mobileSection === "history";
 
   const content = loading ? (
     <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-panel">
@@ -151,6 +157,7 @@ export function PropertyDrawer({
               key={item.value}
               type="button"
               onClick={() => {
+                setMobileSection("actions");
                 setPostAction(item.value);
                 setActionState("idle");
                 if (item.value === "opportunity") {
@@ -174,8 +181,33 @@ export function PropertyDrawer({
           ))}
         </div>
 
+        <div className="mt-4 xl:hidden">
+          <div className="grid grid-cols-3 gap-2 rounded-[1.4rem] bg-slate-100 p-1">
+            {[
+              { key: "actions", label: "Actions" },
+              { key: "lead", label: "Lead" },
+              { key: "history", label: "History" }
+            ].map((tab) => {
+              const active = mobileSection === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setMobileSection(tab.key as "actions" | "lead" | "history")}
+                  className={`rounded-[1.1rem] px-3 py-2 text-sm font-semibold transition ${
+                    active ? "bg-white text-ink shadow-sm" : "text-slate-500"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className={showActions ? "mt-5 xl:mt-5" : "mt-5 hidden xl:block"}>
         {postAction === "not_home" || postAction === "left_doorhanger" ? (
-          <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-ink">
               <Clock3 className="h-4 w-4" />
               Schedule revisit
@@ -199,6 +231,7 @@ export function PropertyDrawer({
                 type="button"
                 onClick={async () => {
                   if (!property) return;
+                  setMobileSection("lead");
                   setActionState("saving");
                   try {
                     await onSaveLead({
@@ -250,6 +283,7 @@ export function PropertyDrawer({
                 type="button"
                 onClick={async () => {
                   if (!property) return;
+                  setMobileSection("lead");
                   setActionState("saving");
                   try {
                     await onSaveLead({
@@ -293,6 +327,7 @@ export function PropertyDrawer({
                 type="button"
                 onClick={async () => {
                   if (!property) return;
+                  setMobileSection("lead");
                   setActionState("saving");
                   try {
                     await onSaveLead({
@@ -332,8 +367,10 @@ export function PropertyDrawer({
             </Link>
           </div>
         </div>
+        </div>
 
-        <div className="mt-6">
+        <div className={showLead ? "mt-6 xl:mt-6" : "mt-6 hidden xl:block"}>
+        <div>
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Contact</div>
           <div className="mt-2 space-y-1 text-sm text-slate-600">
             <div>{property.phone || "No phone yet"}</div>
@@ -360,6 +397,7 @@ export function PropertyDrawer({
                 nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null
               });
               setSaveState("saved");
+              setMobileSection("history");
               onDismiss?.();
             } catch {
               setSaveState("error");
@@ -482,6 +520,7 @@ export function PropertyDrawer({
               setTaskDueAt("");
               setTaskNotes("");
               setTaskType("custom");
+              setMobileSection("history");
             } catch {
               setTaskState("error");
             }
@@ -541,8 +580,10 @@ export function PropertyDrawer({
             </button>
           </div>
         </form>
+        </div>
 
-        <div className="mt-6">
+        <div className={showHistory ? "mt-6 xl:mt-6" : "mt-6 hidden xl:block"}>
+        <div>
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Recent Visits</div>
           <div className="mt-3 space-y-3">
             {property.recentVisits.length ? (
@@ -577,6 +618,7 @@ export function PropertyDrawer({
               </div>
             )}
           </div>
+        </div>
         </div>
       </div>
   );

@@ -139,16 +139,16 @@ export function QueueCard({
         </div>
       </div>
 
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
         <Link
           href={`/map?propertyId=${item.propertyId}`}
-          className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+          className="flex items-center justify-center rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
         >
           Open on Map
         </Link>
         <Link
           href={`/properties/${item.propertyId}`}
-          className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-slate-300"
+          className="flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-slate-300"
         >
           Full Property
         </Link>
@@ -163,7 +163,7 @@ export function QueueCard({
           onChange={(event) => actionConfig.setValue(event.target.value)}
           className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
         />
-        <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs text-slate-500">
             {actionState === "saved"
               ? "Saved."
@@ -177,7 +177,7 @@ export function QueueCard({
             type="button"
             onClick={() => void handleSaveAction()}
             disabled={!accessToken || actionState === "saving"}
-            className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             {actionState === "saving" ? "Saving..." : actionConfig.buttonLabel}
           </button>
