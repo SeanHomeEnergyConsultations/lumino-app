@@ -30,6 +30,45 @@ type InviteCandidateUserRow = {
   is_active?: boolean | null;
 };
 
+async function ensureOrganizationMembershipRole(input: {
+  supabase: ReturnType<typeof createServerSupabaseClient>;
+  organizationId: string;
+  userId: string;
+  role: "owner" | "admin" | "manager" | "rep" | "setter";
+  invitedBy: string;
+}) {
+  const { supabase, organizationId, userId, role, invitedBy } = input;
+
+  const { data, error } = await supabase
+    .from("organization_members")
+    .upsert(
+      {
+        organization_id: organizationId,
+        user_id: userId,
+        role,
+        is_active: true,
+        invited_by: invitedBy,
+        updated_at: new Date().toISOString()
+      },
+      {
+        onConflict: "organization_id,user_id"
+      }
+    )
+    .select("id,role")
+    .single();
+
+  if (error) throw error;
+  const savedRole = (data.role as string | null | undefined) ?? null;
+  if (savedRole !== role) {
+    throw new Error(`Team membership role mismatch after save. Expected ${role}, received ${savedRole ?? "unknown"}.`);
+  }
+
+  return {
+    memberId: data.id as string,
+    role: savedRole
+  };
+}
+
 async function resolveInviteCandidateUser(input: {
   supabase: ReturnType<typeof createServerSupabaseClient>;
   organizationId: string;
@@ -178,7 +217,6 @@ export async function inviteTeamMember(
       .update({
         email: normalizedEmail,
         full_name: input.fullName.trim(),
-        role: appUserRole,
         is_active: true,
         external_auth_id: authUserId,
         default_organization_id: selectedUser.default_organization_id ?? context.organizationId,
@@ -206,65 +244,13 @@ export async function inviteTeamMember(
     userId = insertedUser.id as string;
   }
 
-  const { data: existingMembership, error: membershipLookupError } = await supabase
-    .from("organization_members")
-    .select("id")
-    .eq("organization_id", context.organizationId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (membershipLookupError) throw membershipLookupError;
-
-  if (existingMembership?.id) {
-    const { error: updateMembershipError } = await supabase
-      .from("organization_members")
-      .update({
-        role: input.role,
-        is_active: true,
-        updated_at: new Date().toISOString()
-      })
-      .eq("id", existingMembership.id);
-
-    if (updateMembershipError) throw updateMembershipError;
-
-    if (!accessEmailType) {
-      if (existingAuthUser && authUserIsActivated(existingAuthUser)) {
-        const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-          redirectTo: recoveryRedirectTo
-        });
-        if (error) throw error;
-        accessEmailType = "reset";
-      } else {
-        const { error } = await supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
-          data: inviteMetadata,
-          redirectTo: inviteRedirectTo
-        });
-        if (error) throw error;
-        accessEmailType = "invite";
-      }
-    }
-
-    return {
-      memberId: existingMembership.id as string,
-      userId,
-      invited: accessEmailType === "invite",
-      accessEmailType
-    };
-  }
-
-  const { data: insertedMembership, error: insertMembershipError } = await supabase
-    .from("organization_members")
-    .insert({
-      organization_id: context.organizationId,
-      user_id: userId,
-      role: input.role,
-      is_active: true,
-      invited_by: context.appUser.id
-    })
-    .select("id")
-    .single();
-
-  if (insertMembershipError) throw insertMembershipError;
+  const membership = await ensureOrganizationMembershipRole({
+    supabase,
+    organizationId: context.organizationId,
+    userId,
+    role: input.role,
+    invitedBy: context.appUser.id
+  });
 
   if (!accessEmailType) {
     if (existingAuthUser && authUserIsActivated(existingAuthUser)) {
@@ -284,10 +270,11 @@ export async function inviteTeamMember(
   }
 
   return {
-    memberId: insertedMembership.id as string,
+    memberId: membership.memberId,
     userId,
     invited: accessEmailType === "invite",
-    accessEmailType
+    accessEmailType,
+    membershipRole: membership.role
   };
 }
 
