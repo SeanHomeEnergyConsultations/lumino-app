@@ -600,7 +600,7 @@ export function PropertyDrawer({
       {isOpen ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 p-3 xl:hidden">
           {mobileExpanded ? (
-            <div className="pointer-events-auto mx-auto max-h-[55vh] max-w-md overflow-y-auto rounded-[1.75rem] border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur">
+            <div className="pointer-events-auto mx-auto max-h-[82vh] max-w-md overflow-y-auto rounded-[1.75rem] border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur sm:max-h-[76vh]">
               <div className="mb-3 flex items-center justify-between">
                 <button
                   type="button"
