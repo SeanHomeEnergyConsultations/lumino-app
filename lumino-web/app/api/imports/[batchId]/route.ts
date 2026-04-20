@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { hasManagerAccess } from "@/lib/auth/permissions";
+import { hasAdminAccess, hasManagerAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
-import { updateImportBatchScope } from "@/lib/db/mutations/imports";
+import { deleteImportBatch, updateImportBatchScope } from "@/lib/db/mutations/imports";
 import { getImportBatchDetail } from "@/lib/db/queries/imports";
 import { recordSecurityEvent } from "@/lib/security/security-events";
 import { importBatchScopeUpdateSchema } from "@/lib/validation/imports";
@@ -63,4 +63,28 @@ export async function PATCH(
     }
   });
   return NextResponse.json({ item });
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ batchId: string }> }
+) {
+  const context = await getRequestSessionContext(request);
+  if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasAdminAccess(context)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { batchId } = await params;
+  const result = await deleteImportBatch(batchId, context);
+  await recordSecurityEvent({
+    request,
+    context,
+    eventType: "import_batch_deleted",
+    severity: "high",
+    metadata: {
+      batchId
+    }
+  });
+  return NextResponse.json(result);
 }

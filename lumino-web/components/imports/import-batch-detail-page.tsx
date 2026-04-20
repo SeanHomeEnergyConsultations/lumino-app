@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { hasAdminAccess } from "@/lib/auth/permissions";
 import type {
   ImportAssignmentOption,
   ImportBatchAnalysisResponse,
@@ -78,10 +79,12 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
   const [running, setRunning] = useState<"idle" | "running" | "retrying">("idle");
   const [savingScope, setSavingScope] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [listType, setListType] = useState<string>("general_canvass_list");
   const [visibilityScope, setVisibilityScope] = useState<string>("organization");
   const [assignedTeamId, setAssignedTeamId] = useState<string>("");
   const [assignedUserId, setAssignedUserId] = useState<string>("");
+  const canDeleteBatch = appContext ? hasAdminAccess(appContext) : false;
 
   const loadBatch = useCallback(async (options?: { silent?: boolean }) => {
     if (!accessToken) return;
@@ -225,6 +228,29 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
     }
   }
 
+  async function removeBatch() {
+    if (!accessToken || !batch || !canDeleteBatch) return;
+    const confirmed = window.confirm(
+      "Delete this local batch? This will remove its imported leads from this organization. Shared datasets published from this batch must be removed first."
+    );
+    if (!confirmed) return;
+
+    setDeleting(true);
+    try {
+      const response = await authFetch(accessToken, `/api/imports/${batchId}`, {
+        method: "DELETE"
+      });
+      const json = await response.json().catch(() => ({ error: "Failed to delete import batch." }));
+      if (!response.ok) {
+        throw new Error(json.error || "Failed to delete import batch.");
+      }
+      window.location.assign("/imports");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to delete import batch.");
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="p-4 md:p-6">
       <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
@@ -277,6 +303,16 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
                 className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 disabled:opacity-60"
               >
                 {publishing ? "Publishing..." : "Publish Dataset"}
+              </button>
+            ) : null}
+            {canDeleteBatch ? (
+              <button
+                type="button"
+                onClick={() => void removeBatch()}
+                disabled={deleting}
+                className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
+              >
+                {deleting ? "Deleting..." : "Delete Batch"}
               </button>
             ) : null}
           </div>

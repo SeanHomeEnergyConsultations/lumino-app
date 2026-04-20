@@ -539,6 +539,134 @@ export async function updateImportBatchScope(
   if (sourcesError) throw sourcesError;
 }
 
+export async function deleteImportBatch(batchId: string, context: AuthSessionContext) {
+  if (!context.organizationId) throw new Error("No active organization found.");
+  const supabase = createServerSupabaseClient();
+
+  const { data: batch, error: batchError } = await supabase
+    .from("import_batches")
+    .select("id")
+    .eq("organization_id", context.organizationId)
+    .eq("id", batchId)
+    .maybeSingle();
+
+  if (batchError) throw batchError;
+  if (!batch) throw new Error("Import batch not found.");
+
+  const { data: sharedDataset, error: sharedDatasetError } = await supabase
+    .from("platform_datasets")
+    .select("id,name")
+    .eq("source_batch_id", batchId)
+    .maybeSingle();
+  if (sharedDatasetError) throw sharedDatasetError;
+  if (sharedDataset?.id) {
+    throw new Error(
+      `This batch is the source for the shared dataset "${(sharedDataset.name as string | null | undefined) ?? "Untitled Dataset"}". Remove that shared dataset first.`
+    );
+  }
+
+  const { data: leadRows, error: leadRowsError } = await supabase
+    .from("leads")
+    .select("id,property_id")
+    .eq("organization_id", context.organizationId)
+    .eq("import_batch_id", batchId);
+  if (leadRowsError) throw leadRowsError;
+
+  const leadIds = [...new Set((leadRows ?? []).map((row) => row.id as string | null).filter(Boolean))] as string[];
+  const propertyIds = [...new Set((leadRows ?? []).map((row) => row.property_id as string | null).filter(Boolean))] as string[];
+
+  if (leadIds.length) {
+    const [{ data: taskRows, error: taskRowsError }, { data: appointmentRows, error: appointmentRowsError }] =
+      await Promise.all([
+        supabase.from("tasks").select("id").eq("organization_id", context.organizationId).in("lead_id", leadIds),
+        supabase.from("appointments").select("id").eq("organization_id", context.organizationId).in("lead_id", leadIds)
+      ]);
+
+    if (taskRowsError) throw taskRowsError;
+    if (appointmentRowsError) throw appointmentRowsError;
+
+    const taskIds = [...new Set((taskRows ?? []).map((row) => row.id as string | null).filter(Boolean))] as string[];
+    const appointmentIds = [...new Set((appointmentRows ?? []).map((row) => row.id as string | null).filter(Boolean))] as string[];
+
+    const activityDeletes: PromiseLike<{ error: unknown }>[] = [
+      supabase.from("activities").delete().eq("organization_id", context.organizationId).eq("entity_type", "lead").in("entity_id", leadIds)
+    ];
+
+    if (taskIds.length) {
+      activityDeletes.push(
+        supabase.from("activities").delete().eq("organization_id", context.organizationId).eq("entity_type", "task").in("entity_id", taskIds)
+      );
+    }
+
+    if (appointmentIds.length) {
+      activityDeletes.push(
+        supabase
+          .from("activities")
+          .delete()
+          .eq("organization_id", context.organizationId)
+          .eq("entity_type", "appointment")
+          .in("entity_id", appointmentIds)
+      );
+    }
+
+    await Promise.all(activityDeletes);
+
+    const { error: draftStopError } = await supabase.from("route_draft_stops").delete().in("lead_id", leadIds);
+    if (draftStopError) throw draftStopError;
+
+    const { error: leadDeleteError } = await supabase
+      .from("leads")
+      .delete()
+      .eq("organization_id", context.organizationId)
+      .in("id", leadIds);
+    if (leadDeleteError) throw leadDeleteError;
+  }
+
+  const { error: sourceRecordError } = await supabase
+    .from("property_source_records")
+    .delete()
+    .eq("organization_id", context.organizationId)
+    .eq("source_batch_id", batchId);
+  if (sourceRecordError) throw sourceRecordError;
+
+  const { error: batchDeleteError } = await supabase
+    .from("import_batches")
+    .delete()
+    .eq("organization_id", context.organizationId)
+    .eq("id", batchId);
+  if (batchDeleteError) throw batchDeleteError;
+
+  if (propertyIds.length) {
+    const { data: replacementLeadRows, error: replacementLeadRowsError } = await supabase
+      .from("leads")
+      .select("id,property_id,updated_at,created_at")
+      .eq("organization_id", context.organizationId)
+      .in("property_id", propertyIds)
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false, nullsFirst: false });
+    if (replacementLeadRowsError) throw replacementLeadRowsError;
+
+    const replacementByPropertyId = new Map<string, string | null>();
+    for (const propertyId of propertyIds) replacementByPropertyId.set(propertyId, null);
+    for (const row of replacementLeadRows ?? []) {
+      const propertyId = row.property_id as string | null;
+      if (!propertyId || replacementByPropertyId.get(propertyId)) continue;
+      replacementByPropertyId.set(propertyId, row.id as string);
+    }
+
+    for (const propertyId of propertyIds) {
+      const nextLeadId = replacementByPropertyId.get(propertyId) ?? null;
+      const { error: propertyUpdateError } = await supabase
+        .from("properties")
+        .update({ current_lead_id: nextLeadId, updated_at: new Date().toISOString() })
+        .eq("id", propertyId);
+      if (propertyUpdateError) throw propertyUpdateError;
+    }
+  }
+
+  return { ok: true as const, batchId };
+}
+
 type ImportBatchItemRow = {
   id: string;
   lead_id: string | null;
