@@ -50,9 +50,22 @@ export async function getPropertyDetail(
     ? await getOrganizationFeatureAccess(context.organizationId)
     : null;
   const featureAccess = featureResolution?.effective ?? {
+    mapEnabled: true,
+    doorKnockingEnabled: true,
+    visitLoggingEnabled: true,
+    leadsEnabled: false,
+    crmEnabled: false,
+    appointmentsEnabled: false,
+    selfImportsEnabled: false,
+    advancedImportsEnabled: false,
+    tasksEnabled: false,
+    teamManagementEnabled: false,
+    territoriesEnabled: false,
+    solarCheckEnabled: false,
+    datasetMarketplaceEnabled: false,
     enrichmentEnabled: false,
     priorityScoringEnabled: false,
-    advancedImportsEnabled: false,
+    territoryPlanningEnabled: false,
     securityConsoleEnabled: false
   };
 

@@ -169,6 +169,9 @@ export async function ingestImportUpload(
     visibilityScope: "organization" | "team" | "assigned_user";
     assignedTeamId?: string | null;
     assignedUserId?: string | null;
+    contributionMode?: "private" | "contributed";
+    contributionTermsVersion?: string | null;
+    contributionConsentedAt?: string | null;
     rows: RawImportRow[];
   },
   context: AuthSessionContext
@@ -195,6 +198,11 @@ export async function ingestImportUpload(
         visibility_scope: input.visibilityScope,
         assigned_team_id: input.assignedTeamId ?? null,
         assigned_user_id: input.assignedUserId ?? null,
+        contribution_mode: input.contributionMode ?? "private",
+        contribution_terms_version: input.contributionTermsVersion ?? null,
+        contribution_consented_at: input.contributionConsentedAt ?? null,
+        contribution_consented_by:
+          input.contributionMode === "contributed" && input.contributionConsentedAt ? context.appUser.id : null,
         status: "ready_for_analysis",
       row_count: input.rows.length,
       valid_row_count: canonicalRows.length,

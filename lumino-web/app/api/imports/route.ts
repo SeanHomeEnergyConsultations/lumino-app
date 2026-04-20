@@ -3,6 +3,7 @@ import { hasManagerAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { ingestImportUpload } from "@/lib/db/mutations/imports";
 import { getImportAssignmentOptions, getRecentImportBatches } from "@/lib/db/queries/imports";
+import { getOrganizationUploadConsentStatus } from "@/lib/platform/upload-consent";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { recordSecurityEvent } from "@/lib/security/security-events";
 import { importUploadSchema } from "@/lib/validation/imports";
@@ -16,9 +17,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const [itemsResult, optionsResult] = await Promise.allSettled([
+  const [itemsResult, optionsResult, consentResult] = await Promise.allSettled([
     getRecentImportBatches(context),
-    getImportAssignmentOptions(context)
+    getImportAssignmentOptions(context),
+    getOrganizationUploadConsentStatus(context)
   ]);
 
   if (itemsResult.status === "rejected") {
@@ -29,13 +31,27 @@ export async function GET(request: Request) {
   if (optionsResult.status === "rejected") {
     console.error("Failed to load import assignment options", optionsResult.reason);
   }
+  if (consentResult.status === "rejected") {
+    console.error("Failed to load import upload consent status", consentResult.reason);
+  }
 
   return NextResponse.json({
     items: itemsResult.value,
     options:
       optionsResult.status === "fulfilled"
         ? optionsResult.value
-        : { teams: [], users: [] }
+        : { teams: [], users: [] },
+    access:
+      consentResult.status === "fulfilled"
+        ? consentResult.value
+        : {
+            billingPlan: "starter",
+            requiresContributionConsent: false,
+            contributedUploadsOnly: false,
+            hasCurrentConsent: false,
+            consentVersion: null,
+            acceptedAt: null
+          }
   });
 }
 
@@ -73,7 +89,26 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await ingestImportUpload(parsed.data, context);
+  const consentStatus = await getOrganizationUploadConsentStatus(context);
+  if (consentStatus.requiresContributionConsent && !consentStatus.hasCurrentConsent) {
+    return NextResponse.json(
+      {
+        error:
+          "Bulk upload requires contribution consent on the free plan. Accept the upload terms before importing a list."
+      },
+      { status: 403 }
+    );
+  }
+
+  const result = await ingestImportUpload(
+    {
+      ...parsed.data,
+      contributionMode: consentStatus.contributedUploadsOnly ? "contributed" : "private",
+      contributionTermsVersion: consentStatus.hasCurrentConsent ? consentStatus.consentVersion : null,
+      contributionConsentedAt: consentStatus.hasCurrentConsent ? consentStatus.acceptedAt : null
+    },
+    context
+  );
   try {
     await recordSecurityEvent({
       request,
@@ -87,6 +122,7 @@ export async function POST(request: Request) {
         visibilityScope: parsed.data.visibilityScope,
         assignedTeamId: parsed.data.assignedTeamId ?? null,
         assignedUserId: parsed.data.assignedUserId ?? null,
+        contributionMode: consentStatus.contributedUploadsOnly ? "contributed" : "private",
         rowCount: parsed.data.rows.length
       }
     });

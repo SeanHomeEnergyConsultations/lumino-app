@@ -19,9 +19,22 @@ export type FollowUpState = "none" | "due_today" | "scheduled_future" | "overdue
 export type PropertyPriorityBand = "high" | "medium" | "low";
 
 export interface OrganizationFeatureAccess {
+  mapEnabled: boolean;
+  doorKnockingEnabled: boolean;
+  visitLoggingEnabled: boolean;
+  leadsEnabled: boolean;
+  crmEnabled: boolean;
+  appointmentsEnabled: boolean;
+  selfImportsEnabled: boolean;
+  advancedImportsEnabled: boolean;
+  tasksEnabled: boolean;
+  teamManagementEnabled: boolean;
+  territoriesEnabled: boolean;
+  solarCheckEnabled: boolean;
+  datasetMarketplaceEnabled: boolean;
   enrichmentEnabled: boolean;
   priorityScoringEnabled: boolean;
-  advancedImportsEnabled: boolean;
+  territoryPlanningEnabled: boolean;
   securityConsoleEnabled: boolean;
 }
 

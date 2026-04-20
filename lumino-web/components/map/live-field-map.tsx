@@ -122,9 +122,22 @@ export function LiveFieldMap({
   const [isDrawerVisible, setIsDrawerVisible] = useState(true);
   const [showTeamKnocks, setShowTeamKnocks] = useState(isManager);
   const [featureAccess, setFeatureAccess] = useState<OrganizationFeatureAccess>({
+    mapEnabled: true,
+    doorKnockingEnabled: true,
+    visitLoggingEnabled: true,
+    leadsEnabled: false,
+    crmEnabled: false,
+    appointmentsEnabled: false,
+    selfImportsEnabled: false,
     enrichmentEnabled: false,
     priorityScoringEnabled: false,
     advancedImportsEnabled: false,
+    tasksEnabled: false,
+    teamManagementEnabled: false,
+    territoriesEnabled: false,
+    solarCheckEnabled: false,
+    datasetMarketplaceEnabled: false,
+    territoryPlanningEnabled: false,
     securityConsoleEnabled: false
   });
 

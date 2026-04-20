@@ -141,7 +141,7 @@ create table if not exists public.organizations (
   status text not null default 'active'
     check (status in ('active', 'trialing', 'suspended', 'cancelled')),
   billing_plan text not null default 'starter'
-    check (billing_plan in ('starter', 'pro', 'team', 'enterprise')),
+    check (billing_plan in ('free', 'starter', 'pro', 'intelligence')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -180,11 +180,27 @@ create table if not exists public.import_batches (
   source_type text not null default 'csv'
     check (source_type in ('csv', 'manual', 'api', 'field')),
   original_filename text,
+  filename text,
+  status text not null default 'uploaded'
+    check (status in ('uploaded', 'ingesting', 'ready_for_analysis', 'analyzing', 'completed', 'completed_with_errors', 'failed', 'paused')),
   row_count integer not null default 0,
   valid_row_count integer not null default 0,
   skipped_row_count integer not null default 0,
+  total_rows integer not null default 0,
+  detected_rows integer not null default 0,
+  inserted_count integer not null default 0,
+  updated_count integer not null default 0,
+  duplicate_matched_count integer not null default 0,
+  pending_analysis_count integer not null default 0,
+  analyzing_count integer not null default 0,
+  analyzed_count integer not null default 0,
+  failed_count integer not null default 0,
+  started_at timestamptz,
+  completed_at timestamptz,
+  last_error text,
   notes text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create table if not exists public.leads (
@@ -193,6 +209,8 @@ create table if not exists public.leads (
   import_batch_id uuid references public.import_batches(id) on delete set null,
   normalized_address text not null,
   address text not null,
+  city text,
+  state text,
   zipcode text,
   lat double precision,
   lng double precision,
@@ -225,8 +243,36 @@ create table if not exists public.leads (
   next_recommended_step text,
   nurture_reason text,
   appointment_at timestamptz,
+  analysis_status text not null default 'pending'
+    check (analysis_status in ('pending', 'analyzing', 'analyzed', 'failed')),
+  last_analysis_requested_at timestamptz,
+  last_analysis_completed_at timestamptz,
+  last_analysis_error text,
+  analysis_attempt_count integer not null default 0,
+  needs_reanalysis boolean not null default false,
+  last_import_batch_id uuid references public.import_batches(id) on delete set null,
   source text not null default 'imported',
   created_by uuid references public.app_users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.import_batch_items (
+  id uuid primary key default gen_random_uuid(),
+  import_batch_id uuid not null references public.import_batches(id) on delete cascade,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  lead_id uuid references public.leads(id) on delete set null,
+  source_row_number integer,
+  raw_address text,
+  normalized_address text,
+  source_payload jsonb,
+  ingest_status text not null default 'pending'
+    check (ingest_status in ('pending', 'inserted', 'updated', 'matched_existing', 'failed')),
+  analysis_status text not null default 'pending'
+    check (analysis_status in ('pending', 'analyzing', 'analyzed', 'failed', 'skipped')),
+  analysis_error text,
+  dedupe_match_type text
+    check (dedupe_match_type in ('exact_address', 'high_confidence', 'new_lead') or dedupe_match_type is null),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -453,6 +499,7 @@ create index if not exists idx_lead_activities_org_id on public.lead_activities(
 create index if not exists idx_lead_activities_lead_id on public.lead_activities(lead_id);
 create index if not exists idx_lead_activities_activity_at on public.lead_activities(activity_at desc);
 create index if not exists idx_import_batches_org_id on public.import_batches(organization_id);
+create index if not exists idx_import_batches_status on public.import_batches(organization_id, status);
 create index if not exists idx_route_drafts_org_id on public.route_drafts(organization_id);
 create index if not exists idx_route_drafts_assigned_rep_id on public.route_drafts(assigned_rep_id);
 create index if not exists idx_route_draft_stops_draft_id on public.route_draft_stops(route_draft_id);
@@ -463,6 +510,9 @@ create index if not exists idx_route_run_stops_run_id on public.route_run_stops(
 create index if not exists idx_route_run_stops_status on public.route_run_stops(stop_status);
 create index if not exists idx_route_run_events_run_id on public.route_run_events(route_run_id);
 create index if not exists idx_lead_status_history_lead_id on public.lead_status_history(lead_id);
+create index if not exists idx_import_batch_items_batch_status on public.import_batch_items(import_batch_id, analysis_status);
+create index if not exists idx_import_batch_items_org_status on public.import_batch_items(organization_id, analysis_status);
+create index if not exists idx_import_batch_items_lead_id on public.import_batch_items(lead_id);
 create index if not exists idx_saved_filters_org_id on public.saved_filters(organization_id);
 create index if not exists idx_usage_events_org_id on public.usage_events(organization_id);
 create index if not exists idx_usage_events_user_id on public.usage_events(user_id);
@@ -470,6 +520,9 @@ create index if not exists idx_usage_events_event_group on public.usage_events(e
 create index if not exists idx_usage_events_occurred_at on public.usage_events(occurred_at);
 create index if not exists idx_leads_lead_status on public.leads(lead_status);
 create index if not exists idx_leads_next_follow_up_at on public.leads(next_follow_up_at);
+create index if not exists idx_leads_analysis_status on public.leads(organization_id, analysis_status);
+create index if not exists idx_leads_needs_reanalysis on public.leads(organization_id, needs_reanalysis);
+create index if not exists idx_leads_last_import_batch_id on public.leads(last_import_batch_id);
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
@@ -504,6 +557,16 @@ for each row execute function public.set_updated_at();
 drop trigger if exists set_lead_activities_updated_at on public.lead_activities;
 create trigger set_lead_activities_updated_at
 before update on public.lead_activities
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_import_batches_updated_at on public.import_batches;
+create trigger set_import_batches_updated_at
+before update on public.import_batches
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_import_batch_items_updated_at on public.import_batch_items;
+create trigger set_import_batch_items_updated_at
+before update on public.import_batch_items
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_route_drafts_updated_at on public.route_drafts;
@@ -579,6 +642,7 @@ alter table public.organizations enable row level security;
 alter table public.app_users enable row level security;
 alter table public.organization_members enable row level security;
 alter table public.import_batches enable row level security;
+alter table public.import_batch_items enable row level security;
 alter table public.leads enable row level security;
 alter table public.lead_analysis enable row level security;
 alter table public.lead_neighbors enable row level security;
@@ -657,6 +721,25 @@ with check (public.has_org_role(organization_id, array['owner', 'admin', 'manage
 drop policy if exists "org managers update import batches" on public.import_batches;
 create policy "org managers update import batches"
 on public.import_batches
+for update
+using (public.has_org_role(organization_id, array['owner', 'admin', 'manager']))
+with check (public.has_org_role(organization_id, array['owner', 'admin', 'manager']));
+
+drop policy if exists "org members view import batch items" on public.import_batch_items;
+create policy "org members view import batch items"
+on public.import_batch_items
+for select
+using (organization_id in (select public.current_org_ids()));
+
+drop policy if exists "org managers create import batch items" on public.import_batch_items;
+create policy "org managers create import batch items"
+on public.import_batch_items
+for insert
+with check (public.has_org_role(organization_id, array['owner', 'admin', 'manager']));
+
+drop policy if exists "org managers update import batch items" on public.import_batch_items;
+create policy "org managers update import batch items"
+on public.import_batch_items
 for update
 using (public.has_org_role(organization_id, array['owner', 'admin', 'manager']))
 with check (public.has_org_role(organization_id, array['owner', 'admin', 'manager']));

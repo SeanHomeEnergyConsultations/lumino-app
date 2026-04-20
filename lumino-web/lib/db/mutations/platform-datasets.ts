@@ -1,11 +1,105 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { hasPlatformAccess } from "@/lib/auth/permissions";
 import { ingestImportUpload } from "@/lib/db/mutations/imports";
+import { getOrganizationFeatureAccess } from "@/lib/db/queries/platform";
+import { normalizeOrganizationBillingPlan } from "@/lib/platform/features";
 import type { AuthSessionContext } from "@/types/auth";
 
 function assertPlatformAccess(context: AuthSessionContext) {
   if (!hasPlatformAccess(context)) {
     throw new Error("Platform access required.");
+  }
+}
+
+async function assertOrganizationCanReceiveDataset(
+  organizationId: string,
+  listType: string
+) {
+  const featureResolution = await getOrganizationFeatureAccess(organizationId);
+  const featureAccess = featureResolution.effective;
+  if (!featureAccess.datasetMarketplaceEnabled) {
+    throw new Error("This organization's plan does not include access to shared platform datasets.");
+  }
+
+  if (listType === "general_canvass_list" || listType === "homeowner_leads") {
+    return featureAccess;
+  }
+
+  if (!featureAccess.solarCheckEnabled && ["solar_permits"].includes(listType)) {
+    throw new Error("This organization's plan does not include solar dataset access.");
+  }
+
+  return featureAccess;
+}
+
+async function autoReleaseDatasetToIntelligenceOrganizations(
+  datasetId: string,
+  context: AuthSessionContext
+) {
+  const supabase = createServerSupabaseClient();
+  const { data: organizations, error } = await supabase
+    .from("organizations")
+    .select("id,billing_plan")
+    .eq("status", "active");
+
+  if (error) throw error;
+
+  for (const organization of organizations ?? []) {
+    const organizationId = organization.id as string;
+    const resolvedPlan = normalizeOrganizationBillingPlan((organization.billing_plan as string | null | undefined) ?? null);
+    if (resolvedPlan !== "intelligence") continue;
+    if (organizationId === context.organizationId) continue;
+
+    try {
+      await grantPlatformDatasetToOrganization(
+        {
+          datasetId,
+          organizationId,
+          visibilityScope: "organization"
+        },
+        context,
+        { skipEntitlementCheck: false }
+      );
+    } catch (errorToIgnore) {
+      console.error("Failed to auto-release dataset to intelligence organization", {
+        datasetId,
+        organizationId,
+        error: errorToIgnore
+      });
+    }
+  }
+}
+
+export async function syncPlatformDatasetsToIntelligenceOrganization(
+  organizationId: string,
+  context: AuthSessionContext
+) {
+  const supabase = createServerSupabaseClient();
+  const { data: datasets, error } = await supabase
+    .from("platform_datasets")
+    .select("id,status")
+    .eq("status", "active")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  for (const dataset of datasets ?? []) {
+    try {
+      await grantPlatformDatasetToOrganization(
+        {
+          datasetId: dataset.id as string,
+          organizationId,
+          visibilityScope: "organization"
+        },
+        context
+      );
+    } catch (errorToIgnore) {
+      console.error("Failed to sync shared dataset into intelligence organization", {
+        organizationId,
+        datasetId: dataset.id,
+        error: errorToIgnore
+      });
+    }
   }
 }
 
@@ -54,6 +148,7 @@ export async function publishImportBatchAsPlatformDataset(
     .single();
 
   if (error) throw error;
+  await autoReleaseDatasetToIntelligenceOrganizations(data.id as string, context);
   return { datasetId: data.id as string, alreadyPublished: false };
 }
 
@@ -65,7 +160,8 @@ export async function grantPlatformDatasetToOrganization(
     assignedTeamId?: string | null;
     assignedUserId?: string | null;
   },
-  context: AuthSessionContext
+  context: AuthSessionContext,
+  options?: { skipEntitlementCheck?: boolean }
 ) {
   assertPlatformAccess(context);
   const supabase = createServerSupabaseClient();
@@ -81,6 +177,10 @@ export async function grantPlatformDatasetToOrganization(
   const visibilityScope = input.visibilityScope ?? "organization";
   const assignedTeamId = visibilityScope === "team" ? input.assignedTeamId ?? null : null;
   const assignedUserId = visibilityScope === "assigned_user" ? input.assignedUserId ?? null : null;
+
+  if (!options?.skipEntitlementCheck) {
+    await assertOrganizationCanReceiveDataset(input.organizationId, (dataset.list_type as string | null) ?? "general_canvass_list");
+  }
 
   const { data: sourceItems, error: sourceItemsError } = await supabase
     .from("import_batch_items")

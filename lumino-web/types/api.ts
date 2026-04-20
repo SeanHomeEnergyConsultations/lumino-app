@@ -532,6 +532,14 @@ export interface ImportsResponse {
     teams: ImportAssignmentOption[];
     users: ImportAssignmentOption[];
   };
+  access: {
+    billingPlan: OrganizationBillingPlan;
+    requiresContributionConsent: boolean;
+    contributedUploadsOnly: boolean;
+    hasCurrentConsent: boolean;
+    consentVersion: string | null;
+    acceptedAt: string | null;
+  };
 }
 
 export interface ImportUploadResponse {

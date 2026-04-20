@@ -21,6 +21,13 @@ type FeatureDraft = {
   securityConsoleEnabled: boolean | null;
 };
 
+function formatBillingPlan(plan: PlatformOrganizationOverviewItem["billingPlan"]) {
+  if (plan === "free") return "Free";
+  if (plan === "starter") return "Starter";
+  if (plan === "pro") return "Pro";
+  return "Intelligence";
+}
+
 function formatDateTime(value: string | null) {
   if (!value) return "Not yet";
   return new Date(value).toLocaleString();
@@ -369,7 +376,7 @@ export function PlatformControlCenterPage() {
                           {item.status}
                         </span>
                         <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-700">
-                          {item.billingPlan}
+                          {formatBillingPlan(item.billingPlan)}
                         </span>
                       </div>
                       <div className="mt-2 text-sm text-slate-500">
@@ -499,7 +506,7 @@ export function PlatformControlCenterPage() {
                         >
                           {ORGANIZATION_BILLING_PLANS.map((plan) => (
                             <option key={plan} value={plan}>
-                              {plan}
+                              {formatBillingPlan(plan)}
                             </option>
                           ))}
                         </select>
@@ -507,10 +514,17 @@ export function PlatformControlCenterPage() {
                       <div className="mt-3 text-sm text-slate-500">
                         Effective preset:
                         <span className="ml-2 font-medium text-slate-700">
-                          {item.effectiveFeatures.enrichmentEnabled ? "Enrichment" : "No enrichment"},{" "}
-                          {item.effectiveFeatures.priorityScoringEnabled ? "Priority" : "No priority"},{" "}
-                          {item.effectiveFeatures.advancedImportsEnabled ? "Advanced imports" : "Basic imports"}
+                          {item.effectiveFeatures.datasetMarketplaceEnabled ? "Marketplace" : "No marketplace"},{" "}
+                          {item.effectiveFeatures.solarCheckEnabled ? "Solar check" : "No solar check"},{" "}
+                          {item.effectiveFeatures.enrichmentEnabled ? "Enrichment" : "No enrichment"}
                         </span>
+                      </div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        {item.billingPlan === "intelligence"
+                          ? "New shared datasets auto-release into this org."
+                          : item.effectiveFeatures.datasetMarketplaceEnabled
+                            ? "This org can receive shared datasets through marketplace release."
+                            : "This org cannot receive shared datasets yet."}
                       </div>
                     </div>
 

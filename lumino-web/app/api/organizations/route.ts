@@ -76,7 +76,7 @@ export async function POST(request: Request) {
       name: input.name.trim(),
       slug: input.slug?.trim() || null,
       status: "active",
-      billing_plan: "starter"
+      billing_plan: "free"
     })
     .select("id,name,slug,status,billing_plan,created_at")
     .single();

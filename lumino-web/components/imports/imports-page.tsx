@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Upload, FileUp, Database, RefreshCw } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { parseCsvText } from "@/lib/imports/csv";
+import type { OrganizationBillingPlan } from "@/lib/platform/features";
 import type { ImportBatchAnalysisResponse, ImportBatchListItem, ImportsResponse, ImportUploadResponse } from "@/types/api";
 
 const LIST_TYPE_OPTIONS = [
@@ -59,6 +60,13 @@ function statusTone(status: string) {
   }
 }
 
+function formatBillingPlan(plan: OrganizationBillingPlan) {
+  if (plan === "free") return "Free";
+  if (plan === "starter") return "Starter";
+  if (plan === "pro") return "Pro";
+  return "Intelligence";
+}
+
 export function ImportsPage() {
   const { session } = useAuth();
   const accessToken = session?.access_token ?? null;
@@ -71,6 +79,14 @@ export function ImportsPage() {
     teams: [],
     users: []
   });
+  const [access, setAccess] = useState<ImportsResponse["access"]>({
+    billingPlan: "starter",
+    requiresContributionConsent: false,
+    contributedUploadsOnly: false,
+    hasCurrentConsent: false,
+    consentVersion: null,
+    acceptedAt: null
+  });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -81,6 +97,8 @@ export function ImportsPage() {
   const [visibilityScope, setVisibilityScope] = useState<ImportBatchListItem["visibilityScope"]>("organization");
   const [assignedTeamId, setAssignedTeamId] = useState<string>("");
   const [assignedUserId, setAssignedUserId] = useState<string>("");
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [recordingConsent, setRecordingConsent] = useState(false);
 
   const loadBatches = useCallback(async (options?: { silent?: boolean }) => {
     if (!accessToken) return;
@@ -99,6 +117,7 @@ export function ImportsPage() {
       const typedJson = json as ImportsResponse;
       setBatches(typedJson.items);
       setAssignmentOptions(typedJson.options);
+      setAccess(typedJson.access);
       return typedJson.items;
     } finally {
       if (silent) {
@@ -166,6 +185,11 @@ export function ImportsPage() {
 
   async function handleUpload() {
     if (!accessToken || !filename || !previewRows.length) return;
+    if (access.requiresContributionConsent && !access.hasCurrentConsent) {
+      setUploadState("error");
+      setUploadMessage("Accept the upload contribution terms before importing a CSV on the free plan.");
+      return;
+    }
     const currentFilename = filename;
     const existingBatchIds = new Set(batches.map((batch) => batch.batchId));
     setUploading(true);
@@ -233,6 +257,32 @@ export function ImportsPage() {
       }
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleContributionConsent() {
+    if (!accessToken || !consentChecked) return;
+    setRecordingConsent(true);
+    setUploadState("idle");
+    setUploadMessage(null);
+    try {
+      const response = await authFetch(accessToken, "/api/imports/contribution-consent", {
+        method: "POST"
+      });
+      const json = await response.json().catch(() => ({} as { error?: string }));
+      if (!response.ok) {
+        throw new Error((json as { error?: string }).error || "Failed to save upload consent.");
+      }
+
+      await loadBatches({ silent: true });
+      setConsentChecked(false);
+      setUploadState("done");
+      setUploadMessage("Upload contribution consent saved. You can now import CSV lists on the free plan.");
+    } catch (error) {
+      setUploadState("error");
+      setUploadMessage(error instanceof Error ? error.message : "Failed to save upload consent.");
+    } finally {
+      setRecordingConsent(false);
     }
   }
 
@@ -388,6 +438,46 @@ export function ImportsPage() {
               </label>
             ) : null}
 
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+              <div className="font-semibold text-ink">Active Plan · {formatBillingPlan(access.billingPlan)}</div>
+              <div className="mt-2">
+                {access.requiresContributionConsent
+                  ? access.hasCurrentConsent
+                    ? "Free-plan bulk upload is enabled through contributed uploads."
+                    : "Free-plan bulk upload requires contribution consent. Imported CSV rows become contributed platform data in exchange for automatic upload and map pinning."
+                  : "This plan can upload private organization data without contribution consent."}
+              </div>
+              {access.requiresContributionConsent && !access.hasCurrentConsent ? (
+                <div className="mt-4 space-y-3">
+                  <label className="flex items-start gap-3 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={consentChecked}
+                      onChange={(event) => setConsentChecked(event.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                    />
+                    <span>
+                      I understand CSV upload on the free plan is a contributed-data feature and that uploaded lists may be
+                      retained, enriched, and used to create shared commercial datasets under the current Terms of Use.
+                    </span>
+                  </label>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={!consentChecked || recordingConsent}
+                      onClick={() => void handleContributionConsent()}
+                      className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {recordingConsent ? "Saving..." : "Enable CSV Upload"}
+                    </button>
+                    <Link href="/terms" className="text-sm font-medium text-slate-600 underline underline-offset-4">
+                      Review terms
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <div className="mt-4 flex flex-wrap gap-3">
               <button
                 type="button"
@@ -396,6 +486,7 @@ export function ImportsPage() {
                   !filename ||
                   !previewRows.length ||
                   uploading ||
+                  (access.requiresContributionConsent && !access.hasCurrentConsent) ||
                   (visibilityScope === "team" && !assignedTeamId) ||
                   (visibilityScope === "assigned_user" && !assignedUserId)
                 }

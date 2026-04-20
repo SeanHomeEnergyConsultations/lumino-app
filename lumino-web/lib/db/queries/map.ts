@@ -51,9 +51,22 @@ export async function getMapPropertiesForViewport(
     return {
       items: [],
       features: {
+        mapEnabled: true,
+        doorKnockingEnabled: true,
+        visitLoggingEnabled: true,
+        leadsEnabled: false,
+        crmEnabled: false,
+        appointmentsEnabled: false,
+        selfImportsEnabled: false,
         enrichmentEnabled: false,
         priorityScoringEnabled: false,
         advancedImportsEnabled: false,
+        tasksEnabled: false,
+        teamManagementEnabled: false,
+        territoriesEnabled: false,
+        solarCheckEnabled: false,
+        datasetMarketplaceEnabled: false,
+        territoryPlanningEnabled: false,
         securityConsoleEnabled: false
       }
     };
@@ -62,9 +75,22 @@ export async function getMapPropertiesForViewport(
     ? await getOrganizationFeatureAccess(context.organizationId)
     : null;
   const featureAccess = featureResolution?.effective ?? {
+    mapEnabled: true,
+    doorKnockingEnabled: true,
+    visitLoggingEnabled: true,
+    leadsEnabled: false,
+    crmEnabled: false,
+    appointmentsEnabled: false,
+    selfImportsEnabled: false,
     enrichmentEnabled: false,
     priorityScoringEnabled: false,
     advancedImportsEnabled: false,
+    tasksEnabled: false,
+    teamManagementEnabled: false,
+    territoriesEnabled: false,
+    solarCheckEnabled: false,
+    datasetMarketplaceEnabled: false,
+    territoryPlanningEnabled: false,
     securityConsoleEnabled: false
   };
   const limit = filters.limit ?? 250;

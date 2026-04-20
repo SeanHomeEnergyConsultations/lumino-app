@@ -1,9 +1,22 @@
-export type OrganizationBillingPlan = "starter" | "pro" | "team" | "enterprise";
+export type OrganizationBillingPlan = "free" | "starter" | "pro" | "intelligence";
 
 export interface OrganizationFeatureFlags {
+  mapEnabled: boolean;
+  doorKnockingEnabled: boolean;
+  visitLoggingEnabled: boolean;
+  leadsEnabled: boolean;
+  crmEnabled: boolean;
+  appointmentsEnabled: boolean;
+  selfImportsEnabled: boolean;
+  advancedImportsEnabled: boolean;
+  tasksEnabled: boolean;
+  teamManagementEnabled: boolean;
+  territoriesEnabled: boolean;
+  solarCheckEnabled: boolean;
+  datasetMarketplaceEnabled: boolean;
   enrichmentEnabled: boolean;
   priorityScoringEnabled: boolean;
-  advancedImportsEnabled: boolean;
+  territoryPlanningEnabled: boolean;
   securityConsoleEnabled: boolean;
 }
 
@@ -19,53 +32,132 @@ export interface ResolvedOrganizationFeatures {
   preset: OrganizationFeatureFlags;
   overrides: OrganizationFeatureOverrides;
   effective: OrganizationFeatureFlags;
+  uploadPolicy: {
+    bulkUploadAllowed: boolean;
+    contributionConsentRequired: boolean;
+    contributedUploadsOnly: boolean;
+  };
+  datasetPolicy: {
+    manualReleaseAllowed: boolean;
+    autoReleaseAllPublishedDatasets: boolean;
+  };
 }
 
 export const ORGANIZATION_BILLING_PLANS = [
+  "free",
   "starter",
   "pro",
-  "team",
-  "enterprise"
+  "intelligence"
 ] as const satisfies readonly OrganizationBillingPlan[];
 
 export const DEFAULT_ORGANIZATION_FEATURES: OrganizationFeatureFlags = {
+  mapEnabled: true,
+  doorKnockingEnabled: true,
+  visitLoggingEnabled: true,
+  leadsEnabled: false,
+  crmEnabled: false,
+  appointmentsEnabled: false,
+  selfImportsEnabled: false,
+  advancedImportsEnabled: false,
+  tasksEnabled: false,
+  teamManagementEnabled: false,
+  territoriesEnabled: false,
+  solarCheckEnabled: false,
+  datasetMarketplaceEnabled: false,
   enrichmentEnabled: false,
   priorityScoringEnabled: false,
-  advancedImportsEnabled: false,
+  territoryPlanningEnabled: false,
   securityConsoleEnabled: false
 };
 
 export const BILLING_PLAN_PRESETS: Record<OrganizationBillingPlan, OrganizationFeatureFlags> = {
-  starter: {
+  free: {
+    mapEnabled: true,
+    doorKnockingEnabled: true,
+    visitLoggingEnabled: true,
+    leadsEnabled: false,
+    crmEnabled: false,
+    appointmentsEnabled: false,
+    selfImportsEnabled: true,
+    advancedImportsEnabled: true,
+    tasksEnabled: false,
+    teamManagementEnabled: false,
+    territoriesEnabled: false,
+    solarCheckEnabled: false,
+    datasetMarketplaceEnabled: false,
     enrichmentEnabled: false,
     priorityScoringEnabled: false,
-    advancedImportsEnabled: false,
+    territoryPlanningEnabled: false,
+    securityConsoleEnabled: false
+  },
+  starter: {
+    mapEnabled: true,
+    doorKnockingEnabled: true,
+    visitLoggingEnabled: true,
+    leadsEnabled: true,
+    crmEnabled: true,
+    appointmentsEnabled: true,
+    selfImportsEnabled: true,
+    advancedImportsEnabled: true,
+    tasksEnabled: false,
+    teamManagementEnabled: false,
+    territoriesEnabled: false,
+    solarCheckEnabled: false,
+    datasetMarketplaceEnabled: false,
+    enrichmentEnabled: false,
+    priorityScoringEnabled: false,
+    territoryPlanningEnabled: false,
     securityConsoleEnabled: false
   },
   pro: {
-    enrichmentEnabled: true,
-    priorityScoringEnabled: true,
-    advancedImportsEnabled: false,
+    mapEnabled: true,
+    doorKnockingEnabled: true,
+    visitLoggingEnabled: true,
+    leadsEnabled: true,
+    crmEnabled: true,
+    appointmentsEnabled: true,
+    selfImportsEnabled: true,
+    advancedImportsEnabled: true,
+    tasksEnabled: true,
+    teamManagementEnabled: true,
+    territoriesEnabled: true,
+    solarCheckEnabled: true,
+    datasetMarketplaceEnabled: true,
+    enrichmentEnabled: false,
+    priorityScoringEnabled: false,
+    territoryPlanningEnabled: false,
     securityConsoleEnabled: false
   },
-  team: {
+  intelligence: {
+    mapEnabled: true,
+    doorKnockingEnabled: true,
+    visitLoggingEnabled: true,
+    leadsEnabled: true,
+    crmEnabled: true,
+    appointmentsEnabled: true,
+    selfImportsEnabled: true,
+    advancedImportsEnabled: true,
+    tasksEnabled: true,
+    teamManagementEnabled: true,
+    territoriesEnabled: true,
+    solarCheckEnabled: true,
+    datasetMarketplaceEnabled: true,
     enrichmentEnabled: true,
     priorityScoringEnabled: true,
-    advancedImportsEnabled: true,
-    securityConsoleEnabled: false
-  },
-  enterprise: {
-    enrichmentEnabled: true,
-    priorityScoringEnabled: true,
-    advancedImportsEnabled: true,
+    territoryPlanningEnabled: true,
     securityConsoleEnabled: true
   }
 };
 
 export function normalizeOrganizationBillingPlan(plan: string | null | undefined): OrganizationBillingPlan {
-  if (plan && ORGANIZATION_BILLING_PLANS.includes(plan as OrganizationBillingPlan)) {
+  if (!plan) return "starter";
+  if (ORGANIZATION_BILLING_PLANS.includes(plan as OrganizationBillingPlan)) {
     return plan as OrganizationBillingPlan;
   }
+
+  // Backward compatibility for older seeded plans.
+  if (plan === "team") return "pro";
+  if (plan === "enterprise") return "intelligence";
   return "starter";
 }
 
@@ -82,15 +174,28 @@ export function resolveOrganizationFeatures(input: {
     securityConsoleEnabled: input.overrides?.securityConsoleEnabled ?? null
   };
 
+  const effective: OrganizationFeatureFlags = {
+    ...preset,
+    enrichmentEnabled: overrides.enrichmentEnabled ?? preset.enrichmentEnabled,
+    priorityScoringEnabled: overrides.priorityScoringEnabled ?? preset.priorityScoringEnabled,
+    selfImportsEnabled: overrides.advancedImportsEnabled ?? preset.selfImportsEnabled,
+    advancedImportsEnabled: overrides.advancedImportsEnabled ?? preset.advancedImportsEnabled,
+    securityConsoleEnabled: overrides.securityConsoleEnabled ?? preset.securityConsoleEnabled
+  };
+
   return {
     billingPlan,
     preset,
     overrides,
-    effective: {
-      enrichmentEnabled: overrides.enrichmentEnabled ?? preset.enrichmentEnabled,
-      priorityScoringEnabled: overrides.priorityScoringEnabled ?? preset.priorityScoringEnabled,
-      advancedImportsEnabled: overrides.advancedImportsEnabled ?? preset.advancedImportsEnabled,
-      securityConsoleEnabled: overrides.securityConsoleEnabled ?? preset.securityConsoleEnabled
+    effective,
+    uploadPolicy: {
+      bulkUploadAllowed: effective.selfImportsEnabled,
+      contributionConsentRequired: billingPlan === "free",
+      contributedUploadsOnly: billingPlan === "free"
+    },
+    datasetPolicy: {
+      manualReleaseAllowed: effective.datasetMarketplaceEnabled,
+      autoReleaseAllPublishedDatasets: billingPlan === "intelligence"
     }
   };
 }
