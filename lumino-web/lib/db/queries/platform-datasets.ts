@@ -250,7 +250,7 @@ export async function getOrganizationSharedDatasetAccess(
   if (datasetsError) throw datasetsError;
   if (countsError) throw countsError;
 
-  const combinedDatasets = [...(datasets ?? []), ...(sourceDatasets ?? [])];
+  const combinedDatasets = datasets ?? [];
   if (!combinedDatasets.length) return [];
 
   const sourceOrgIds = [...new Set(combinedDatasets.map((row) => row.source_organization_id as string))];
@@ -290,24 +290,7 @@ export async function getOrganizationSharedDatasetAccess(
     })
     .filter((item): item is SharedDatasetAccessListItem => Boolean(item));
 
-  const grantedIds = new Set(grantItems.map((item) => item.datasetId));
-  const sourceItems = (sourceDatasets ?? [])
-    .filter((dataset) => !grantedIds.has(dataset.id as string))
-    .map((dataset) => ({
-      datasetId: dataset.id as string,
-      name: dataset.name as string,
-      description: (dataset.description as string | null) ?? null,
-      sourceOrganizationName: sourceOrgMap.get(dataset.source_organization_id as string) ?? "Unknown org",
-      listType: (dataset.list_type as SharedDatasetAccessListItem["listType"]) ?? "general_canvass_list",
-      rowCount: rowCountMap.get(dataset.id as string) ?? 0,
-      visibilityScope: "organization" as const,
-      assignedTeamName: null,
-      assignedUserName: null,
-      grantedAt: (dataset.created_at as string | null) ?? new Date(0).toISOString(),
-      status: "active" as const
-    }));
-
-  return [...sourceItems, ...grantItems].sort(
+  return grantItems.sort(
     (left, right) => new Date(right.grantedAt).getTime() - new Date(left.grantedAt).getTime()
   );
 }

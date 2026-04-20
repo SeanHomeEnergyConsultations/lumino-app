@@ -88,7 +88,12 @@ export async function getMapPropertiesForViewport(
   const isManager = context.memberships.some((membership) => ["owner", "admin", "manager"].includes(membership.role));
   const showTeamKnocks = filters.showTeamKnocks ?? isManager;
 
-  const [{ data: localLeads, error: localLeadsError }, { data: localVisits, error: localVisitsError }, { data: teamMemberships, error: teamMembershipsError }] =
+  const [
+    { data: localLeads, error: localLeadsError },
+    { data: localVisits, error: localVisitsError },
+    { data: teamMemberships, error: teamMembershipsError },
+    { data: sourceDatasets, error: sourceDatasetsError }
+  ] =
     await Promise.all([
       supabase
         .from("leads")
@@ -104,10 +109,17 @@ export async function getMapPropertiesForViewport(
         .select("team_id")
         .eq("organization_id", context.organizationId)
         .eq("user_id", context.appUser.id)
+      ,
+      supabase
+        .from("platform_datasets")
+        .select("id")
+        .eq("source_organization_id", context.organizationId)
+        .eq("status", "active")
     ]);
   if (localLeadsError) throw localLeadsError;
   if (localVisitsError) throw localVisitsError;
   if (teamMembershipsError) throw teamMembershipsError;
+  if (sourceDatasetsError) throw sourceDatasetsError;
 
   const userTeamIds = new Set((teamMemberships ?? []).map((row) => row.team_id as string));
   const localLeadMap = new Map<string, Record<string, unknown>>();
@@ -139,6 +151,15 @@ export async function getMapPropertiesForViewport(
     .eq("organization_id", context.organizationId);
   if (sharedTargetsError) throw sharedTargetsError;
 
+  const sourceDatasetIds = (sourceDatasets ?? []).map((row) => row.id as string);
+  const { data: sourceDatasetRecords, error: sourceDatasetRecordsError } = sourceDatasetIds.length
+    ? await supabase
+        .from("platform_dataset_records")
+        .select("property_id")
+        .in("platform_dataset_id", sourceDatasetIds)
+    : { data: [], error: null };
+  if (sourceDatasetRecordsError) throw sourceDatasetRecordsError;
+
   const sharedTargetMap = new Map<string, Record<string, unknown>>();
   for (const target of sharedTargets ?? []) {
     const propertyId = target.property_id as string | null;
@@ -154,7 +175,15 @@ export async function getMapPropertiesForViewport(
     sharedTargetMap.set(propertyId, target as Record<string, unknown>);
   }
 
-  const propertyIds = [...new Set([...localLeadMap.keys(), ...latestVisitMap.keys(), ...sharedTargetMap.keys()])];
+  const sourceTargetPropertyIds = new Set<string>();
+  for (const record of sourceDatasetRecords ?? []) {
+    const propertyId = record.property_id as string | null;
+    if (propertyId) sourceTargetPropertyIds.add(propertyId);
+  }
+
+  const propertyIds = [
+    ...new Set([...localLeadMap.keys(), ...latestVisitMap.keys(), ...sharedTargetMap.keys(), ...sourceTargetPropertyIds])
+  ];
   if (!propertyIds.length) {
     return { items: [], features: featureAccess };
   }
@@ -181,8 +210,9 @@ export async function getMapPropertiesForViewport(
       const localLead = localLeadMap.get(propertyId);
       const latestVisit = latestVisitMap.get(propertyId);
       const sharedTarget = sharedTargetMap.get(propertyId);
+      const sourceTarget = sourceTargetPropertyIds.has(propertyId);
 
-      if (!localLead && !latestVisit && !sharedTarget) return false;
+      if (!localLead && !latestVisit && !sharedTarget && !sourceTarget) return false;
       if (!isManager) {
         if (localLead) {
           const ownerId = (localLead.owner_id as string | null | undefined) ?? (localLead.assigned_to as string | null | undefined) ?? null;
@@ -192,7 +222,7 @@ export async function getMapPropertiesForViewport(
           if (showTeamKnocks) return true;
           if ((latestVisit.user_id as string | null | undefined) === context.appUser.id) return true;
         }
-        if (sharedTarget) return true;
+        if (sharedTarget || sourceTarget) return true;
         return false;
       }
       return true;
@@ -201,7 +231,7 @@ export async function getMapPropertiesForViewport(
       const propertyId = property.id as string;
       const localLead = localLeadMap.get(propertyId);
       const latestVisit = latestVisitMap.get(propertyId);
-      const sharedTarget = sharedTargetMap.has(propertyId);
+      const sharedTarget = sharedTargetMap.has(propertyId) || sourceTargetPropertyIds.has(propertyId);
       const nextFollowUpAt = (localLead?.next_follow_up_at as string | null | undefined) ?? null;
       const followUpState = deriveFollowUpState(nextFollowUpAt);
       const priority = featureAccess.priorityScoringEnabled
