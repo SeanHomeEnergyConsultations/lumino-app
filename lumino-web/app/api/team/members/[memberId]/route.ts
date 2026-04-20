@@ -24,21 +24,6 @@ export async function PATCH(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const rateLimit = await enforceRateLimit({
-      request,
-      context,
-      bucket: "team_access_email",
-      limit: 6,
-      windowSeconds: 3600,
-      logEventType: "team_access_email_rate_limit_exceeded"
-    });
-    if (!rateLimit.allowed) {
-      return NextResponse.json(
-        { error: "Too many invite or reset emails sent recently. Please wait and try again." },
-        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
-      );
-    }
-
     const json = await request.json();
     const parsed = teamMemberUpdateSchema.safeParse(json);
     if (!parsed.success) {
@@ -84,14 +69,23 @@ export async function POST(
       return NextResponse.json({ error: "Invalid team action payload", issues: parsed.error.flatten() }, { status: 400 });
     }
 
-    const { memberId } = await params;
-    const origin = new URL(request.url).origin;
-    const redirectTo =
-      parsed.data.action === "resend_invite"
-        ? `${origin}/set-password?mode=invite`
-        : `${origin}/set-password?mode=recovery`;
+    const rateLimit = await enforceRateLimit({
+      request,
+      context,
+      bucket: "team_access_email",
+      limit: 6,
+      windowSeconds: 3600,
+      logEventType: "team_access_email_rate_limit_exceeded"
+    });
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many invite or reset emails sent recently. Please wait and try again." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+      );
+    }
 
-    const result = await triggerTeamMemberAccessEmail(memberId, parsed.data.action, context, redirectTo);
+    const { memberId } = await params;
+    const result = await triggerTeamMemberAccessEmail(memberId, parsed.data.action, context, "");
     await recordSecurityEvent({
       request,
       context,

@@ -5,6 +5,7 @@ import {
   getPlatformOrganizationOverview
 } from "@/lib/db/queries/platform";
 import { replaceOrganizationDatasetEntitlements } from "@/lib/db/mutations/platform";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { recordSecurityEvent } from "@/lib/security/security-events";
 import { organizationDatasetEntitlementsUpdateSchema } from "@/lib/validation/organization";
 
@@ -35,6 +36,21 @@ export async function PATCH(
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!context.isPlatformOwner) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const rateLimit = await enforceRateLimit({
+    request,
+    context,
+    bucket: "platform_dataset_entitlements_update",
+    limit: 60,
+    windowSeconds: 3600,
+    logEventType: "platform_dataset_entitlements_update_rate_limit_exceeded"
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many dataset entitlement changes. Please wait before trying again." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+    );
   }
 
   const json = await request.json();

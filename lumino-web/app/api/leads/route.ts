@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { upsertLead } from "@/lib/db/mutations/leads";
 import { getLeads } from "@/lib/db/queries/leads";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 import { leadInputSchema } from "@/lib/validation/leads";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +33,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const rateLimit = await enforceRateLimit({
+    request,
+    context,
+    bucket: "lead_upsert",
+    limit: 120,
+    windowSeconds: 300,
+    logEventType: "lead_upsert_rate_limit_exceeded"
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many lead updates. Please slow down and try again." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+    );
+  }
+
   const json = await request.json();
   const parsed = leadInputSchema.safeParse(json);
 
@@ -45,5 +62,15 @@ export async function POST(request: Request) {
   }
 
   const result = await upsertLead(parsed.data, context);
+  await recordSecurityEvent({
+    request,
+    context,
+    eventType: "lead_upserted",
+    severity: "low",
+    metadata: {
+      leadId: result.leadId,
+      propertyId: result.propertyId
+    }
+  });
   return NextResponse.json(result);
 }

@@ -273,6 +273,7 @@ export async function getOrganizationSharedDatasetAccess(
     .map((grant) => {
       const dataset = datasetMap.get(grant.platform_dataset_id as string);
       if (!dataset) return null;
+      if ((dataset.source_organization_id as string | null | undefined) === context.organizationId) return null;
       return {
         datasetId: dataset.id as string,
         name: dataset.name as string,

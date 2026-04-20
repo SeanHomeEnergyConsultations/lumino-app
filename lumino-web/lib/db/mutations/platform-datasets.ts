@@ -508,16 +508,66 @@ export async function grantPlatformDatasetToOrganization(
 
   const { data: dataset, error: datasetError } = await supabase
     .from("platform_datasets")
-    .select("id,list_type")
+    .select("id,list_type,source_organization_id")
     .eq("id", input.datasetId)
     .maybeSingle();
   if (datasetError) throw datasetError;
   if (!dataset) throw new Error("Platform dataset not found.");
 
+  if (input.organizationId === (dataset.source_organization_id as string | null | undefined)) {
+    await supabase
+      .from("organization_dataset_targets")
+      .delete()
+      .eq("organization_id", input.organizationId)
+      .eq("platform_dataset_id", input.datasetId);
+    await supabase
+      .from("organization_dataset_access")
+      .delete()
+      .eq("organization_id", input.organizationId)
+      .eq("platform_dataset_id", input.datasetId);
+    return { ok: true as const, sourceOrganization: true as const };
+  }
+
   const visibilityScope = input.visibilityScope ?? "organization";
   const assignedTeamId = visibilityScope === "team" ? input.assignedTeamId ?? null : null;
   const assignedUserId = visibilityScope === "assigned_user" ? input.assignedUserId ?? null : null;
   const status = input.status ?? "active";
+
+  const { data: targetOrganization, error: targetOrganizationError } = await supabase
+    .from("organizations")
+    .select("id,status")
+    .eq("id", input.organizationId)
+    .maybeSingle();
+  if (targetOrganizationError) throw targetOrganizationError;
+  if (!targetOrganization) throw new Error("Target organization not found.");
+  if (status === "active" && (targetOrganization.status as string | null | undefined) !== "active") {
+    throw new Error("Shared datasets can only be granted to active organizations.");
+  }
+
+  if (visibilityScope === "team") {
+    if (!assignedTeamId) throw new Error("Assigned team is required for team-scoped dataset access.");
+    const { data: team, error: teamError } = await supabase
+      .from("teams")
+      .select("id")
+      .eq("organization_id", input.organizationId)
+      .eq("id", assignedTeamId)
+      .maybeSingle();
+    if (teamError) throw teamError;
+    if (!team) throw new Error("Assigned team does not belong to the target organization.");
+  }
+
+  if (visibilityScope === "assigned_user") {
+    if (!assignedUserId) throw new Error("Assigned user is required for user-scoped dataset access.");
+    const { data: membership, error: membershipError } = await supabase
+      .from("organization_members")
+      .select("id")
+      .eq("organization_id", input.organizationId)
+      .eq("user_id", assignedUserId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (membershipError) throw membershipError;
+    if (!membership) throw new Error("Assigned user does not belong to the target organization.");
+  }
 
   if (status === "active") {
     const listType = (dataset.list_type as string | null) ?? "general_canvass_list";

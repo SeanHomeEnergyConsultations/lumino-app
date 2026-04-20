@@ -1,29 +1,38 @@
 import { NextResponse } from "next/server";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { createVisit } from "@/lib/db/mutations/visits";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 import { visitInputSchema } from "@/lib/validation/visits";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    console.info("[api/visits] request:start");
     const context = await getRequestSessionContext(request);
     if (!context) {
-      console.warn("[api/visits] request:unauthorized");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    console.info("[api/visits] auth:resolved", {
-      appUserId: context.appUser.id,
-      organizationId: context.organizationId
+    const rateLimit = await enforceRateLimit({
+      request,
+      context,
+      bucket: "visit_create",
+      limit: 240,
+      windowSeconds: 300,
+      logEventType: "visit_create_rate_limit_exceeded"
     });
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many visits logged too quickly. Please slow down and try again." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+      );
+    }
 
     const json = await request.json();
     const parsed = visitInputSchema.safeParse(json);
 
     if (!parsed.success) {
-      console.warn("[api/visits] request:invalid", parsed.error.flatten());
       return NextResponse.json(
         {
           error: "Invalid visit payload",
@@ -33,15 +42,20 @@ export async function POST(request: Request) {
       );
     }
 
-    console.info("[api/visits] request:validated", {
-      propertyId: parsed.data.propertyId,
-      outcome: parsed.data.outcome
-    });
-
     const result = await createVisit(parsed.data, context);
+    await recordSecurityEvent({
+      request,
+      context,
+      eventType: "visit_logged",
+      severity: "low",
+      metadata: {
+        visitId: result.visitId,
+        propertyId: result.propertyId,
+        outcome: parsed.data.outcome
+      }
+    });
     return NextResponse.json(result);
   } catch (error) {
-    console.error("[api/visits] request:error", error);
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Failed to log visit"

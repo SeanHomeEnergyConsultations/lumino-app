@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { hasManagerAccess } from "@/lib/auth/permissions";
+import { hasAdminAccess, hasManagerAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { inviteTeamMember } from "@/lib/db/mutations/team";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { getTeamMembers } from "@/lib/db/queries/team";
 import { recordSecurityEvent } from "@/lib/security/security-events";
 import { teamInviteSchema } from "@/lib/validation/team";
@@ -40,8 +41,29 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid invite payload", issues: parsed.error.flatten() }, { status: 400 });
     }
 
-    const origin = new URL(request.url).origin;
-    const result = await inviteTeamMember(parsed.data, context, `${origin}/set-password?mode=invite`);
+    if (!hasAdminAccess(context) && !["rep", "setter"].includes(parsed.data.role)) {
+      return NextResponse.json(
+        { error: "Only admins can invite managers, admins, or owners." },
+        { status: 403 }
+      );
+    }
+
+    const rateLimit = await enforceRateLimit({
+      request,
+      context,
+      bucket: "team_member_invite",
+      limit: 10,
+      windowSeconds: 3600,
+      logEventType: "team_member_invite_rate_limit_exceeded"
+    });
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many team invites sent recently. Please wait and try again." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+      );
+    }
+
+    const result = await inviteTeamMember(parsed.data, context);
     await recordSecurityEvent({
       request,
       context,

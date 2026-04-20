@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { hasPlatformAccess } from "@/lib/auth/permissions";
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 import { organizationCreateSchema } from "@/lib/validation/organization";
 import type { OrganizationCreateResponse, OrganizationsResponse } from "@/types/api";
 
@@ -61,7 +63,22 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const context = await getRequestSessionContext(request, { allowBlocked: true });
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!hasPlatformAccess(context)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!context.isPlatformOwner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const rateLimit = await enforceRateLimit({
+    request,
+    context,
+    bucket: "platform_organization_create",
+    limit: 10,
+    windowSeconds: 3600,
+    logEventType: "platform_organization_create_rate_limit_exceeded"
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many organization creation attempts. Please wait before creating another organization." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+    );
+  }
 
   const parsed = organizationCreateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -101,6 +118,19 @@ export async function POST(request: Request) {
     appName: input.appName?.trim() || null,
     createdAt: insertResponse.data.created_at as string
   };
+
+  await recordSecurityEvent({
+    request,
+    context,
+    eventType: "platform_organization_created",
+    severity: "high",
+    metadata: {
+      organizationId: item.organizationId,
+      name: item.name,
+      slug: item.slug,
+      billingPlan: item.billingPlan
+    }
+  });
 
   return NextResponse.json({ item } satisfies OrganizationCreateResponse);
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { grantPlatformDatasetToOrganization } from "@/lib/db/mutations/platform-datasets";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { recordSecurityEvent } from "@/lib/security/security-events";
 
 const grantSchema = z.object({
@@ -24,6 +25,21 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const rateLimit = await enforceRateLimit({
+    request,
+    context,
+    bucket: "platform_dataset_grant_mutation",
+    limit: 60,
+    windowSeconds: 3600,
+    logEventType: "platform_dataset_grant_rate_limit_exceeded"
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many dataset grant changes. Please wait before trying again." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+    );
+  }
+
   const json = await request.json();
   const parsed = grantSchema.safeParse(json);
   if (!parsed.success) {
@@ -40,7 +56,10 @@ export async function POST(
     metadata: {
       datasetId,
       organizationId: parsed.data.organizationId,
-      status: parsed.data.status
+      status: parsed.data.status,
+      visibilityScope: parsed.data.visibilityScope,
+      assignedTeamId: parsed.data.assignedTeamId ?? null,
+      assignedUserId: parsed.data.assignedUserId ?? null
     }
   });
   return NextResponse.json(result);
@@ -54,6 +73,21 @@ export async function PATCH(
   if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!context.isPlatformOwner) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const rateLimit = await enforceRateLimit({
+    request,
+    context,
+    bucket: "platform_dataset_grant_mutation",
+    limit: 60,
+    windowSeconds: 3600,
+    logEventType: "platform_dataset_grant_rate_limit_exceeded"
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many dataset grant changes. Please wait before trying again." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+    );
   }
 
   const json = await request.json();
@@ -72,7 +106,10 @@ export async function PATCH(
     metadata: {
       datasetId,
       organizationId: parsed.data.organizationId,
-      status: parsed.data.status
+      status: parsed.data.status,
+      visibilityScope: parsed.data.visibilityScope,
+      assignedTeamId: parsed.data.assignedTeamId ?? null,
+      assignedUserId: parsed.data.assignedUserId ?? null
     }
   });
   return NextResponse.json(result);

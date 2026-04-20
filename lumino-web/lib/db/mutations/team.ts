@@ -1,5 +1,14 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
+import { hasAdminAccess } from "@/lib/auth/permissions";
+import {
+  buildInviteRedirectUrl,
+  buildInviteUserMetadata,
+  buildPasswordResetRedirectUrl,
+  getOrganizationAuthEmailBranding
+} from "@/lib/auth/email-branding";
 import type { AuthSessionContext } from "@/types/auth";
+
+const MANAGER_MUTABLE_ROLES = new Set(["rep", "setter"]);
 
 function mapMembershipRoleToAppUserRole(role: "owner" | "admin" | "manager" | "rep" | "setter") {
   if (role === "owner") return "admin";
@@ -18,6 +27,10 @@ export async function inviteTeamMember(
 ) {
   const supabase = createServerSupabaseClient();
   if (!context.organizationId) throw new Error("No active organization found for this user.");
+  const branding = await getOrganizationAuthEmailBranding(context.organizationId);
+  const inviteRedirectTo = redirectTo ?? buildInviteRedirectUrl(branding.appUrl);
+  const recoveryRedirectTo = buildPasswordResetRedirectUrl(branding.appUrl);
+  const inviteMetadata = buildInviteUserMetadata(branding, input.fullName);
 
   const normalizedEmail = input.email.trim().toLowerCase();
   const appUserRole = mapMembershipRoleToAppUserRole(input.role);
@@ -45,8 +58,8 @@ export async function inviteTeamMember(
     const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(
       normalizedEmail,
       {
-        data: { full_name: input.fullName.trim() },
-        redirectTo
+        data: inviteMetadata,
+        redirectTo: inviteRedirectTo
       }
     );
 
@@ -150,14 +163,14 @@ export async function inviteTeamMember(
     if (!accessEmailType) {
       if (existingAuthUser && authUserIsActivated(existingAuthUser)) {
         const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-          redirectTo: redirectTo?.replace("mode=invite", "mode=recovery")
+          redirectTo: recoveryRedirectTo
         });
         if (error) throw error;
         accessEmailType = "reset";
       } else {
         const { error } = await supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
-          data: { full_name: input.fullName.trim() },
-          redirectTo
+          data: inviteMetadata,
+          redirectTo: inviteRedirectTo
         });
         if (error) throw error;
         accessEmailType = "invite";
@@ -189,14 +202,14 @@ export async function inviteTeamMember(
   if (!accessEmailType) {
     if (existingAuthUser && authUserIsActivated(existingAuthUser)) {
       const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-        redirectTo: redirectTo?.replace("mode=invite", "mode=recovery")
+        redirectTo: recoveryRedirectTo
       });
       if (error) throw error;
       accessEmailType = "reset";
     } else {
       const { error } = await supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
-        data: { full_name: input.fullName.trim() },
-        redirectTo
+        data: inviteMetadata,
+        redirectTo: inviteRedirectTo
       });
       if (error) throw error;
       accessEmailType = "invite";
@@ -221,16 +234,23 @@ export async function triggerTeamMemberAccessEmail(
   if (!context.organizationId) {
     throw new Error("No active organization found for this user.");
   }
+  const branding = await getOrganizationAuthEmailBranding(context.organizationId);
+  const inviteRedirectTo = redirectTo || buildInviteRedirectUrl(branding.appUrl);
+  const recoveryRedirectTo = buildPasswordResetRedirectUrl(branding.appUrl);
 
   const { data: membership, error: membershipError } = await supabase
     .from("organization_members")
-    .select("id,user_id,organization_id")
+    .select("id,user_id,organization_id,role")
     .eq("organization_id", context.organizationId)
     .eq("id", memberId)
     .maybeSingle();
 
   if (membershipError) throw membershipError;
   if (!membership) throw new Error("Team member not found.");
+  const membershipRole = membership.role as string | null | undefined;
+  if (!hasAdminAccess(context) && !MANAGER_MUTABLE_ROLES.has(membershipRole ?? "")) {
+    throw new Error("Only admins can manage access emails for managers, admins, or owners.");
+  }
 
   const { data: user, error: userError } = await supabase
     .from("app_users")
@@ -243,15 +263,15 @@ export async function triggerTeamMemberAccessEmail(
 
   if (action === "resend_invite") {
     const { error } = await supabase.auth.admin.inviteUserByEmail(user.email, {
-      data: { full_name: user.full_name ?? "" },
-      redirectTo
+      data: buildInviteUserMetadata(branding, user.full_name ?? ""),
+      redirectTo: inviteRedirectTo
     });
     if (error) throw error;
     return { ok: true as const };
   }
 
   const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-    redirectTo
+    redirectTo: recoveryRedirectTo
   });
   if (error) throw error;
   return { ok: true as const };
@@ -264,6 +284,22 @@ export async function updateTeamMember(
 ) {
   const supabase = createServerSupabaseClient();
   if (!context.organizationId) throw new Error("No active organization found for this user.");
+
+  const { data: membership, error: membershipError } = await supabase
+    .from("organization_members")
+    .select("id,role")
+    .eq("organization_id", context.organizationId)
+    .eq("id", memberId)
+    .maybeSingle();
+
+  if (membershipError) throw membershipError;
+  if (!membership) throw new Error("Team member not found.");
+  if (!hasAdminAccess(context) && !MANAGER_MUTABLE_ROLES.has((membership.role as string | null | undefined) ?? "")) {
+    throw new Error("Only admins can manage managers, admins, or owners.");
+  }
+  if (!hasAdminAccess(context) && input.role && !MANAGER_MUTABLE_ROLES.has(input.role)) {
+    throw new Error("Only admins can assign manager, admin, or owner roles.");
+  }
 
   const payload: Record<string, unknown> = {
     updated_at: new Date().toISOString()
