@@ -3,6 +3,7 @@ import { hasManagerAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { ingestImportUpload } from "@/lib/db/mutations/imports";
 import { getImportAssignmentOptions, getRecentImportBatches } from "@/lib/db/queries/imports";
+import { getOrganizationSharedDatasetAccess } from "@/lib/db/queries/platform-datasets";
 import { getOrganizationUploadConsentStatus } from "@/lib/platform/upload-consent";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { recordSecurityEvent } from "@/lib/security/security-events";
@@ -17,8 +18,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const [itemsResult, optionsResult, consentResult] = await Promise.allSettled([
+  const [itemsResult, sharedDatasetsResult, optionsResult, consentResult] = await Promise.allSettled([
     getRecentImportBatches(context),
+    getOrganizationSharedDatasetAccess(context),
     getImportAssignmentOptions(context),
     getOrganizationUploadConsentStatus(context)
   ]);
@@ -26,6 +28,9 @@ export async function GET(request: Request) {
   if (itemsResult.status === "rejected") {
     console.error("Failed to load recent import batches", itemsResult.reason);
     return NextResponse.json({ error: "Failed to load recent import batches." }, { status: 500 });
+  }
+  if (sharedDatasetsResult.status === "rejected") {
+    console.error("Failed to load shared dataset access", sharedDatasetsResult.reason);
   }
 
   if (optionsResult.status === "rejected") {
@@ -37,6 +42,10 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     items: itemsResult.value,
+    sharedDatasets:
+      sharedDatasetsResult.status === "fulfilled"
+        ? sharedDatasetsResult.value
+        : [],
     options:
       optionsResult.status === "fulfilled"
         ? optionsResult.value

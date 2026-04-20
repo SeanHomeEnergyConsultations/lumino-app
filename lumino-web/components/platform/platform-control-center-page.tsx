@@ -267,9 +267,36 @@ export function PlatformControlCenterPage() {
       }
 
       await Promise.all([loadOverview(), loadDatasets()]);
-      setMessage("Released dataset into the selected organization imports queue.");
+      setMessage("Granted dataset access to the selected organization.");
     } catch (releaseError) {
       setError(releaseError instanceof Error ? releaseError.message : "Failed to release dataset.");
+    } finally {
+      setReleasingDatasetId(null);
+    }
+  }
+
+  async function revokeDataset(datasetId: string, organizationId: string) {
+    if (!session?.access_token || !canMutate) return;
+    setReleasingDatasetId(datasetId);
+    setMessage(null);
+    setError(null);
+    try {
+      const response = await authFetch(session.access_token, `/api/platform/datasets/${datasetId}/grants`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          organizationId,
+          status: "revoked",
+          visibilityScope: "organization"
+        })
+      });
+      const json = await response.json().catch(() => ({ error: "Failed to revoke dataset access." }));
+      if (!response.ok) {
+        throw new Error(json.error || "Failed to revoke dataset access.");
+      }
+      await Promise.all([loadOverview(), loadDatasets()]);
+      setMessage("Revoked dataset access for that organization.");
+    } catch (revokeError) {
+      setError(revokeError instanceof Error ? revokeError.message : "Failed to revoke dataset access.");
     } finally {
       setReleasingDatasetId(null);
     }
@@ -618,7 +645,7 @@ export function PlatformControlCenterPage() {
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Shared Datasets</div>
             <p className="mt-1 text-sm text-slate-500">
-              Publish a master import once, then release it into paying organizations without reuploading the CSV.
+              Publish and analyze once in Lumino, then grant active access to customer orgs without cloning or reanalyzing batches.
             </p>
           </div>
         </div>
@@ -654,7 +681,7 @@ export function PlatformControlCenterPage() {
                     </div>
 
                     <div className="min-w-[18rem] rounded-3xl border border-slate-200 bg-white p-4">
-                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Release To Org</div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Grant Access</div>
                       <div className="mt-3 flex flex-col gap-3">
                         <select
                           value={targetOrganizationId}
@@ -680,7 +707,7 @@ export function PlatformControlCenterPage() {
                           disabled={!canMutate || !targetOrganizationId || releasingDatasetId === dataset.datasetId}
                           className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                         >
-                          {releasingDatasetId === dataset.datasetId ? "Releasing…" : "Release To Org"}
+                          {releasingDatasetId === dataset.datasetId ? "Saving…" : "Grant Access"}
                         </button>
                       </div>
                     </div>
@@ -701,6 +728,17 @@ export function PlatformControlCenterPage() {
                               : grant.visibilityScope === "team"
                                 ? grant.assignedTeamName ?? "team"
                                 : grant.assignedUserName ?? "assigned user"}
+                            {" · "}
+                            {grant.status}
+                            {canMutate ? (
+                              <button
+                                type="button"
+                                onClick={() => void revokeDataset(dataset.datasetId, grant.organizationId)}
+                                className="ml-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-rose-600 underline underline-offset-2"
+                              >
+                                Revoke
+                              </button>
+                            ) : null}
                           </span>
                         ))
                       ) : (

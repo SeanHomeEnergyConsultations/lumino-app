@@ -75,6 +75,7 @@ export function ImportsPage() {
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [batches, setBatches] = useState<ImportBatchListItem[]>([]);
+  const [sharedDatasets, setSharedDatasets] = useState<ImportsResponse["sharedDatasets"]>([]);
   const [assignmentOptions, setAssignmentOptions] = useState<ImportsResponse["options"]>({
     teams: [],
     users: []
@@ -116,6 +117,7 @@ export function ImportsPage() {
       }
       const typedJson = json as ImportsResponse;
       setBatches(typedJson.items);
+      setSharedDatasets(typedJson.sharedDatasets);
       setAssignmentOptions(typedJson.options);
       setAccess(typedJson.access);
       return typedJson.items;
@@ -331,7 +333,7 @@ export function ImportsPage() {
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Imports</div>
             <h1 className="mt-2 text-3xl font-semibold text-ink">Upload Manager Lists</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              Upload CSV lists, preserve the raw source rows, and map them onto properties and leads for the field team.
+              Upload private CSV lists for this organization and manage shared active datasets without duplicating analysis.
             </p>
           </div>
           <button
@@ -547,7 +549,7 @@ export function ImportsPage() {
       </div>
 
       <section className="mt-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
-        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Recent Batches</div>
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Local Batches</div>
         <div className="mt-4 space-y-3">
           {loading && !batches.length ? (
             <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
@@ -616,6 +618,39 @@ export function ImportsPage() {
           ) : (
             <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
               No import batches yet. Upload your first manager list above.
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Shared Active Datasets</div>
+        <div className="mt-4 space-y-3">
+          {sharedDatasets.length ? (
+            sharedDatasets.map((dataset) => (
+              <div key={dataset.datasetId} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-ink">{dataset.name}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {formatListType(dataset.listType)} · {formatVisibility(dataset)} · Source {dataset.sourceOrganizationName}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      Granted {formatDateTime(dataset.grantedAt)} · {dataset.rowCount} rows
+                    </div>
+                    {dataset.description ? (
+                      <div className="mt-2 text-sm text-slate-600">{dataset.description}</div>
+                    ) : null}
+                  </div>
+                  <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700">
+                    {dataset.status}
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              No shared datasets are active for this organization yet.
             </div>
           )}
         </div>

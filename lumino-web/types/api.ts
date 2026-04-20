@@ -528,6 +528,7 @@ export interface ImportAssignmentOption {
 
 export interface ImportsResponse {
   items: ImportBatchListItem[];
+  sharedDatasets: SharedDatasetAccessListItem[];
   options: {
     teams: ImportAssignmentOption[];
     users: ImportAssignmentOption[];
@@ -596,7 +597,6 @@ export interface PlatformDatasetOrganizationGrant {
   visibilityScope: "organization" | "team" | "assigned_user";
   assignedTeamName: string | null;
   assignedUserName: string | null;
-  lastReleasedBatchId: string | null;
   grantedAt: string;
 }
 
@@ -612,6 +612,20 @@ export interface PlatformDatasetItem {
   status: "active" | "archived";
   createdAt: string;
   grants: PlatformDatasetOrganizationGrant[];
+}
+
+export interface SharedDatasetAccessListItem {
+  datasetId: string;
+  name: string;
+  description: string | null;
+  sourceOrganizationName: string;
+  listType: "general_canvass_list" | "homeowner_leads" | "sold_properties" | "solar_permits" | "roofing_permits" | "custom";
+  rowCount: number;
+  visibilityScope: "organization" | "team" | "assigned_user";
+  assignedTeamName: string | null;
+  assignedUserName: string | null;
+  grantedAt: string;
+  status: "active" | "paused" | "revoked";
 }
 
 export interface PlatformDatasetsResponse {

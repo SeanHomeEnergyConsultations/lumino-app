@@ -1,6 +1,10 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { hasPlatformAccess } from "@/lib/auth/permissions";
-import type { PlatformDatasetItem, PlatformDatasetsResponse } from "@/types/api";
+import type {
+  PlatformDatasetItem,
+  PlatformDatasetsResponse,
+  SharedDatasetAccessListItem
+} from "@/types/api";
 import type { AuthSessionContext } from "@/types/auth";
 
 function assertPlatformAccess(context: AuthSessionContext) {
@@ -9,42 +13,13 @@ function assertPlatformAccess(context: AuthSessionContext) {
   }
 }
 
-export async function getPlatformDatasets(
-  context: AuthSessionContext
-): Promise<PlatformDatasetsResponse["items"]> {
-  assertPlatformAccess(context);
+async function loadGrantLookups(grants: Record<string, unknown>[]) {
   const supabase = createServerSupabaseClient();
+  const grantedOrganizationIds = [...new Set(grants.map((row) => row.organization_id as string))];
+  const teamIds = [...new Set(grants.map((row) => row.assigned_team_id as string | null).filter(Boolean))] as string[];
+  const userIds = [...new Set(grants.map((row) => row.assigned_user_id as string | null).filter(Boolean))] as string[];
 
-  const [{ data: datasets, error: datasetsError }, { data: grants, error: grantsError }] = await Promise.all([
-    supabase
-      .from("platform_datasets")
-      .select("id,name,description,source_batch_id,source_organization_id,list_type,status,created_at")
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("organization_dataset_access")
-      .select("platform_dataset_id,organization_id,status,visibility_scope,assigned_team_id,assigned_user_id,last_released_batch_id,granted_at")
-      .order("granted_at", { ascending: false })
-  ]);
-
-  if (datasetsError) throw datasetsError;
-  if (grantsError) throw grantsError;
-
-  const sourceOrganizationIds = [...new Set((datasets ?? []).map((row) => row.source_organization_id as string))];
-  const grantedOrganizationIds = [...new Set((grants ?? []).map((row) => row.organization_id as string))];
-  const teamIds = [...new Set((grants ?? []).map((row) => row.assigned_team_id as string | null).filter(Boolean))] as string[];
-  const userIds = [...new Set((grants ?? []).map((row) => row.assigned_user_id as string | null).filter(Boolean))] as string[];
-  const batchIds = [...new Set((datasets ?? []).map((row) => row.source_batch_id as string))];
-
-  const [
-    { data: sourceOrgs, error: sourceOrgsError },
-    { data: grantedOrgs, error: grantedOrgsError },
-    { data: teams, error: teamsError },
-    { data: users, error: usersError },
-    { data: batches, error: batchesError }
-  ] = await Promise.all([
-    sourceOrganizationIds.length
-      ? supabase.from("organizations").select("id,name").in("id", sourceOrganizationIds)
-      : Promise.resolve({ data: [], error: null }),
+  const [{ data: grantedOrgs }, { data: teams }, { data: users }] = await Promise.all([
     grantedOrganizationIds.length
       ? supabase.from("organizations").select("id,name").in("id", grantedOrganizationIds)
       : Promise.resolve({ data: [], error: null }),
@@ -53,28 +28,59 @@ export async function getPlatformDatasets(
       : Promise.resolve({ data: [], error: null }),
     userIds.length
       ? supabase.from("app_users").select("id,full_name,email").in("id", userIds)
-      : Promise.resolve({ data: [], error: null }),
-    batchIds.length
-      ? supabase.from("import_batches").select("id,total_rows").in("id", batchIds)
       : Promise.resolve({ data: [], error: null })
   ]);
 
-  if (sourceOrgsError) throw sourceOrgsError;
-  if (grantedOrgsError) throw grantedOrgsError;
-  if (teamsError) throw teamsError;
-  if (usersError) throw usersError;
-  if (batchesError) throw batchesError;
+  return {
+    grantedOrgMap: new Map((grantedOrgs ?? []).map((row) => [row.id as string, (row.name as string | null) ?? "Unknown org"])),
+    teamMap: new Map((teams ?? []).map((row) => [row.id as string, (row.name as string | null) ?? "Unnamed team"])),
+    userMap: new Map(
+      (users ?? []).map((row) => [
+        row.id as string,
+        ((row.full_name as string | null) ?? (row.email as string | null) ?? "Unknown user")
+      ])
+    )
+  };
+}
 
+export async function getPlatformDatasets(
+  context: AuthSessionContext
+): Promise<PlatformDatasetsResponse["items"]> {
+  assertPlatformAccess(context);
+  const supabase = createServerSupabaseClient();
+
+  const [{ data: datasets, error: datasetsError }, { data: grants, error: grantsError }, { data: counts, error: countsError }] =
+    await Promise.all([
+      supabase
+        .from("platform_datasets")
+        .select("id,name,description,source_batch_id,source_organization_id,list_type,status,created_at")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("organization_dataset_access")
+        .select("platform_dataset_id,organization_id,status,visibility_scope,assigned_team_id,assigned_user_id,granted_at")
+        .order("granted_at", { ascending: false }),
+      supabase
+        .from("platform_dataset_records")
+        .select("platform_dataset_id")
+    ]);
+
+  if (datasetsError) throw datasetsError;
+  if (grantsError) throw grantsError;
+  if (countsError) throw countsError;
+
+  const sourceOrganizationIds = [...new Set((datasets ?? []).map((row) => row.source_organization_id as string))];
+  const { data: sourceOrgs, error: sourceOrgsError } = sourceOrganizationIds.length
+    ? await supabase.from("organizations").select("id,name").in("id", sourceOrganizationIds)
+    : { data: [], error: null };
+  if (sourceOrgsError) throw sourceOrgsError;
+
+  const { grantedOrgMap, teamMap, userMap } = await loadGrantLookups((grants ?? []) as Record<string, unknown>[]);
   const sourceOrgMap = new Map((sourceOrgs ?? []).map((row) => [row.id as string, (row.name as string | null) ?? "Unknown org"]));
-  const grantedOrgMap = new Map((grantedOrgs ?? []).map((row) => [row.id as string, (row.name as string | null) ?? "Unknown org"]));
-  const teamMap = new Map((teams ?? []).map((row) => [row.id as string, (row.name as string | null) ?? "Unnamed team"]));
-  const userMap = new Map(
-    (users ?? []).map((row) => [
-      row.id as string,
-      ((row.full_name as string | null) ?? (row.email as string | null) ?? "Unknown user")
-    ])
-  );
-  const batchMap = new Map((batches ?? []).map((row) => [row.id as string, Number(row.total_rows ?? 0)]));
+  const rowCountMap = new Map<string, number>();
+  for (const row of counts ?? []) {
+    const datasetId = row.platform_dataset_id as string;
+    rowCountMap.set(datasetId, (rowCountMap.get(datasetId) ?? 0) + 1);
+  }
 
   const grantsByDataset = new Map<string, PlatformDatasetItem["grants"]>();
   for (const grant of grants ?? []) {
@@ -87,7 +93,6 @@ export async function getPlatformDatasets(
       visibilityScope: (grant.visibility_scope as PlatformDatasetItem["grants"][number]["visibilityScope"]) ?? "organization",
       assignedTeamName: grant.assigned_team_id ? teamMap.get(grant.assigned_team_id as string) ?? null : null,
       assignedUserName: grant.assigned_user_id ? userMap.get(grant.assigned_user_id as string) ?? null : null,
-      lastReleasedBatchId: (grant.last_released_batch_id as string | null) ?? null,
       grantedAt: grant.granted_at as string
     });
     grantsByDataset.set(datasetId, current);
@@ -101,9 +106,77 @@ export async function getPlatformDatasets(
     sourceOrganizationId: dataset.source_organization_id as string,
     sourceOrganizationName: sourceOrgMap.get(dataset.source_organization_id as string) ?? "Unknown org",
     listType: (dataset.list_type as PlatformDatasetItem["listType"]) ?? "general_canvass_list",
-    rowCount: batchMap.get(dataset.source_batch_id as string) ?? 0,
+    rowCount: rowCountMap.get(dataset.id as string) ?? 0,
     status: (dataset.status as PlatformDatasetItem["status"]) ?? "active",
     createdAt: dataset.created_at as string,
     grants: grantsByDataset.get(dataset.id as string) ?? []
   }));
+}
+
+export async function getOrganizationSharedDatasetAccess(
+  context: AuthSessionContext
+): Promise<SharedDatasetAccessListItem[]> {
+  if (!context.organizationId) return [];
+  const supabase = createServerSupabaseClient();
+
+  const { data: grants, error: grantsError } = await supabase
+    .from("organization_dataset_access")
+    .select("platform_dataset_id,status,visibility_scope,assigned_team_id,assigned_user_id,granted_at")
+    .eq("organization_id", context.organizationId)
+    .eq("status", "active")
+    .order("granted_at", { ascending: false });
+  if (grantsError) throw grantsError;
+
+  const datasetIds = [...new Set((grants ?? []).map((row) => row.platform_dataset_id as string))];
+  if (!datasetIds.length) return [];
+
+  const [{ data: datasets, error: datasetsError }, { data: counts, error: countsError }] = await Promise.all([
+    supabase
+      .from("platform_datasets")
+      .select("id,name,description,source_organization_id,list_type,status")
+      .in("id", datasetIds)
+      .eq("status", "active"),
+    supabase
+      .from("organization_dataset_targets")
+      .select("platform_dataset_id")
+      .eq("organization_id", context.organizationId)
+  ]);
+  if (datasetsError) throw datasetsError;
+  if (countsError) throw countsError;
+
+  const sourceOrgIds = [...new Set((datasets ?? []).map((row) => row.source_organization_id as string))];
+  const { data: sourceOrgs } = sourceOrgIds.length
+    ? await supabase.from("organizations").select("id,name").in("id", sourceOrgIds)
+    : { data: [] };
+  const { grantedOrgMap: sourceOrgMap, teamMap, userMap } = await loadGrantLookups((grants ?? []) as Record<string, unknown>[]);
+  if (sourceOrgs?.length) {
+    for (const row of sourceOrgs) sourceOrgMap.set(row.id as string, (row.name as string | null) ?? "Unknown org");
+  }
+
+  const datasetMap = new Map((datasets ?? []).map((row) => [row.id as string, row]));
+  const rowCountMap = new Map<string, number>();
+  for (const row of counts ?? []) {
+    const datasetId = row.platform_dataset_id as string;
+    rowCountMap.set(datasetId, (rowCountMap.get(datasetId) ?? 0) + 1);
+  }
+
+  return (grants ?? [])
+    .map((grant) => {
+      const dataset = datasetMap.get(grant.platform_dataset_id as string);
+      if (!dataset) return null;
+      return {
+        datasetId: dataset.id as string,
+        name: dataset.name as string,
+        description: (dataset.description as string | null) ?? null,
+        sourceOrganizationName: sourceOrgMap.get(dataset.source_organization_id as string) ?? "Unknown org",
+        listType: (dataset.list_type as SharedDatasetAccessListItem["listType"]) ?? "general_canvass_list",
+        rowCount: rowCountMap.get(dataset.id as string) ?? 0,
+        visibilityScope: (grant.visibility_scope as SharedDatasetAccessListItem["visibilityScope"]) ?? "organization",
+        assignedTeamName: grant.assigned_team_id ? teamMap.get(grant.assigned_team_id as string) ?? null : null,
+        assignedUserName: grant.assigned_user_id ? userMap.get(grant.assigned_user_id as string) ?? null : null,
+        grantedAt: grant.granted_at as string,
+        status: (grant.status as SharedDatasetAccessListItem["status"]) ?? "active"
+      } satisfies SharedDatasetAccessListItem;
+    })
+    .filter((item): item is SharedDatasetAccessListItem => Boolean(item));
 }
