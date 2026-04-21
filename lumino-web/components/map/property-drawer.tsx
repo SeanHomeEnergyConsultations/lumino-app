@@ -45,6 +45,13 @@ const APPOINTMENT_TIME_SLOTS = [
 ] as const;
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+const GO_BACK_TIMING_OPTIONS = [
+  { value: "default", label: "Use Default" },
+  { value: "morning", label: "Morning" },
+  { value: "evening", label: "Evening" },
+  { value: "weekend", label: "Weekend" },
+  { value: "specific", label: "Specific Note" }
+] as const;
 
 function startOfDay(value: Date) {
   const next = new Date(value);
@@ -123,7 +130,7 @@ export function PropertyDrawer({
   isOpen?: boolean;
   mobileOpenNonce?: number;
 }) {
-  const { session } = useAuth();
+  const { session, appContext, appBranding, organizationBranding } = useAuth();
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const [mobileSection, setMobileSection] = useState<"actions" | "lead" | "history">("actions");
   const [firstName, setFirstName] = useState("");
@@ -150,6 +157,10 @@ export function PropertyDrawer({
   const [googleMonthBusy, setGoogleMonthBusy] = useState<GoogleCalendarConflictCheckResponse["busy"]>([]);
   const [loadingGoogleMonthBusy, setLoadingGoogleMonthBusy] = useState(false);
   const [googleBusyError, setGoogleBusyError] = useState<string | null>(null);
+  const [goBackTiming, setGoBackTiming] =
+    useState<(typeof GO_BACK_TIMING_OPTIONS)[number]["value"]>("default");
+  const [goBackNote, setGoBackNote] = useState("");
+  const [leadCaptureError, setLeadCaptureError] = useState<string | null>(null);
 
   function toDateTimeLocal(value: string | null | undefined) {
     if (!value) return "";
@@ -179,6 +190,9 @@ export function PropertyDrawer({
     if (property?.isPreview) {
       setMobileExpanded(true);
     }
+    setGoBackTiming("default");
+    setGoBackNote("");
+    setLeadCaptureError(null);
     setGoogleBusyError(null);
   }, [property]);
 
@@ -371,6 +385,158 @@ export function PropertyDrawer({
     });
   }, [appointmentCalendarMonth, appointmentScheduleItemsByDay, googleBusyItemsByDay, selectedAppointmentDateKey]);
 
+  const isOutcomeFlow = postAction === "opportunity" || postAction === "appointment_set";
+  const hasHomeownerInfo = Boolean(firstName.trim() || lastName.trim() || phone.trim() || email.trim());
+  const repName = appContext?.appUser.fullName?.trim() || "your Lumino rep";
+  const brandName = organizationBranding?.appName || appBranding?.appName || "Lumino";
+
+  function closePreview() {
+    if (typeof window !== "undefined" && window.matchMedia("(min-width: 1280px)").matches) {
+      onCloseDesktop?.();
+      return;
+    }
+    onDismiss?.();
+  }
+
+  function buildGoBackBestContactTime() {
+    if (goBackTiming === "default") return null;
+    if (goBackTiming === "specific") return goBackNote.trim() || null;
+    return goBackTiming;
+  }
+
+  function openPrefilledThankYouText() {
+    const destination = phone.trim();
+    if (!destination || typeof window === "undefined") return;
+
+    const homeownerName = firstName.trim() || "there";
+    const body = `Hi ${homeownerName}, this is ${repName} with ${brandName}. Thanks for taking a minute to speak with me today. This is my number if any questions come up. Happy to help whenever it makes sense.`;
+    window.location.href = `sms:${destination}?&body=${encodeURIComponent(body)}`;
+  }
+
+  async function handleInstantOutcome(outcome: string) {
+    if (!property) return;
+    setActionState("saving");
+    try {
+      if (property.leadId && ["not_interested", "do_not_knock", "disqualified"].includes(outcome)) {
+        await onSaveLead({
+          propertyId: property.propertyId,
+          firstName,
+          lastName,
+          phone,
+          email,
+          notes,
+          leadStatus: "Closed Lost",
+          interestLevel,
+          nextFollowUpAt: null
+        });
+      }
+      await onLogOutcome(outcome);
+      setActionState("saved");
+      closePreview();
+    } catch {
+      setActionState("error");
+    }
+  }
+
+  async function handleGoBackSave() {
+    if (!property) return;
+    setActionState("saving");
+    try {
+      await onSaveLead({
+        propertyId: property.propertyId,
+        firstName,
+        lastName,
+        phone,
+        email,
+        notes,
+        leadStatus: "Attempting Contact",
+        interestLevel,
+        bestContactTime: buildGoBackBestContactTime(),
+        preferredChannel: "door",
+        cadenceTrack: "warm_no_contact",
+        nextFollowUpAt: null
+      });
+      await onLogOutcome("callback_requested");
+      setActionState("saved");
+      closePreview();
+    } catch {
+      setActionState("error");
+    }
+  }
+
+  async function handleLeadCaptureSubmit() {
+    if (!property) return;
+    if (isOutcomeFlow && !hasHomeownerInfo) {
+      setLeadCaptureError("Add at least a name, phone, or email before moving this outcome forward.");
+      setSaveState("error");
+      return;
+    }
+
+    setLeadCaptureError(null);
+    setSaveState("saving");
+
+    if (postAction === "appointment_set") {
+      setSaveState("saved");
+      setMobileSection("actions");
+      return;
+    }
+
+    try {
+      await onSaveLead({
+        propertyId: property.propertyId,
+        firstName,
+        lastName,
+        phone,
+        email,
+        notes,
+        leadStatus: postAction === "opportunity" ? "Connected" : leadStatus,
+        interestLevel,
+        preferredChannel: phone.trim() ? "text" : "door",
+        textConsent: phone.trim() ? true : null,
+        nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null
+      });
+
+      if (postAction === "opportunity") {
+        await onLogOutcome("opportunity");
+        if (phone.trim()) {
+          openPrefilledThankYouText();
+        }
+        setSaveState("saved");
+        closePreview();
+        return;
+      }
+
+      setSaveState("saved");
+      setMobileSection("history");
+      onDismiss?.();
+    } catch {
+      setSaveState("error");
+    }
+  }
+
+  function handleOutcomeTap(outcome: string) {
+    setMobileSection(outcome === "opportunity" || outcome === "appointment_set" ? "lead" : "actions");
+    setPostAction(outcome);
+    setActionState("idle");
+    setSaveState("idle");
+    setLeadCaptureError(null);
+
+    if (outcome === "opportunity") {
+      setLeadStatus("Connected");
+      return;
+    }
+    if (outcome === "appointment_set") {
+      setLeadStatus("Appointment Set");
+      return;
+    }
+    if (outcome === "callback_requested") {
+      setLeadStatus("Attempting Contact");
+      return;
+    }
+
+    void handleInstantOutcome(outcome);
+  }
+
   function applyAppointmentDate(date: Date) {
     const next = new Date(date);
     if (selectedAppointmentDate) {
@@ -428,27 +594,8 @@ export function PropertyDrawer({
             <button
               key={item.value}
               type="button"
-              onClick={() => {
-                setMobileSection("actions");
-                setPostAction(item.value);
-                setActionState("idle");
-                if (item.value === "opportunity") {
-                  setLeadStatus("Connected");
-                }
-                if (item.value === "callback_requested") {
-                  setLeadStatus("Attempting Contact");
-                }
-                if (item.value === "appointment_set") {
-                  setLeadStatus("Appointment Set");
-                }
-                if (item.value === "disqualified") {
-                  setLeadStatus("Closed Lost");
-                }
-                if (item.value !== "appointment_set" && item.value !== "callback_requested") {
-                  void onLogOutcome(item.value);
-                }
-              }}
-              disabled={savingVisit}
+              onClick={() => handleOutcomeTap(item.value)}
+              disabled={savingVisit || actionState === "saving"}
               title={item.label}
               aria-label={item.label}
               className="flex aspect-square items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 transition hover:bg-slate-950 hover:text-white"
@@ -483,60 +630,54 @@ export function PropertyDrawer({
         </div>
 
         <div className={showActions ? "mt-5 xl:mt-5" : "mt-5 hidden xl:block"}>
-        {postAction === "not_home" || postAction === "left_doorhanger" || postAction === "callback_requested" ? (
+        {postAction === "callback_requested" ? (
           <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-ink">
               <Clock3 className="h-4 w-4" />
-              {postAction === "callback_requested" ? "Schedule go-back" : "Schedule revisit"}
+              Schedule go-back
             </div>
             <p className="mt-1 text-xs text-slate-500">
-              {postAction === "callback_requested"
-                ? "Use this when you want to return later, especially if you did not capture homeowner info yet."
-                : "Set the next follow-up while the knock is still fresh."}
+              Use this when you want to return later, especially if you did not capture homeowner info yet.
             </p>
-            <input
-              type="datetime-local"
-              value={nextFollowUpAt}
-              onChange={(event) => setNextFollowUpAt(event.target.value)}
-              className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
-            />
+            <div className="mt-3 flex flex-wrap gap-2">
+              {GO_BACK_TIMING_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setGoBackTiming(option.value)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    goBackTiming === option.value
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 bg-white text-slate-700"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            {goBackTiming === "specific" ? (
+              <textarea
+                value={goBackNote}
+                onChange={(event) => setGoBackNote(event.target.value)}
+                rows={3}
+                placeholder="Next week, mornings only, when wife is home…"
+                className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              />
+            ) : null}
             <div className="mt-3 flex items-center justify-between gap-3">
               <div className="text-xs text-slate-500">
                 {actionState === "saved"
-                  ? "Revisit saved."
+                  ? "Go-back saved."
                   : actionState === "error"
-                    ? "Could not save revisit."
-                    : "This keeps follow-up discipline tight."}
+                    ? "Could not save go-back."
+                    : "Default cadence will be used unless you override it here."}
               </div>
               <button
                 type="button"
-                onClick={async () => {
-                  if (!property) return;
-                  setMobileSection("lead");
-                  setActionState("saving");
-                  try {
-                    await onSaveLead({
-                      propertyId: property.propertyId,
-                      firstName,
-                      lastName,
-                      phone,
-                      email,
-                      notes,
-                      leadStatus: "Attempting Contact",
-                      interestLevel,
-                      nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null
-                    });
-                    if (postAction === "callback_requested") {
-                      await onLogOutcome("callback_requested");
-                    }
-                    setActionState("saved");
-                  } catch {
-                    setActionState("error");
-                  }
-                }}
+                onClick={() => void handleGoBackSave()}
                 className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200"
               >
-                {actionState === "saving" ? "Saving..." : "Save Revisit"}
+                {actionState === "saving" ? "Saving..." : "Save Go-Back"}
               </button>
             </div>
           </div>
@@ -752,6 +893,11 @@ export function PropertyDrawer({
                 type="button"
                 onClick={async () => {
                   if (!property) return;
+                  if (!hasHomeownerInfo) {
+                    setLeadCaptureError("Add homeowner info before scheduling the appointment.");
+                    setMobileSection("lead");
+                    return;
+                  }
                   setMobileSection("lead");
                   setActionState("saving");
                   try {
@@ -776,49 +922,6 @@ export function PropertyDrawer({
                 className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200"
               >
                 {actionState === "saving" ? "Saving..." : "Save Appointment"}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {postAction === "disqualified" ? (
-          <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4">
-            <div className="text-sm font-semibold text-ink">Close this opportunity out?</div>
-            <p className="mt-1 text-xs text-slate-500">This marks the lead as closed lost while preserving the door timestamp for accountability.</p>
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <div className="text-xs text-slate-500">
-                {actionState === "saved"
-                  ? "Marked closed lost."
-                  : actionState === "error"
-                    ? "Could not update lead."
-                    : "Use this when the house is clearly not a fit."}
-              </div>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!property) return;
-                  setMobileSection("lead");
-                  setActionState("saving");
-                  try {
-                    await onSaveLead({
-                      propertyId: property.propertyId,
-                      firstName,
-                      lastName,
-                      phone,
-                      email,
-                      notes,
-                      leadStatus: "Closed Lost",
-                      interestLevel,
-                      nextFollowUpAt: null
-                    });
-                    setActionState("saved");
-                  } catch {
-                    setActionState("error");
-                  }
-                }}
-                className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200"
-              >
-                {actionState === "saving" ? "Saving..." : "Mark Closed Lost"}
               </button>
             </div>
           </div>
@@ -852,29 +955,26 @@ export function PropertyDrawer({
           className="mt-6 rounded-3xl border border-slate-200 bg-white p-4"
           onSubmit={async (event) => {
             event.preventDefault();
-            if (!property) return;
-            setSaveState("saving");
-            try {
-              await onSaveLead({
-                propertyId: property.propertyId,
-                firstName,
-                lastName,
-                phone,
-                email,
-                notes,
-                leadStatus,
-                interestLevel,
-                nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null
-              });
-              setSaveState("saved");
-              setMobileSection("history");
-              onDismiss?.();
-            } catch {
-              setSaveState("error");
-            }
+            await handleLeadCaptureSubmit();
           }}
         >
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Lead Capture</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">
+            {postAction === "opportunity"
+              ? "Opportunity Capture"
+              : postAction === "appointment_set"
+                ? "Homeowner Details"
+                : "Lead Capture"}
+          </div>
+          {postAction === "opportunity" ? (
+            <div className="mt-2 rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3 text-xs text-sky-800">
+              Capture the homeowner info first. When you save, Lumino will start follow-up and open a prefilled thank-you text if a phone number is present.
+            </div>
+          ) : null}
+          {postAction === "appointment_set" ? (
+            <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-600">
+              Enter homeowner info first, then continue into the appointment scheduler.
+            </div>
+          ) : null}
           <div className="mt-3 grid grid-cols-2 gap-3">
             <label className="text-xs text-slate-500">
               First name
@@ -934,15 +1034,17 @@ export function PropertyDrawer({
                 <option value="high">High</option>
               </select>
             </label>
-            <label className="col-span-2 text-xs text-slate-500">
-              Next follow-up
-              <input
-                type="datetime-local"
-                value={nextFollowUpAt}
-                onChange={(event) => setNextFollowUpAt(event.target.value)}
-                className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
-              />
-            </label>
+            {!isOutcomeFlow ? (
+              <label className="col-span-2 text-xs text-slate-500">
+                Next follow-up
+                <input
+                  type="datetime-local"
+                  value={nextFollowUpAt}
+                  onChange={(event) => setNextFollowUpAt(event.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                />
+              </label>
+            ) : null}
             <label className="col-span-2 text-xs text-slate-500">
               Notes
               <textarea
@@ -956,8 +1058,12 @@ export function PropertyDrawer({
 
           <div className="mt-4 flex items-center justify-between gap-3">
             <div className="text-xs text-slate-500">
-              {saveState === "saved"
-                ? "Lead saved."
+              {leadCaptureError
+                ? leadCaptureError
+                : saveState === "saved"
+                  ? postAction === "appointment_set"
+                    ? "Homeowner info captured. Now pick the appointment time."
+                    : "Lead saved."
                 : saveState === "error"
                   ? "Save failed. Try again."
                   : "Capture homeowner details right from the map."}
@@ -967,7 +1073,15 @@ export function PropertyDrawer({
               disabled={saveState === "saving"}
               className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saveState === "saving" ? "Saving..." : property.leadId ? "Update Lead" : "Create Lead"}
+              {saveState === "saving"
+                ? "Saving..."
+                : postAction === "opportunity"
+                  ? "Create Opportunity"
+                  : postAction === "appointment_set"
+                    ? "Continue to Appointment"
+                    : property.leadId
+                      ? "Update Lead"
+                      : "Create Lead"}
             </button>
           </div>
         </form>
