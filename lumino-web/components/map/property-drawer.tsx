@@ -552,6 +552,7 @@ export function PropertyDrawer({
           notes,
           leadStatus: "Connected",
           interestLevel,
+          engagementScore: phone.trim() || email.trim() ? 4 : null,
           preferredChannel: phone.trim() ? "text" : "door",
           textConsent: phone.trim() ? true : null,
           nextFollowUpAt: null
@@ -581,6 +582,7 @@ export function PropertyDrawer({
         notes,
         leadStatus: postAction === "opportunity" ? "Connected" : leadStatus,
         interestLevel,
+        engagementScore: postAction === "opportunity" && (phone.trim() || email.trim()) ? 4 : null,
         preferredChannel: phone.trim() ? "text" : "door",
         textConsent: phone.trim() ? true : null,
         nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null

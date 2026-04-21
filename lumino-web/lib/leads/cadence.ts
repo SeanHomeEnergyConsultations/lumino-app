@@ -36,6 +36,10 @@ export type LeadCadencePlan = {
   tasks: PlannedCadenceTask[];
 };
 
+function cadenceNote(key: string, instruction: string, suggestedText?: string) {
+  return `[cadence:${key}] ${instruction}${suggestedText ? ` Suggested text: "${suggestedText}"` : ""}`;
+}
+
 function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -175,35 +179,61 @@ function buildWarmContactTasks(input: LeadCadenceContext) {
   const decisionMakerStatus = input.decisionMakerStatus ?? null;
   const bestContactTime = input.bestContactTime ?? null;
   const canText = shouldText(input);
-  const fastFollowUpOffset = input.interestLevel === "high" || (input.engagementScore ?? 0) >= 4 ? 1 : 2;
+  const isEngaged = (input.engagementScore ?? 0) >= 4;
+  const fastFollowUpOffset = input.interestLevel === "high" || isEngaged ? 1 : 2;
+  const channelType = canText ? "text" : "call";
 
   const tasks: PlannedCadenceTask[] = [];
   tasks.push(
     buildTask(
-      canText ? "text" : "call",
-      addMinutes(new Date(), 10),
-      "[cadence:warm_with_contact:immediate] Send a low-pressure thank-you and make future replies easy."
+      channelType,
+      addMinutes(new Date(), isEngaged ? 30 : 10),
+      cadenceNote(
+        "warm_with_contact:immediate",
+        isEngaged
+          ? "Homeowner is engaged. Take over personally while the conversation is still active."
+          : "Send a low-pressure thank-you and make future replies easy.",
+        "Hey {first_name}, this is {your_name} — nice meeting you. This is my number in case anything comes up about solar or your bill 👍"
+      )
     )
   );
   tasks.push(
     buildTask(
-      canText ? "text" : "call",
+      channelType,
       dueAtForOffset({ offsetDays: fastFollowUpOffset, preferredChannel, decisionMakerStatus, bestContactTime }),
-      "[cadence:warm_with_contact:value] Send a value touch or recap without forcing the close."
+      cadenceNote(
+        "warm_with_contact:value",
+        isEngaged
+          ? "Follow through on the active conversation with the promised info or next step."
+          : "Send a value touch or recap without forcing the close.",
+        "Hey {first_name}, just following up from when we met. If you want, I can take a look at your setup and give you a rough idea of what solar could look like for your home. No rush 👍"
+      )
     )
   );
   tasks.push(
     buildTask(
       "call",
       dueAtForOffset({ offsetDays: 4, preferredChannel: "call", decisionMakerStatus, bestContactTime }),
-      "[cadence:warm_with_contact:call] Call to move from passive interest into a real next step."
+      cadenceNote(
+        "warm_with_contact:call",
+        isEngaged
+          ? "Do not let the conversation cool off. Call and lock a real next step."
+          : "Call to move from passive interest into a real next step.",
+        "Hey {first_name}, tried giving you a quick call — no rush at all, just following up from when we met. Feel free to text me here if that's easier 👍"
+      )
     )
   );
   tasks.push(
     buildTask(
-      canText ? "text" : "call",
+      channelType,
       dueAtForOffset({ offsetDays: 7, preferredChannel, decisionMakerStatus, bestContactTime }),
-      "[cadence:warm_with_contact:final] Final short check-in before longer-term nurture."
+      cadenceNote(
+        "warm_with_contact:final",
+        isEngaged
+          ? "Close the loop cleanly if the homeowner goes quiet, then move to nurture instead of drifting."
+          : "Final short check-in before longer-term nurture.",
+        "Hey {first_name}, just wanted to check in one last time for now. If solar is something you want to revisit later, feel free to reach out anytime 👍"
+      )
     )
   );
   return tasks;
@@ -220,7 +250,11 @@ function buildAppointmentTasks(input: LeadCadenceContext) {
       buildTask(
         "appointment_confirm",
         immediate,
-        "[cadence:appointment_active:immediate] Confirm the appointment right away and reduce no-show risk."
+        cadenceNote(
+          "appointment_active:immediate",
+          "Confirm the appointment right away and reduce no-show risk.",
+          "Hey {first_name}, this is {your_name} — we're all set for {appointment_date} at {appointment_time}. Looking forward to it 👍"
+        )
       )
     );
   }
@@ -231,7 +265,11 @@ function buildAppointmentTasks(input: LeadCadenceContext) {
       buildTask(
         "appointment_confirm",
         setTime(twentyFourHour, 18, 0),
-        "[cadence:appointment_active:24h] Ask for a direct yes/no confirmation the day before."
+        cadenceNote(
+          "appointment_active:24h",
+          "Ask for a direct yes/no confirmation the day before.",
+          "Hey {first_name}, just confirming we're still good for tomorrow at {appointment_time} 👍"
+        )
       )
     );
   }
@@ -242,7 +280,11 @@ function buildAppointmentTasks(input: LeadCadenceContext) {
       buildTask(
         "appointment_confirm",
         twoHour,
-        "[cadence:appointment_active:2h] Final reminder to protect show rate."
+        cadenceNote(
+          "appointment_active:2h",
+          "Final reminder to protect show rate.",
+          "Hey {first_name}, just a quick reminder — I'll see you today at {appointment_time} 👍"
+        )
       )
     );
   }
@@ -260,24 +302,84 @@ function buildPostAppointmentTasks(input: LeadCadenceContext, track: LeadCadence
   switch (track) {
     case "post_appt_spouse":
       return [
-        buildTask(channelType, addMinutes(new Date(), 30), "[cadence:post_appt_spouse:recap] Recap and re-anchor around getting every decision-maker present."),
-        buildTask("call", dueAtForOffset({ offsetDays: 1, preferredChannel: "call", decisionMakerStatus, bestContactTime }), "[cadence:post_appt_spouse:call] Lock the next conversation with the spouse/decision-maker."),
-        buildTask("rebook_appointment", dueAtForOffset({ offsetDays: 3, preferredChannel, decisionMakerStatus, bestContactTime }), "[cadence:post_appt_spouse:rebook] Rebook the appointment with everyone present."),
-        buildTask(channelType, dueAtForOffset({ offsetDays: 7, preferredChannel, decisionMakerStatus, bestContactTime }), "[cadence:post_appt_spouse:final] Final check-in before the lead cools off.")
+        buildTask(
+          channelType,
+          addMinutes(new Date(), 30),
+          cadenceNote(
+            "post_appt_spouse:recap",
+            "Recap and re-anchor around getting every decision-maker present.",
+            "Hey {first_name}, good meeting with you today. I'd be happy to go back through everything whenever it makes sense for both of you to look at it together 👍"
+          )
+        ),
+        buildTask(
+          "call",
+          dueAtForOffset({ offsetDays: 1, preferredChannel: "call", decisionMakerStatus, bestContactTime }),
+          cadenceNote("post_appt_spouse:call", "Lock the next conversation with the spouse or decision-maker.")
+        ),
+        buildTask(
+          "rebook_appointment",
+          dueAtForOffset({ offsetDays: 3, preferredChannel, decisionMakerStatus, bestContactTime }),
+          cadenceNote("post_appt_spouse:rebook", "Rebook the appointment with everyone present.")
+        ),
+        buildTask(
+          channelType,
+          dueAtForOffset({ offsetDays: 7, preferredChannel, decisionMakerStatus, bestContactTime }),
+          cadenceNote("post_appt_spouse:final", "Final check-in before the lead cools off.")
+        )
       ];
     case "post_appt_numbers":
       return [
-        buildTask("proposal_follow_up", addMinutes(new Date(), 30), "[cadence:post_appt_numbers:recap] Send the numbers recap while the appointment is still fresh."),
-        buildTask("call", dueAtForOffset({ offsetDays: 3, preferredChannel: "call", decisionMakerStatus, bestContactTime }), "[cadence:post_appt_numbers:call] Review the savings math live."),
-        buildTask(channelType, dueAtForOffset({ offsetDays: 7, preferredChannel, decisionMakerStatus, bestContactTime }), "[cadence:post_appt_numbers:check] Light check-in after the numbers recap."),
-        buildTask("proposal_follow_up", dueAtForOffset({ offsetDays: 10, preferredChannel, decisionMakerStatus, bestContactTime }), "[cadence:post_appt_numbers:final] Final proposal recap before nurture.")
+        buildTask(
+          "proposal_follow_up",
+          addMinutes(new Date(), 30),
+          cadenceNote(
+            "post_appt_numbers:recap",
+            "Send the numbers recap while the appointment is still fresh.",
+            "Hey {first_name}, good meeting with you today. I can put together the numbers more clearly and walk you through them whenever you want 👍"
+          )
+        ),
+        buildTask(
+          "call",
+          dueAtForOffset({ offsetDays: 3, preferredChannel: "call", decisionMakerStatus, bestContactTime }),
+          cadenceNote("post_appt_numbers:call", "Review the savings math live.")
+        ),
+        buildTask(
+          channelType,
+          dueAtForOffset({ offsetDays: 7, preferredChannel, decisionMakerStatus, bestContactTime }),
+          cadenceNote("post_appt_numbers:check", "Light check-in after the numbers recap.")
+        ),
+        buildTask(
+          "proposal_follow_up",
+          dueAtForOffset({ offsetDays: 10, preferredChannel, decisionMakerStatus, bestContactTime }),
+          cadenceNote("post_appt_numbers:final", "Final proposal recap before nurture.")
+        )
       ];
     case "post_appt_price":
       return [
-        buildTask(channelType, addMinutes(new Date(), 30), "[cadence:post_appt_price:recap] Acknowledge the price/payment concern without pressure."),
-        buildTask("call", dueAtForOffset({ offsetDays: 3, preferredChannel: "call", decisionMakerStatus, bestContactTime }), "[cadence:post_appt_price:call] Talk through payment options and value framing."),
-        buildTask("customer_check_in", dueAtForOffset({ offsetDays: 7, preferredChannel, decisionMakerStatus, bestContactTime }), "[cadence:post_appt_price:check] Check if the payment concern still feels like the blocker."),
-        buildTask(channelType, dueAtForOffset({ offsetDays: 10, preferredChannel, decisionMakerStatus, bestContactTime }), "[cadence:post_appt_price:final] Final low-pressure follow-up.")
+        buildTask(
+          channelType,
+          addMinutes(new Date(), 30),
+          cadenceNote(
+            "post_appt_price:recap",
+            "Acknowledge the price or payment concern without pressure.",
+            "Hey {first_name}, I understand. If you want, we can take another look and see whether there's an option that fits more comfortably 👍"
+          )
+        ),
+        buildTask(
+          "call",
+          dueAtForOffset({ offsetDays: 3, preferredChannel: "call", decisionMakerStatus, bestContactTime }),
+          cadenceNote("post_appt_price:call", "Talk through payment options and value framing.")
+        ),
+        buildTask(
+          "customer_check_in",
+          dueAtForOffset({ offsetDays: 7, preferredChannel, decisionMakerStatus, bestContactTime }),
+          cadenceNote("post_appt_price:check", "Check if the payment concern still feels like the blocker.")
+        ),
+        buildTask(
+          channelType,
+          dueAtForOffset({ offsetDays: 10, preferredChannel, decisionMakerStatus, bestContactTime }),
+          cadenceNote("post_appt_price:final", "Final low-pressure follow-up.")
+        )
       ];
     case "post_appt_timing":
       return [
@@ -300,10 +402,34 @@ function buildPostAppointmentTasks(input: LeadCadenceContext, track: LeadCadence
       ];
     case "customer_onboarding":
       return [
-        buildTask(channelType, addMinutes(new Date(), 10), "[cadence:customer_onboarding:thanks] Thank the customer and reset expectations right away."),
-        buildTask("customer_check_in", dueAtForOffset({ offsetDays: 1, preferredChannel, decisionMakerStatus, bestContactTime }), "[cadence:customer_onboarding:day1] Onboarding check-in with next steps."),
-        buildTask("customer_check_in", dueAtForOffset({ offsetDays: 7, preferredChannel, decisionMakerStatus, bestContactTime }), "[cadence:customer_onboarding:day7] Reduce buyer's remorse and keep trust high."),
-        buildTask("referral_request", dueAtForOffset({ offsetDays: 30, preferredChannel, decisionMakerStatus, bestContactTime }), "[cadence:customer_onboarding:referral] Ask for a referral or review after the relationship has settled in.")
+        buildTask(
+          channelType,
+          addMinutes(new Date(), 10),
+          cadenceNote(
+            "customer_onboarding:thanks",
+            "Thank the customer and reset expectations right away.",
+            "Hey {first_name}, really appreciate you moving forward with this. Excited to help get everything going, and if anything comes up along the way just reach out 👍"
+          )
+        ),
+        buildTask(
+          "customer_check_in",
+          dueAtForOffset({ offsetDays: 1, preferredChannel, decisionMakerStatus, bestContactTime }),
+          cadenceNote("customer_onboarding:day1", "Onboarding check-in with next steps.")
+        ),
+        buildTask(
+          "customer_check_in",
+          dueAtForOffset({ offsetDays: 7, preferredChannel, decisionMakerStatus, bestContactTime }),
+          cadenceNote("customer_onboarding:day7", "Reduce buyer's remorse and keep trust high.")
+        ),
+        buildTask(
+          "referral_request",
+          dueAtForOffset({ offsetDays: 30, preferredChannel, decisionMakerStatus, bestContactTime }),
+          cadenceNote(
+            "customer_onboarding:referral",
+            "Ask for a referral or review after the relationship has settled in.",
+            "Hey {first_name}, hope everything's been going smoothly. Also, if you know anyone else who's talked about solar, feel free to send them my way — I'd be happy to help 👍"
+          )
+        )
       ];
     default:
       return [];

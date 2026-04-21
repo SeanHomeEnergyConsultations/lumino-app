@@ -1,5 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
-import { createTaskIfMissing, ensureOutcomeTask } from "@/lib/db/mutations/tasks";
+import { ensureOutcomeTask, upsertCadenceTask } from "@/lib/db/mutations/tasks";
 import {
   deleteSyncedGoogleCalendarAppointment,
   syncAppointmentToGoogleCalendar
@@ -50,7 +50,7 @@ async function queueCadenceTasks(input: {
 
   await Promise.all(
     plan.tasks.map((task) =>
-      createTaskIfMissing(
+      upsertCadenceTask(
         {
           propertyId: input.propertyId,
           leadId: input.leadId,
@@ -174,6 +174,11 @@ export async function upsertLead(input: LeadInput, context: AuthSessionContext) 
     input.appointmentAt !== undefined ||
     input.appointmentOutcome !== undefined ||
     input.cadenceTrack !== undefined ||
+    input.engagementScore !== undefined ||
+    input.preferredChannel !== undefined ||
+    input.bestContactTime !== undefined ||
+    input.decisionMakerStatus !== undefined ||
+    input.objectionType !== undefined ||
     (!propertyRow.lead_id && input.nextFollowUpAt == null);
 
   const cadencePlan =

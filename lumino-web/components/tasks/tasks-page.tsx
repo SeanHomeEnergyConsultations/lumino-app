@@ -11,6 +11,11 @@ function formatDateTime(value: string | null) {
   return new Date(value).toLocaleString();
 }
 
+function formatTaskNotes(value: string | null) {
+  if (!value) return null;
+  return value.replace(/^\[cadence:[^\]]+\]\s*/, "");
+}
+
 function TaskSection({
   title,
   description,
@@ -58,7 +63,9 @@ function TaskSection({
                 </div>
               </div>
 
-              {item.notes ? <div className="mt-3 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">{item.notes}</div> : null}
+              {item.notes ? (
+                <div className="mt-3 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">{formatTaskNotes(item.notes)}</div>
+              ) : null}
 
               <div className="mt-4 flex flex-wrap gap-2">
                 {item.propertyId ? (
