@@ -30,6 +30,57 @@ const quickOutcomes = [
   { label: "Do Not Knock", value: "do_not_knock", icon: Ban }
 ];
 
+const APPOINTMENT_TIME_SLOTS = [
+  { label: "9:00 AM", hour: 9, minute: 0 },
+  { label: "11:00 AM", hour: 11, minute: 0 },
+  { label: "1:00 PM", hour: 13, minute: 0 },
+  { label: "3:00 PM", hour: 15, minute: 0 },
+  { label: "5:00 PM", hour: 17, minute: 0 },
+  { label: "7:00 PM", hour: 19, minute: 0 }
+] as const;
+
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function startOfDay(value: Date) {
+  const next = new Date(value);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function addDays(value: Date, days: number) {
+  const next = new Date(value);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function startOfWeek(value: Date) {
+  const next = startOfDay(value);
+  next.setDate(next.getDate() - next.getDay());
+  return next;
+}
+
+function startOfMonthGrid(value: Date) {
+  return startOfWeek(new Date(value.getFullYear(), value.getMonth(), 1));
+}
+
+function isoDateKey(value: Date) {
+  return startOfDay(value).toISOString().slice(0, 10);
+}
+
+function monthLabel(value: Date) {
+  return value.toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric"
+  });
+}
+
+function formatAppointmentTime(value: string) {
+  return new Date(value).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
 function EmptyPropertyState() {
   return (
     <div className="app-panel-soft rounded-3xl border border-dashed p-6 text-sm text-slate-500">
@@ -84,6 +135,7 @@ export function PropertyDrawer({
   const [taskState, setTaskState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [appointmentSchedule, setAppointmentSchedule] = useState<AppointmentsResponse | null>(null);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
+  const [appointmentCalendarMonth, setAppointmentCalendarMonth] = useState<Date>(() => startOfDay(new Date()));
 
   function toDateTimeLocal(value: string | null | undefined) {
     if (!value) return "";
@@ -114,6 +166,14 @@ export function PropertyDrawer({
       setMobileExpanded(true);
     }
   }, [property]);
+
+  useEffect(() => {
+    if (!appointmentAt) {
+      setAppointmentCalendarMonth(startOfDay(new Date()));
+      return;
+    }
+    setAppointmentCalendarMonth(startOfDay(new Date(appointmentAt)));
+  }, [appointmentAt]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -147,6 +207,16 @@ export function PropertyDrawer({
   const showActions = mobileSection === "actions";
   const showLead = mobileSection === "lead";
   const showHistory = mobileSection === "history";
+  const appointmentScheduleItemsByDay = useMemo(() => {
+    const next = new Map<string, AppointmentsResponse["today"]>();
+    for (const item of [...(appointmentSchedule?.today ?? []), ...(appointmentSchedule?.upcoming ?? []), ...(appointmentSchedule?.pastDue ?? [])]) {
+      const key = isoDateKey(new Date(item.scheduledAt));
+      const current = next.get(key) ?? [];
+      current.push(item);
+      next.set(key, current);
+    }
+    return next;
+  }, [appointmentSchedule]);
   const upcomingScheduleItems = useMemo(
     () => [
       ...(appointmentSchedule?.today ?? []),
@@ -156,6 +226,48 @@ export function PropertyDrawer({
       .slice(0, 5),
     [appointmentSchedule]
   );
+  const selectedAppointmentDate = appointmentAt ? new Date(appointmentAt) : null;
+  const selectedAppointmentDateKey = selectedAppointmentDate ? isoDateKey(selectedAppointmentDate) : null;
+  const selectedDayScheduleItems = selectedAppointmentDateKey
+    ? appointmentScheduleItemsByDay.get(selectedAppointmentDateKey) ?? []
+    : [];
+  const appointmentCalendarDays = useMemo(() => {
+    const gridStart = startOfMonthGrid(appointmentCalendarMonth);
+    const month = appointmentCalendarMonth.getMonth();
+    const todayKey = isoDateKey(new Date());
+
+    return Array.from({ length: 35 }, (_, index) => {
+      const date = addDays(gridStart, index);
+      const key = isoDateKey(date);
+      return {
+        date,
+        key,
+        isToday: key === todayKey,
+        isCurrentMonth: date.getMonth() === month,
+        isSelected: key === selectedAppointmentDateKey,
+        items: appointmentScheduleItemsByDay.get(key) ?? []
+      };
+    });
+  }, [appointmentCalendarMonth, appointmentScheduleItemsByDay, selectedAppointmentDateKey]);
+
+  function applyAppointmentDate(date: Date) {
+    const next = new Date(date);
+    if (selectedAppointmentDate) {
+      next.setHours(selectedAppointmentDate.getHours(), selectedAppointmentDate.getMinutes(), 0, 0);
+    } else {
+      next.setHours(17, 0, 0, 0);
+    }
+
+    const offset = next.getTimezoneOffset();
+    setAppointmentAt(new Date(next.getTime() - offset * 60_000).toISOString().slice(0, 16));
+  }
+
+  function applyAppointmentTime(hour: number, minute: number) {
+    const base = selectedAppointmentDate ? new Date(selectedAppointmentDate) : new Date();
+    base.setHours(hour, minute, 0, 0);
+    const offset = base.getTimezoneOffset();
+    setAppointmentAt(new Date(base.getTime() - offset * 60_000).toISOString().slice(0, 16));
+  }
 
   const content = loading ? (
     <div className="app-panel rounded-3xl border p-5">
@@ -208,7 +320,9 @@ export function PropertyDrawer({
                 if (item.value === "disqualified") {
                   setLeadStatus("Closed Lost");
                 }
-                void onLogOutcome(item.value);
+                if (item.value !== "appointment_set") {
+                  void onLogOutcome(item.value);
+                }
               }}
               disabled={savingVisit}
               title={item.label}
@@ -304,54 +418,146 @@ export function PropertyDrawer({
               Capture appointment
             </div>
             <p className="mt-1 text-xs text-slate-500">Lock in the actual appointment time so the CRM stays trustworthy.</p>
-            <input
-              type="datetime-local"
-              value={appointmentAt}
-              onChange={(event) => setAppointmentAt(event.target.value)}
-              className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
-            />
             <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mist">
-                    Schedule Snapshot
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-ink">See what is already booked before you set the time</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mist">Mini Calendar</div>
+                  <div className="mt-1 text-sm font-semibold text-ink">Pick the day first, then choose a time</div>
                 </div>
-                <Link
-                  href="/appointments"
-                  className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300"
-                >
-                  Full calendar
-                </Link>
-              </div>
-              <div className="mt-3 space-y-2">
-                {loadingSchedule ? (
-                  <div className="rounded-2xl border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-500">
-                    Loading your current appointments…
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAppointmentCalendarMonth(
+                        new Date(appointmentCalendarMonth.getFullYear(), appointmentCalendarMonth.getMonth() - 1, 1)
+                      )
+                    }
+                    className="rounded-full border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300"
+                  >
+                    Prev
+                  </button>
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    {monthLabel(appointmentCalendarMonth)}
                   </div>
-                ) : upcomingScheduleItems.length ? (
-                  upcomingScheduleItems.map((item) => (
-                    <div key={item.leadId} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate font-semibold text-ink">{item.address}</div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            {[item.city, item.state].filter(Boolean).join(", ") || "Unknown area"}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAppointmentCalendarMonth(
+                        new Date(appointmentCalendarMonth.getFullYear(), appointmentCalendarMonth.getMonth() + 1, 1)
+                      )
+                    }
+                    className="rounded-full border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                {WEEKDAY_LABELS.map((label) => (
+                  <div key={label}>{label}</div>
+                ))}
+              </div>
+              <div className="mt-2 grid grid-cols-7 gap-1">
+                {appointmentCalendarDays.map((day) => (
+                  <button
+                    key={day.key}
+                    type="button"
+                    onClick={() => applyAppointmentDate(day.date)}
+                    className={`rounded-xl border px-1 py-2 text-center text-xs transition ${
+                      day.isSelected
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : day.items.length
+                          ? "border-amber-200 bg-amber-50 text-slate-700"
+                          : "border-slate-200 bg-slate-50 text-slate-700"
+                    } ${day.isCurrentMonth ? "" : "opacity-45"} ${day.isToday ? "ring-1 ring-sky-400" : ""}`}
+                  >
+                    <div className="font-semibold">{day.date.getDate()}</div>
+                    <div className="mt-1 text-[10px]">{day.items.length ? `${day.items.length} appt` : "Open"}</div>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mist">Quick Times</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {APPOINTMENT_TIME_SLOTS.map((slot) => {
+                    const isSelected =
+                      selectedAppointmentDate?.getHours() === slot.hour &&
+                      selectedAppointmentDate?.getMinutes() === slot.minute;
+                    return (
+                      <button
+                        key={slot.label}
+                        type="button"
+                        onClick={() => applyAppointmentTime(slot.hour, slot.minute)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                          isSelected
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300"
+                        }`}
+                      >
+                        {slot.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <input
+                type="datetime-local"
+                value={appointmentAt}
+                onChange={(event) => setAppointmentAt(event.target.value)}
+                className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              />
+              <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mist">Selected Day</div>
+                    <div className="mt-1 text-sm font-semibold text-ink">
+                      {selectedAppointmentDate
+                        ? selectedAppointmentDate.toLocaleDateString(undefined, {
+                            weekday: "long",
+                            month: "long",
+                            day: "numeric"
+                          })
+                        : "Choose a day"}
+                    </div>
+                  </div>
+                  <Link
+                    href="/appointments"
+                    className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300"
+                  >
+                    Full calendar
+                  </Link>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {loadingSchedule ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-500">
+                      Loading your current appointments…
+                    </div>
+                  ) : selectedDayScheduleItems.length ? (
+                    selectedDayScheduleItems.map((item) => (
+                      <div key={item.leadId} className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold text-ink">{item.address}</div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              {[item.city, item.state].filter(Boolean).join(", ") || "Unknown area"}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right text-xs font-semibold text-slate-600">
+                            {formatAppointmentTime(item.scheduledAt)}
                           </div>
                         </div>
-                        <div className="shrink-0 text-right text-xs font-semibold text-slate-600">
-                          <div>{new Date(item.scheduledAt).toLocaleDateString()}</div>
-                          <div className="mt-1">{new Date(item.scheduledAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</div>
-                        </div>
                       </div>
+                    ))
+                  ) : upcomingScheduleItems.length ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-500">
+                      This day looks open. Nearby upcoming appointments are still listed in the full calendar.
                     </div>
-                  ))
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-500">
-                    No other appointments are on the schedule right now.
-                  </div>
-                )}
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-500">
+                      No other appointments are on the schedule right now.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
             <div className="mt-3">
@@ -384,6 +590,7 @@ export function PropertyDrawer({
                       appointmentAt: appointmentAt ? new Date(appointmentAt).toISOString() : null,
                       nextFollowUpAt: appointmentAt ? new Date(appointmentAt).toISOString() : null
                     });
+                    await onLogOutcome("appointment_set");
                     setActionState("saved");
                   } catch {
                     setActionState("error");
