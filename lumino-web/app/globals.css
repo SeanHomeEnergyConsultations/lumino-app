@@ -7,17 +7,17 @@
 :root {
   color-scheme: light;
   --app-primary: #0b1220;
-  --app-primary-rgb: 11 18 32;
+  --app-primary-rgb: 11, 18, 32;
   --app-accent: #94a3b8;
-  --app-accent-rgb: 148 163 184;
+  --app-accent-rgb: 148, 163, 184;
   --app-background: #f4efe6;
-  --app-background-rgb: 244 239 230;
+  --app-background-rgb: 244, 239, 230;
   --app-background-accent: #dbe8f6;
-  --app-background-accent-rgb: 219 232 246;
+  --app-background-accent-rgb: 219, 232, 246;
   --app-surface: #ffffff;
-  --app-surface-rgb: 255 255 255;
+  --app-surface-rgb: 255, 255, 255;
   --app-sidebar: #f6f2ea;
-  --app-sidebar-rgb: 246 242 234;
+  --app-sidebar-rgb: 246, 242, 234;
 }
 
 html,

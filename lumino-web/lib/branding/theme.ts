@@ -81,7 +81,7 @@ function hexToRgbString(input: string) {
   const red = Number.parseInt(expanded.slice(0, 2), 16);
   const green = Number.parseInt(expanded.slice(2, 4), 16);
   const blue = Number.parseInt(expanded.slice(4, 6), 16);
-  return `${red} ${green} ${blue}`;
+  return `${red}, ${green}, ${blue}`;
 }
 
 type BrandingThemeInput = {
