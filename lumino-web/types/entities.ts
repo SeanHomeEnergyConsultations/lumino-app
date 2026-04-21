@@ -31,6 +31,10 @@ export interface OrganizationFeatureAccess {
   teamManagementEnabled: boolean;
   territoriesEnabled: boolean;
   solarCheckEnabled: boolean;
+  importEnrichmentEnabled: boolean;
+  bulkSolarEnrichmentEnabled: boolean;
+  clusterAnalysisEnabled: boolean;
+  premiumRoutingInsightsEnabled: boolean;
   datasetMarketplaceEnabled: boolean;
   enrichmentEnabled: boolean;
   priorityScoringEnabled: boolean;

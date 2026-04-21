@@ -458,7 +458,7 @@ export async function ingestImportUpload(
   await supabase
     .from("import_batches")
     .update({
-      status: pendingAnalysisCount > 0 ? "ready_for_analysis" : "uploaded",
+      status: "uploaded",
       inserted_count: insertedCount,
       updated_count: updatedCount,
       duplicate_matched_count: duplicateMatchedCount,
@@ -835,7 +835,7 @@ async function resetBatchItemsForReanalysis(batchId: string, statuses: string[])
   const { error: batchError } = await supabase
     .from("import_batches")
     .update({
-      status: "ready_for_analysis",
+      status: "uploaded",
       last_error: null,
       completed_at: null
     })
@@ -1022,6 +1022,9 @@ export async function runImportBatchAnalysis(
   options?: { retryFailed?: boolean; chunkSize?: number }
 ): Promise<ImportBatchAnalysisResponse> {
   if (!context.organizationId) throw new Error("No active organization found.");
+  if (!context.featureAccess?.importEnrichmentEnabled) {
+    throw new Error("Premium import enrichment is available on the Intelligence plan.");
+  }
   const chunkSize = Math.max(1, Math.min(options?.chunkSize ?? 12, 25));
   let statuses = options?.retryFailed ? ["pending", "failed"] : ["pending"];
   let items = await claimBatchItems(batchId, statuses, chunkSize);

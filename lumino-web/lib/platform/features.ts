@@ -13,6 +13,10 @@ export interface OrganizationFeatureFlags {
   teamManagementEnabled: boolean;
   territoriesEnabled: boolean;
   solarCheckEnabled: boolean;
+  importEnrichmentEnabled: boolean;
+  bulkSolarEnrichmentEnabled: boolean;
+  clusterAnalysisEnabled: boolean;
+  premiumRoutingInsightsEnabled: boolean;
   datasetMarketplaceEnabled: boolean;
   enrichmentEnabled: boolean;
   priorityScoringEnabled: boolean;
@@ -63,6 +67,10 @@ export const DEFAULT_ORGANIZATION_FEATURES: OrganizationFeatureFlags = {
   teamManagementEnabled: false,
   territoriesEnabled: false,
   solarCheckEnabled: false,
+  importEnrichmentEnabled: false,
+  bulkSolarEnrichmentEnabled: false,
+  clusterAnalysisEnabled: false,
+  premiumRoutingInsightsEnabled: false,
   datasetMarketplaceEnabled: false,
   enrichmentEnabled: false,
   priorityScoringEnabled: false,
@@ -84,6 +92,10 @@ export const BILLING_PLAN_PRESETS: Record<OrganizationBillingPlan, OrganizationF
     teamManagementEnabled: false,
     territoriesEnabled: false,
     solarCheckEnabled: false,
+    importEnrichmentEnabled: false,
+    bulkSolarEnrichmentEnabled: false,
+    clusterAnalysisEnabled: false,
+    premiumRoutingInsightsEnabled: false,
     datasetMarketplaceEnabled: false,
     enrichmentEnabled: false,
     priorityScoringEnabled: false,
@@ -103,6 +115,10 @@ export const BILLING_PLAN_PRESETS: Record<OrganizationBillingPlan, OrganizationF
     teamManagementEnabled: false,
     territoriesEnabled: false,
     solarCheckEnabled: false,
+    importEnrichmentEnabled: false,
+    bulkSolarEnrichmentEnabled: false,
+    clusterAnalysisEnabled: false,
+    premiumRoutingInsightsEnabled: false,
     datasetMarketplaceEnabled: false,
     enrichmentEnabled: false,
     priorityScoringEnabled: false,
@@ -122,6 +138,10 @@ export const BILLING_PLAN_PRESETS: Record<OrganizationBillingPlan, OrganizationF
     teamManagementEnabled: true,
     territoriesEnabled: true,
     solarCheckEnabled: true,
+    importEnrichmentEnabled: false,
+    bulkSolarEnrichmentEnabled: false,
+    clusterAnalysisEnabled: false,
+    premiumRoutingInsightsEnabled: false,
     datasetMarketplaceEnabled: true,
     enrichmentEnabled: false,
     priorityScoringEnabled: false,
@@ -141,6 +161,10 @@ export const BILLING_PLAN_PRESETS: Record<OrganizationBillingPlan, OrganizationF
     teamManagementEnabled: true,
     territoriesEnabled: true,
     solarCheckEnabled: true,
+    importEnrichmentEnabled: true,
+    bulkSolarEnrichmentEnabled: true,
+    clusterAnalysisEnabled: true,
+    premiumRoutingInsightsEnabled: true,
     datasetMarketplaceEnabled: true,
     enrichmentEnabled: true,
     priorityScoringEnabled: true,

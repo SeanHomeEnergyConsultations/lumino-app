@@ -218,6 +218,10 @@ export function LiveFieldMap({
     teamManagementEnabled: false,
     territoriesEnabled: false,
     solarCheckEnabled: false,
+    importEnrichmentEnabled: false,
+    bulkSolarEnrichmentEnabled: false,
+    clusterAnalysisEnabled: false,
+    premiumRoutingInsightsEnabled: false,
     datasetMarketplaceEnabled: false,
     territoryPlanningEnabled: false,
     securityConsoleEnabled: false

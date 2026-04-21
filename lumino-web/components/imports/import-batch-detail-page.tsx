@@ -52,7 +52,8 @@ function formatVisibility(batch: {
 function statusTone(status: string) {
   switch (status) {
     case "ready_for_analysis":
-      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "uploaded":
+      return "border-slate-200 bg-slate-100 text-slate-700";
     case "analyzing":
       return "border-amber-200 bg-amber-50 text-amber-700";
     case "completed":
@@ -68,6 +69,7 @@ function statusTone(status: string) {
 export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
   const { session, appContext } = useAuth();
   const accessToken = session?.access_token ?? null;
+  const canRunPremiumEnrichment = Boolean(appContext?.featureAccess?.importEnrichmentEnabled);
   const [batch, setBatch] = useState<ImportBatchDetailResponse["item"] | null>(null);
   const [assignmentOptions, setAssignmentOptions] = useState<{ teams: ImportAssignmentOption[]; users: ImportAssignmentOption[] }>({
     teams: [],
@@ -152,8 +154,8 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
           body: JSON.stringify({ action })
         });
         if (!response.ok) {
-          const json = await response.json().catch(() => ({ error: "Failed to analyze import batch." }));
-          throw new Error(json.error || "Failed to analyze import batch.");
+          const json = await response.json().catch(() => ({ error: "Failed to run premium enrichment." }));
+          throw new Error(json.error || "Failed to run premium enrichment.");
         }
         const json = (await response.json()) as ImportBatchAnalysisResponse;
         setBatch((current) =>
@@ -173,7 +175,7 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
       }
       await loadBatch({ silent: true });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Failed to analyze import batch.");
+      window.alert(error instanceof Error ? error.message : "Failed to run premium enrichment.");
     } finally {
       setRunning("idle");
     }
@@ -261,7 +263,7 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
               {loading ? "Loading batch..." : batch?.filename ?? "Import batch"}
             </h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              Review imported row status, analysis progress, and retry failures from one place.
+              Review imported row status, scope, and optional premium enrichment from one place.
             </p>
           </div>
 
@@ -279,22 +281,26 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
             >
               {refreshing ? "Refreshing..." : "Refresh"}
             </button>
-            <button
-              type="button"
-              onClick={() => void runAnalysis("run")}
-              disabled={running !== "idle"}
-              className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-            >
-              {running === "running" ? "Running..." : "Run Analysis"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void runAnalysis("retry_failed")}
-              disabled={running !== "idle"}
-              className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
-            >
-              {running === "retrying" ? "Retrying..." : "Retry Failed Rows"}
-            </button>
+            {canRunPremiumEnrichment ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void runAnalysis("run")}
+                  disabled={running !== "idle"}
+                  className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                >
+                  {running === "running" ? "Running..." : "Run Premium Enrichment"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void runAnalysis("retry_failed")}
+                  disabled={running !== "idle"}
+                  className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
+                >
+                  {running === "retrying" ? "Retrying..." : "Retry Failed Rows"}
+                </button>
+              </>
+            ) : null}
             {appContext?.isPlatformOwner ? (
               <button
                 type="button"
@@ -338,10 +344,14 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
             <div className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
               {[
                 ["Rows", batch.totalRows],
-                ["Pending", batch.pendingAnalysisCount],
-                ["Analyzing", batch.analyzingCount],
-                ["Analyzed", batch.analyzedCount],
-                ["Failed", batch.failedCount],
+                ...(canRunPremiumEnrichment
+                  ? ([
+                      ["Queued", batch.pendingAnalysisCount],
+                      ["Running", batch.analyzingCount],
+                      ["Enriched", batch.analyzedCount],
+                      ["Failed", batch.failedCount]
+                    ] as Array<[string, number]>)
+                  : []),
                 ["Duplicates", batch.duplicateMatchedCount]
               ].map(([label, value]) => (
                 <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -349,6 +359,12 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
                   <div className="mt-2 text-lg font-semibold text-ink">{value}</div>
                 </div>
               ))}
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              {canRunPremiumEnrichment
+                ? "This batch can run premium solar and scoring enrichment when you choose to process it."
+                : "This batch is on the low-cost workflow. Rows imported successfully and are usable now without paid enrichment."}
             </div>
 
             {batch.lastError ? (
@@ -495,14 +511,22 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
                       Row {item.sourceRowNumber ?? "?"} · {item.rawAddress ?? "Unknown address"}
                     </div>
                     <div className="mt-1 text-xs text-slate-500">
-                      Ingest: {item.ingestStatus.replaceAll("_", " ")} · Analysis: {item.analysisStatus.replaceAll("_", " ")}
+                      Ingest: {item.ingestStatus.replaceAll("_", " ")} ·
+                      {" "}
+                      {canRunPremiumEnrichment
+                        ? `Enrichment: ${item.analysisStatus.replaceAll("_", " ")}`
+                        : "Premium enrichment not run"}
                     </div>
                   </div>
-                  <div className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${statusTone(item.analysisStatus)}`}>
-                    {item.analysisStatus.replaceAll("_", " ")}
+                  <div
+                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${statusTone(
+                      canRunPremiumEnrichment ? item.analysisStatus : "uploaded"
+                    )}`}
+                  >
+                    {canRunPremiumEnrichment ? item.analysisStatus.replaceAll("_", " ") : "ready to work"}
                   </div>
                 </div>
-                {item.analysisError ? (
+                {canRunPremiumEnrichment && item.analysisError ? (
                   <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                     {item.analysisError}
                   </div>

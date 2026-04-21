@@ -45,11 +45,10 @@ function formatVisibility(batch: Pick<ImportBatchListItem, "visibilityScope" | "
 function statusTone(status: string) {
   switch (status) {
     case "ready_for_analysis":
-      return "border-sky-200 bg-sky-50 text-sky-700";
-    case "analyzing":
-      return "border-amber-200 bg-amber-50 text-amber-700";
     case "uploaded":
       return "border-slate-200 bg-slate-100 text-slate-700";
+    case "analyzing":
+      return "border-amber-200 bg-amber-50 text-amber-700";
     case "failed":
     case "completed_with_errors":
       return "border-rose-200 bg-rose-50 text-rose-700";
@@ -68,8 +67,9 @@ function formatBillingPlan(plan: OrganizationBillingPlan) {
 }
 
 export function ImportsPage() {
-  const { session } = useAuth();
+  const { session, appContext } = useAuth();
   const accessToken = session?.access_token ?? null;
+  const canRunPremiumEnrichment = Boolean(appContext?.featureAccess?.importEnrichmentEnabled);
 
   const [filename, setFilename] = useState<string | null>(null);
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
@@ -215,7 +215,11 @@ export function ImportsPage() {
       }
       const result = json as ImportUploadResponse;
       setUploadState("done");
-      setUploadMessage("Import created successfully. Open the batch when you’re ready to analyze it.");
+      setUploadMessage(
+        canRunPremiumEnrichment
+          ? "Import created successfully. Open the batch whenever you want to run premium enrichment."
+          : "Import created successfully. Your rows are ready to work now."
+      );
       setFilename(null);
       setHeaders([]);
       setPreviewRows([]);
@@ -309,14 +313,17 @@ export function ImportsPage() {
           method: "POST",
           body: JSON.stringify({ action })
         });
-        if (!response.ok) throw new Error("Failed to analyze import batch");
+        if (!response.ok) {
+          const json = await response.json().catch(() => ({ error: "Failed to run premium enrichment." }));
+          throw new Error(json.error || "Failed to run premium enrichment.");
+        }
         const json = (await response.json()) as ImportBatchAnalysisResponse;
         keepGoing = json.continued;
         applyBatchProgress(batchId, json);
       }
       await loadBatches({ silent: true });
     } catch {
-      window.alert("Import analysis failed. Open the batch detail page to inspect the error and retry.");
+      window.alert("Premium enrichment failed. Open the batch detail page to inspect the error and retry.");
       await loadBatches({ silent: true });
     } finally {
       setProcessingBatchId(null);
@@ -333,7 +340,7 @@ export function ImportsPage() {
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Imports</div>
             <h1 className="mt-2 text-3xl font-semibold text-ink">Upload Manager Lists</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              Upload private CSV lists for this organization and manage shared active datasets without duplicating analysis.
+              Upload private CSV lists for this organization and start working them right away. Premium enrichment is optional and only appears on plans that include it.
             </p>
           </div>
           <button
@@ -449,6 +456,11 @@ export function ImportsPage() {
                     : "Free-plan bulk upload requires contribution consent. Imported CSV rows become contributed platform data in exchange for automatic upload and map pinning."
                   : "This plan can upload private organization data without contribution consent."}
               </div>
+              <div className="mt-2">
+                {canRunPremiumEnrichment
+                  ? "Premium enrichment is enabled here when you want solar and scoring data layered onto an uploaded batch."
+                  : "This org is on the low-cost upload workflow. Rows import directly without paid solar or premium analysis."}
+              </div>
               {access.requiresContributionConsent && !access.hasCurrentConsent ? (
                 <div className="mt-4 space-y-3">
                   <label className="flex items-start gap-3 text-sm text-slate-700">
@@ -498,7 +510,7 @@ export function ImportsPage() {
               </button>
               {uploadState === "done" ? (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
-                  {uploadMessage ?? "Import created successfully. Open the batch when you’re ready to analyze it."}
+                  {uploadMessage ?? "Import created successfully. Your rows are ready to work now."}
                 </div>
               ) : null}
               {uploadState === "error" ? (
@@ -577,10 +589,14 @@ export function ImportsPage() {
                     ["Inserted", batch.insertedCount],
                     ["Updated", batch.updatedCount],
                     ["Duplicates", batch.duplicateMatchedCount],
-                    ["Pending", batch.pendingAnalysisCount],
-                    ["Analyzing", batch.analyzingCount],
-                    ["Analyzed", batch.analyzedCount],
-                    ["Failed", batch.failedCount]
+                    ...(canRunPremiumEnrichment
+                      ? ([
+                          ["Queued", batch.pendingAnalysisCount],
+                          ["Running", batch.analyzingCount],
+                          ["Enriched", batch.analyzedCount],
+                          ["Failed", batch.failedCount]
+                        ] as Array<[string, number]>)
+                      : [])
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</div>
@@ -595,22 +611,30 @@ export function ImportsPage() {
                   >
                     View Batch
                   </Link>
-                  <button
-                    type="button"
-                    onClick={() => void runAnalysis(batch.batchId, "run")}
-                    disabled={processingBatchId === batch.batchId}
-                    className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-                  >
-                    {processingBatchId === batch.batchId ? "Running..." : "Run Analysis"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void runAnalysis(batch.batchId, "retry_failed")}
-                    disabled={processingBatchId === batch.batchId || batch.failedCount === 0}
-                    className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
-                  >
-                    Retry Failed
-                  </button>
+                  {canRunPremiumEnrichment ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void runAnalysis(batch.batchId, "run")}
+                        disabled={processingBatchId === batch.batchId}
+                        className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                      >
+                        {processingBatchId === batch.batchId ? "Running..." : "Run Premium Enrichment"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void runAnalysis(batch.batchId, "retry_failed")}
+                        disabled={processingBatchId === batch.batchId || batch.failedCount === 0}
+                        className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
+                      >
+                        Retry Failed
+                      </button>
+                    </>
+                  ) : (
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600">
+                      Premium enrichment is available on the Intelligence plan.
+                    </div>
+                  )}
                 </div>
                 {batch.lastError ? <div className="mt-3 text-sm text-rose-600">{batch.lastError}</div> : null}
               </div>

@@ -71,6 +71,13 @@ export async function POST(
       return NextResponse.json({ error: "Invalid analysis payload" }, { status: 400 });
     }
 
+    if (!context.featureAccess?.importEnrichmentEnabled) {
+      return NextResponse.json(
+        { error: "Premium import enrichment is available on the Intelligence plan." },
+        { status: 403 }
+      );
+    }
+
     ({ batchId } = await params);
     const result = await runImportBatchAnalysis(batchId, context, {
       retryFailed: parsed.data.action === "retry_failed"
