@@ -19,6 +19,7 @@ These should exist in the Vercel project for the production environment:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `APP_ENCRYPTION_KEY` for encrypting third-party OAuth tokens and other sensitive server-managed secrets at rest
 - `GOOGLE_MAPS_API_KEY` if map tiles or geocoding rely on it
 - `NEXT_PUBLIC_APP_URL`
 - `APP_URL` if server-only helpers use a canonical app URL
@@ -55,6 +56,8 @@ Supabase-managed runtime values such as project URL or reserved internal values 
 
 - `SUPABASE_SERVICE_ROLE_KEY`
   - rotate after suspected exposure, contractor offboarding, or major auth changes
+- `APP_ENCRYPTION_KEY`
+  - rotate only through a planned migration because existing encrypted records depend on it for decryption
 - `RESEND_API_KEY`
   - rotate after suspected exposure or mailbox/domain configuration changes
 - `SEND_EMAIL_HOOK_SECRET`
@@ -90,6 +93,7 @@ The application currently has code-level references for:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `APP_ENCRYPTION_KEY`
 - `GOOGLE_MAPS_API_KEY`
 - `SECURITY_ALERT_WEBHOOK_URL`
 

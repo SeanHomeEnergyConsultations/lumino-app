@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { DEFAULT_APPOINTMENT_DURATION_MINUTES } from "@/lib/appointments/calendar";
 import { getAppointmentByLeadId } from "@/lib/db/queries/appointments";
+import { decryptSensitiveValue, encryptSensitiveValue, isEncryptedValue } from "@/lib/security/crypto";
 import { getGoogleCalendarOAuthEnv } from "@/lib/utils/env";
 import type { AuthSessionContext } from "@/types/auth";
 
@@ -31,6 +32,11 @@ type GoogleCalendarConnectionRow = {
   token_expires_at: string | null;
   last_synced_at: string | null;
   last_error: string | null;
+};
+
+type AuthorizedGoogleCalendarConnection = Omit<GoogleCalendarConnectionRow, "access_token" | "refresh_token"> & {
+  access_token: string | null;
+  refresh_token: string;
 };
 
 function requireGoogleCalendarEnv() {
@@ -73,7 +79,7 @@ async function refreshGoogleAccessToken(connection: GoogleCalendarConnectionRow)
   const body = new URLSearchParams({
     client_id: env.clientId,
     client_secret: env.clientSecret,
-    refresh_token: connection.refresh_token,
+    refresh_token: decryptSensitiveValue(connection.refresh_token),
     grant_type: "refresh_token"
   });
 
@@ -103,11 +109,35 @@ async function getAuthorizedConnection(userId: string) {
   if (error) throw error;
   if (!data) return null;
 
-  const connection = data as GoogleCalendarConnectionRow;
+  const storedConnection = data as GoogleCalendarConnectionRow;
+  const connection: AuthorizedGoogleCalendarConnection = {
+    ...storedConnection,
+    access_token: storedConnection.access_token ? decryptSensitiveValue(storedConnection.access_token) : null,
+    refresh_token: decryptSensitiveValue(storedConnection.refresh_token)
+  };
   const expiresAt = connection.token_expires_at ? new Date(connection.token_expires_at).getTime() : 0;
   const needsRefresh = !connection.access_token || !expiresAt || expiresAt <= Date.now() + 60_000;
+  const needsTokenMigration =
+    Boolean(storedConnection.access_token && !isEncryptedValue(storedConnection.access_token)) ||
+    !isEncryptedValue(storedConnection.refresh_token);
 
-  if (!needsRefresh) {
+  if (!needsRefresh && !needsTokenMigration) {
+    return { connection, accessToken: connection.access_token as string };
+  }
+
+  if (!needsRefresh && needsTokenMigration) {
+    const { error: migrationError } = await supabase
+      .from("user_google_calendar_connections")
+      .update({
+        access_token: connection.access_token ? encryptSensitiveValue(connection.access_token) : null,
+        refresh_token: encryptSensitiveValue(connection.refresh_token),
+        last_error: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", connection.id);
+
+    if (migrationError) throw migrationError;
+
     return { connection, accessToken: connection.access_token as string };
   }
 
@@ -119,7 +149,8 @@ async function getAuthorizedConnection(userId: string) {
   const { error: updateError } = await supabase
     .from("user_google_calendar_connections")
     .update({
-      access_token: refreshed.access_token,
+      access_token: encryptSensitiveValue(refreshed.access_token),
+      refresh_token: encryptSensitiveValue(connection.refresh_token),
       token_scope: refreshed.scope ?? connection.token_scope,
       token_expires_at: nextExpiresAt,
       last_error: null,
@@ -264,7 +295,11 @@ export async function completeGoogleCalendarOAuthCallback(params: { code: string
   if (existingConnectionError) throw existingConnectionError;
 
   const tokens = await exchangeCodeForTokens(params.code);
-  const refreshToken = tokens.refresh_token ?? (existingConnection?.refresh_token as string | undefined);
+  const existingRefreshToken =
+    typeof existingConnection?.refresh_token === "string"
+      ? decryptSensitiveValue(existingConnection.refresh_token)
+      : undefined;
+  const refreshToken = tokens.refresh_token ?? existingRefreshToken;
   if (!refreshToken) {
     throw new Error("Google did not return a refresh token.");
   }
@@ -278,8 +313,8 @@ export async function completeGoogleCalendarOAuthCallback(params: { code: string
         organization_id: stateRow.organization_id,
         provider: "google_calendar",
         calendar_id: "primary",
-        access_token: tokens.access_token,
-        refresh_token: refreshToken,
+        access_token: encryptSensitiveValue(tokens.access_token),
+        refresh_token: encryptSensitiveValue(refreshToken),
         token_scope: tokens.scope ?? GOOGLE_CALENDAR_SCOPES.join(" "),
         token_expires_at: expiresAt,
         last_error: null,
