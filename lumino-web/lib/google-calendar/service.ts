@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { DEFAULT_APPOINTMENT_DURATION_MINUTES } from "@/lib/appointments/calendar";
 import { getAppointmentByLeadId } from "@/lib/db/queries/appointments";
+import { getTaskCalendarItem } from "@/lib/db/queries/tasks";
 import { decryptSensitiveValue, encryptSensitiveValue, isEncryptedValue } from "@/lib/security/crypto";
 import { getGoogleCalendarOAuthEnv } from "@/lib/utils/env";
 import type { AuthSessionContext } from "@/types/auth";
@@ -202,6 +203,19 @@ async function googleApiRequest<T>(input: {
 
 function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60_000);
+}
+
+function taskDurationMinutes(type: string) {
+  switch (type) {
+    case "call":
+    case "text":
+    case "appointment_confirm":
+      return 15;
+    case "revisit":
+      return 30;
+    default:
+      return 30;
+  }
 }
 
 export function isGoogleCalendarConfigured() {
@@ -411,6 +425,48 @@ function buildGoogleCalendarEventPayload(input: {
   };
 }
 
+function buildTaskGoogleCalendarEventPayload(input: {
+  item: NonNullable<Awaited<ReturnType<typeof getTaskCalendarItem>>>;
+  appUrl: string;
+}) {
+  const start = new Date(input.item.dueAt as string);
+  const end = addMinutes(start, taskDurationMinutes(input.item.type));
+  const propertyUrl = input.item.propertyId
+    ? `${input.appUrl}/properties/${encodeURIComponent(input.item.propertyId)}`
+    : `${input.appUrl}/tasks`;
+  const mapUrl = input.item.propertyId
+    ? `${input.appUrl}/map?propertyId=${encodeURIComponent(input.item.propertyId)}`
+    : `${input.appUrl}/tasks`;
+
+  return {
+    summary: `Lumino task: ${input.item.type.replaceAll("_", " ")} - ${input.item.address}`,
+    description: [
+      "Scheduled from Lumino",
+      `Task type: ${input.item.type.replaceAll("_", " ")}`,
+      `Lead status: ${input.item.leadStatus ?? "Unknown"}`,
+      `Owner: ${input.item.ownerName ?? "Unassigned"}`,
+      `Notes: ${input.item.notes ?? "No notes"}`,
+      `Property: ${propertyUrl}`,
+      `Map: ${mapUrl}`
+    ].join("\n"),
+    location: [input.item.address, [input.item.city, input.item.state].filter(Boolean).join(", ")]
+      .filter(Boolean)
+      .join(", "),
+    start: { dateTime: start.toISOString() },
+    end: { dateTime: end.toISOString() },
+    status: "confirmed",
+    transparency: "transparent",
+    visibility: "private",
+    extendedProperties: {
+      private: {
+        luminoTaskId: input.item.taskId,
+        luminoLeadId: input.item.leadId ?? "",
+        luminoPropertyId: input.item.propertyId ?? ""
+      }
+    }
+  };
+}
+
 export async function syncAppointmentToGoogleCalendar(input: {
   context: AuthSessionContext;
   leadId: string;
@@ -525,4 +581,81 @@ export async function deleteSyncedGoogleCalendarAppointment(input: {
     .eq("id", existingSync.id);
 
   return { deleted: true };
+}
+
+export async function syncTaskToGoogleCalendar(input: {
+  context: AuthSessionContext;
+  taskId: string;
+  appUrl: string;
+}) {
+  const item = await getTaskCalendarItem(input.context, input.taskId);
+  if (!item || !item.dueAt || item.status === "completed" || item.status === "cancelled") {
+    return { synced: false, reason: "task_not_syncable" as const };
+  }
+
+  const authorized = await getAuthorizedConnection(input.context.appUser.id);
+  if (!authorized) return { synced: false, reason: "not_connected" as const };
+
+  const supabase = createServerSupabaseClient();
+  const { data: existingSync, error: syncLookupError } = await supabase
+    .from("task_calendar_syncs")
+    .select("id,external_event_id")
+    .eq("user_id", input.context.appUser.id)
+    .eq("task_id", input.taskId)
+    .eq("provider", "google_calendar")
+    .maybeSingle();
+
+  if (syncLookupError) throw syncLookupError;
+
+  const payload = buildTaskGoogleCalendarEventPayload({ item, appUrl: input.appUrl });
+  let externalEventId = existingSync?.external_event_id as string | null | undefined;
+
+  if (externalEventId) {
+    await googleApiRequest({
+      userId: input.context.appUser.id,
+      path: `/calendars/${encodeURIComponent(authorized.connection.calendar_id)}/events/${encodeURIComponent(externalEventId)}`,
+      method: "PUT",
+      body: payload
+    });
+  } else {
+    const created = await googleApiRequest<{ id: string }>({
+      userId: input.context.appUser.id,
+      path: `/calendars/${encodeURIComponent(authorized.connection.calendar_id)}/events`,
+      method: "POST",
+      body: payload
+    });
+    externalEventId = created.id;
+  }
+
+  const timestamp = new Date().toISOString();
+  const { error: upsertError } = await supabase
+    .from("task_calendar_syncs")
+    .upsert(
+      {
+        organization_id: input.context.organizationId,
+        user_id: input.context.appUser.id,
+        task_id: input.taskId,
+        provider: "google_calendar",
+        calendar_id: authorized.connection.calendar_id,
+        external_event_id: externalEventId,
+        sync_status: "synced",
+        last_synced_at: timestamp,
+        last_error: null,
+        updated_at: timestamp
+      },
+      { onConflict: "user_id,task_id,provider" }
+    );
+
+  if (upsertError) throw upsertError;
+
+  await supabase
+    .from("user_google_calendar_connections")
+    .update({
+      last_synced_at: timestamp,
+      last_error: null,
+      updated_at: timestamp
+    })
+    .eq("id", authorized.connection.id);
+
+  return { synced: true, eventId: externalEventId };
 }

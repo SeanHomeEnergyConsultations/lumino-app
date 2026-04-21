@@ -12,6 +12,27 @@ function combineName(firstName?: string | null, lastName?: string | null) {
   return [firstName?.trim(), lastName?.trim()].filter(Boolean).join(" ") || null;
 }
 
+function buildSuggestedFollowUpDate(leadStatus: string | null) {
+  const next = new Date();
+  next.setDate(next.getDate() + 1);
+
+  if (leadStatus === "Connected" || leadStatus === "Qualified") {
+    next.setHours(10, 0, 0, 0);
+  } else {
+    next.setHours(17, 0, 0, 0);
+  }
+
+  return next.toISOString();
+}
+
+function buildSuggestedTaskType(leadStatus: string | null) {
+  if (leadStatus === "Connected" || leadStatus === "Qualified") {
+    return "call" as const;
+  }
+
+  return "revisit" as const;
+}
+
 export async function upsertLead(input: LeadInput, context: AuthSessionContext) {
   const supabase = createServerSupabaseClient();
   if (!context.organizationId) {
@@ -169,6 +190,17 @@ export async function upsertLead(input: LeadInput, context: AuthSessionContext) 
       type: "appointment_confirm",
       dueAt: appointmentAt,
       notes: "Auto-created from appointment scheduling."
+    });
+  }
+
+  if (!propertyRow.lead_id && !nextFollowUpAt && !appointmentAt && leadId) {
+    await ensureOutcomeTask({
+      context,
+      propertyId: input.propertyId,
+      leadId,
+      type: buildSuggestedTaskType(leadStatus),
+      dueAt: buildSuggestedFollowUpDate(leadStatus),
+      notes: "Suggested follow-up created automatically from new lead capture."
     });
   }
 

@@ -1,4 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
+import { syncTaskToGoogleCalendar } from "@/lib/google-calendar/service";
+import { getAppBaseUrl } from "@/lib/utils/env";
 import type { AuthSessionContext } from "@/types/auth";
 import type { TaskInput } from "@/types/entities";
 
@@ -52,6 +54,12 @@ export async function createTask(input: TaskInput, context: AuthSessionContext) 
   const notes = input.notes?.trim() || null;
   const dueAt = input.dueAt ?? null;
   const taskId = await insertTask(input, context, notes, dueAt);
+  const appBaseUrl = getAppBaseUrl() ?? "http://localhost:3000";
+  await syncTaskToGoogleCalendar({
+    context,
+    taskId,
+    appUrl: appBaseUrl
+  }).catch(() => null);
   return { taskId };
 }
 
@@ -100,6 +108,12 @@ export async function ensureOutcomeTask(params: {
       .eq("id", existing.id);
 
     if (updateError) throw updateError;
+    const appBaseUrl = getAppBaseUrl() ?? "http://localhost:3000";
+    await syncTaskToGoogleCalendar({
+      context,
+      taskId: existing.id as string,
+      appUrl: appBaseUrl
+    }).catch(() => null);
     return { taskId: existing.id as string, created: false };
   }
 
@@ -115,6 +129,13 @@ export async function ensureOutcomeTask(params: {
     notes,
     dueAt
   );
+
+  const appBaseUrl = getAppBaseUrl() ?? "http://localhost:3000";
+  await syncTaskToGoogleCalendar({
+    context,
+    taskId,
+    appUrl: appBaseUrl
+  }).catch(() => null);
 
   return { taskId, created: true };
 }
