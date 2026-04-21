@@ -174,7 +174,7 @@ export async function upsertLead(input: LeadInput, context: AuthSessionContext) 
     input.appointmentAt !== undefined ||
     input.appointmentOutcome !== undefined ||
     input.cadenceTrack !== undefined ||
-    (!propertyRow.lead_id && input.nextFollowUpAt === undefined);
+    (!propertyRow.lead_id && input.nextFollowUpAt == null);
 
   const cadencePlan =
     shouldGenerateCadence

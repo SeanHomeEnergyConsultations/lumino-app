@@ -31,7 +31,7 @@ const quickOutcomes = [
   { label: "Not Interested", value: "not_interested", icon: XCircle },
   { label: "Disqualified", value: "disqualified", icon: BadgeHelp },
   { label: "Appointment", value: "appointment_set", icon: CalendarCheck2 },
-  { label: "Callback", value: "callback_requested", icon: PhoneCall },
+  { label: "Go Back", value: "callback_requested", icon: PhoneCall },
   { label: "Do Not Knock", value: "do_not_knock", icon: Ban }
 ];
 
@@ -435,13 +435,16 @@ export function PropertyDrawer({
                 if (item.value === "opportunity") {
                   setLeadStatus("Connected");
                 }
+                if (item.value === "callback_requested") {
+                  setLeadStatus("Attempting Contact");
+                }
                 if (item.value === "appointment_set") {
                   setLeadStatus("Appointment Set");
                 }
                 if (item.value === "disqualified") {
                   setLeadStatus("Closed Lost");
                 }
-                if (item.value !== "appointment_set") {
+                if (item.value !== "appointment_set" && item.value !== "callback_requested") {
                   void onLogOutcome(item.value);
                 }
               }}
@@ -480,13 +483,17 @@ export function PropertyDrawer({
         </div>
 
         <div className={showActions ? "mt-5 xl:mt-5" : "mt-5 hidden xl:block"}>
-        {postAction === "not_home" || postAction === "left_doorhanger" ? (
+        {postAction === "not_home" || postAction === "left_doorhanger" || postAction === "callback_requested" ? (
           <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-ink">
               <Clock3 className="h-4 w-4" />
-              Schedule revisit
+              {postAction === "callback_requested" ? "Schedule go-back" : "Schedule revisit"}
             </div>
-            <p className="mt-1 text-xs text-slate-500">Set the next follow-up while the knock is still fresh.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {postAction === "callback_requested"
+                ? "Use this when you want to return later, especially if you did not capture homeowner info yet."
+                : "Set the next follow-up while the knock is still fresh."}
+            </p>
             <input
               type="datetime-local"
               value={nextFollowUpAt}
@@ -515,10 +522,13 @@ export function PropertyDrawer({
                       phone,
                       email,
                       notes,
-                      leadStatus: property.leadStatus ?? "Attempting Contact",
+                      leadStatus: "Attempting Contact",
                       interestLevel,
                       nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null
                     });
+                    if (postAction === "callback_requested") {
+                      await onLogOutcome("callback_requested");
+                    }
                     setActionState("saved");
                   } catch {
                     setActionState("error");
