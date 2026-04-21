@@ -11,7 +11,7 @@ export async function getOrganizationBranding(
     return {
       organizationId: "default",
       appName: appBranding.appName,
-      logoUrl: null,
+      logoUrl: appBranding.logoUrl,
       primaryColor: appBranding.primaryColor,
       accentColor: appBranding.accentColor,
       backgroundColor: appBranding.backgroundColor,
@@ -66,7 +66,7 @@ export async function getOrganizationBranding(
       (data?.brand_name as string | null | undefined) ??
       (data?.name as string | null | undefined) ??
       appBranding.appName,
-    logoUrl: (data?.logo_url as string | null | undefined) ?? null,
+    logoUrl: (data?.logo_url as string | null | undefined) ?? appBranding.logoUrl,
     primaryColor: (data?.primary_color as string | null | undefined) ?? appBranding.primaryColor,
     accentColor: (data?.accent_color as string | null | undefined) ?? appBranding.accentColor,
     backgroundColor:

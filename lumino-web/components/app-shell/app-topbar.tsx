@@ -9,10 +9,11 @@ import type { OrganizationsResponse } from "@/types/api";
 
 export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
   const router = useRouter();
-  const { supabase, session, appContext, appBranding } = useAuth();
-  const appName = appBranding?.appName ?? "Lumino";
-  const primaryColor = appBranding?.primaryColor ?? "#0b1220";
-  const accentColor = appBranding?.accentColor ?? "#94a3b8";
+  const { supabase, session, appContext, appBranding, organizationBranding } = useAuth();
+  const effectiveBranding = organizationBranding ?? appBranding;
+  const appName = effectiveBranding?.appName ?? "Lumino";
+  const primaryColor = effectiveBranding?.primaryColor ?? "#0b1220";
+  const accentColor = effectiveBranding?.accentColor ?? "#94a3b8";
   const [organizations, setOrganizations] = useState<OrganizationsResponse["items"]>([]);
   const [switchingOrg, setSwitchingOrg] = useState(false);
 

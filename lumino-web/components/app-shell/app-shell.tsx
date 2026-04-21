@@ -8,7 +8,8 @@ import { useAuth } from "@/lib/auth/client";
 import { getOrganizationThemeStyle, getOrganizationThemeVariables } from "@/lib/branding/theme";
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { appBranding } = useAuth();
+  const { appBranding, organizationBranding } = useAuth();
+  const effectiveBranding = organizationBranding ?? appBranding;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
@@ -22,14 +23,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    const variables = getOrganizationThemeVariables(appBranding);
+    const variables = getOrganizationThemeVariables(effectiveBranding);
     for (const [key, value] of Object.entries(variables)) {
       root.style.setProperty(key, value);
     }
-  }, [appBranding]);
+  }, [effectiveBranding]);
 
   return (
-    <div className="app-frame flex min-h-screen" style={getOrganizationThemeStyle(appBranding)}>
+    <div className="app-frame flex min-h-screen" style={getOrganizationThemeStyle(effectiveBranding)}>
       <div className="hidden xl:block">
         <AppSidebar />
       </div>
