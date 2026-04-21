@@ -58,7 +58,7 @@ export function ManagerDashboardPage() {
     <div className="p-4 md:p-6">
       <DailySummaryPanel />
 
-      <div className="mt-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
+      <div className="app-panel mt-6 rounded-[2rem] border p-6">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Manager Dashboard</div>
         <h1 className="mt-2 text-3xl font-semibold text-ink">Team operating view</h1>
         <p className="mt-3 max-w-3xl text-sm text-slate-600">
@@ -75,7 +75,7 @@ export function ManagerDashboardPage() {
           ].map((item) => {
             const Icon = item.icon;
             return (
-              <Link key={item.label} href={item.href as Route} className="rounded-3xl border border-slate-200 bg-slate-50 p-4 transition hover:border-slate-300 hover:bg-white">
+              <Link key={item.label} href={item.href as Route} className="app-panel-soft rounded-3xl border p-4 transition hover:border-[rgba(var(--app-primary-rgb),0.18)] hover:bg-white/90">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">{item.label}</div>
                   <Icon className="h-4 w-4 text-slate-500" />
@@ -109,7 +109,7 @@ export function ManagerDashboardPage() {
               detail: `${dashboard?.territories.filter((territory) => territory.health === "strong").length ?? 0} strong territories in rotation`
             }
           ].map((item) => (
-            <div key={item.label} className="rounded-3xl border border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#eef4ff_100%)] p-4">
+            <div key={item.label} className="app-panel-soft rounded-3xl border p-4">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">{item.label}</div>
               <div className="mt-2 text-2xl font-semibold text-ink">{item.value}</div>
               <div className="mt-1 text-xs text-slate-500">{item.detail}</div>
@@ -119,7 +119,7 @@ export function ManagerDashboardPage() {
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+        <section className="app-panel rounded-[2rem] border p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Manager Alerts</div>
@@ -163,7 +163,7 @@ export function ManagerDashboardPage() {
           </div>
         </section>
 
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+        <section className="app-panel rounded-[2rem] border p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Coaching Flags</div>
@@ -211,7 +211,7 @@ export function ManagerDashboardPage() {
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+        <section className="app-panel rounded-[2rem] border p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Rep Performance</div>

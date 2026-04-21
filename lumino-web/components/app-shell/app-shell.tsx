@@ -4,8 +4,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AppSidebar } from "@/components/app-shell/app-sidebar";
 import { MobileBottomNav } from "@/components/app-shell/mobile-bottom-nav";
 import { AppTopbar } from "@/components/app-shell/app-topbar";
+import { useAuth } from "@/lib/auth/client";
+import { getOrganizationThemeStyle } from "@/lib/branding/theme";
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const { organizationBranding } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
@@ -18,7 +21,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [mobileNavOpen]);
 
   return (
-    <div className="flex min-h-screen">
+    <div className="app-frame flex min-h-screen" style={getOrganizationThemeStyle(organizationBranding)}>
       <div className="hidden xl:block">
         <AppSidebar />
       </div>

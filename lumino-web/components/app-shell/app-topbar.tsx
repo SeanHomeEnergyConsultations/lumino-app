@@ -64,12 +64,12 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
   }
 
   return (
-    <header className="flex flex-col gap-3 border-b border-slate-200/80 bg-white/70 px-4 py-3 backdrop-blur md:px-6 xl:flex-row xl:items-center xl:justify-between">
+    <header className="app-topbar-surface flex flex-col gap-3 border-b px-4 py-3 md:px-6 xl:flex-row xl:items-center xl:justify-between">
       <div className="flex items-start gap-3">
         <button
           type="button"
           onClick={onOpenNav}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 xl:hidden"
+          className="app-chip inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-3 text-slate-700 transition hover:bg-white/90 xl:hidden"
           aria-label="Open app menu"
         >
           <Menu className="h-5 w-5" />
@@ -100,14 +100,14 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
             ))}
           </select>
         ) : null}
-        <div className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600">
+        <div className="app-chip rounded-full px-3 py-1.5 text-sm text-slate-600">
           {appContext?.appUser.fullName || appContext?.appUser.email || "Signed in"}
         </div>
         {supabase ? (
           <button
             type="button"
             onClick={handleSignOut}
-            className="rounded-full border bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-950 hover:text-white"
+            className="app-chip rounded-full border bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-[rgba(var(--app-primary-rgb),0.92)] hover:text-white"
             style={{ borderColor: `${primaryColor}33` }}
           >
             Sign out

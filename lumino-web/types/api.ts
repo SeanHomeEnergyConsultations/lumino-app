@@ -539,6 +539,10 @@ export interface OrganizationBranding {
   logoUrl: string | null;
   primaryColor: string | null;
   accentColor: string | null;
+  backgroundColor: string | null;
+  backgroundAccentColor: string | null;
+  surfaceColor: string | null;
+  sidebarColor: string | null;
 }
 
 export interface OrganizationBrandingResponse {

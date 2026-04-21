@@ -29,7 +29,7 @@ const quickOutcomes = [
 
 function EmptyPropertyState() {
   return (
-    <div className="rounded-3xl border border-dashed border-slate-300 bg-white/60 p-6 text-sm text-slate-500">
+    <div className="app-panel-soft rounded-3xl border border-dashed p-6 text-sm text-slate-500">
       Select a property to see memory, visit history, and quick actions.
     </div>
   );
@@ -119,13 +119,13 @@ export function PropertyDrawer({
   const showHistory = mobileSection === "history";
 
   const content = loading ? (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-panel">
+    <div className="app-panel rounded-3xl border p-5">
       <div className="text-sm text-slate-500">Loading property memory…</div>
     </div>
   ) : !property ? (
     <EmptyPropertyState />
   ) : (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-panel">
+    <div className="app-panel rounded-3xl border p-5">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Property Memory</div>
         <h2 className="mt-2 text-xl font-semibold text-ink">{property.address}</h2>
         <div className="mt-2 text-sm text-slate-600">

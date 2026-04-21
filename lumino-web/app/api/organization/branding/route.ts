@@ -54,7 +54,11 @@ export async function PATCH(request: Request) {
       appName: parsed.data.appName,
       logoUrl: parsed.data.logoUrl || null,
       primaryColor: parsed.data.primaryColor || null,
-      accentColor: parsed.data.accentColor || null
+      accentColor: parsed.data.accentColor || null,
+      backgroundColor: parsed.data.backgroundColor || null,
+      backgroundAccentColor: parsed.data.backgroundAccentColor || null,
+      surfaceColor: parsed.data.surfaceColor || null,
+      sidebarColor: parsed.data.sidebarColor || null
     },
     context
   );
@@ -68,11 +72,19 @@ export async function PATCH(request: Request) {
       previousLogoUrl: previous.logoUrl,
       previousPrimaryColor: previous.primaryColor,
       previousAccentColor: previous.accentColor,
+      previousBackgroundColor: previous.backgroundColor,
+      previousBackgroundAccentColor: previous.backgroundAccentColor,
+      previousSurfaceColor: previous.surfaceColor,
+      previousSidebarColor: previous.sidebarColor,
       appName: parsed.data.appName,
       hasLogoUrl: Boolean(parsed.data.logoUrl),
       logoUrl: parsed.data.logoUrl || null,
       primaryColor: parsed.data.primaryColor || null,
-      accentColor: parsed.data.accentColor || null
+      accentColor: parsed.data.accentColor || null,
+      backgroundColor: parsed.data.backgroundColor || null,
+      backgroundAccentColor: parsed.data.backgroundAccentColor || null,
+      surfaceColor: parsed.data.surfaceColor || null,
+      sidebarColor: parsed.data.sidebarColor || null
     }
   });
   return NextResponse.json({ item });

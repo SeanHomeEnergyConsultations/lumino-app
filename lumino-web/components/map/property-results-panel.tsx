@@ -85,7 +85,7 @@ export function PropertyResultsPanel({
   routeSelectionMode = false,
   selectedRouteLeadIds = new Set<string>(),
   onToggleRouteLead,
-  className = "relative z-20 hidden w-80 shrink-0 border-r border-slate-200/80 bg-white/80 backdrop-blur xl:block",
+  className = "app-sidebar-surface relative z-20 hidden w-80 shrink-0 border-r xl:block",
   showHeader = true,
   showPriority = true
 }: {
@@ -218,11 +218,11 @@ export function PropertyResultsPanel({
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Nearby Targets</div>
         <div className="mt-1 text-sm text-slate-600">{items.length} properties in view</div>
         {routeSelectionMode ? (
-          <div className="mt-2 rounded-2xl border border-ink/10 bg-ink px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white">
+          <div className="mt-2 rounded-2xl border border-[rgba(var(--app-primary-rgb),0.14)] bg-[rgba(var(--app-primary-rgb),0.92)] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white">
             Route selection on · tap pins or list rows to build a run
           </div>
         ) : null}
-        <div className="mt-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+        <div className="app-chip mt-3 flex items-center gap-2 rounded-2xl px-3 py-2 shadow-sm">
             <Search className="h-4 w-4 text-slate-400" />
             <input
               value={query}

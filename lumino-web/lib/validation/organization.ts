@@ -7,7 +7,11 @@ export const organizationBrandingSchema = z.object({
   appName: z.string().trim().min(1).max(120),
   logoUrl: z.string().trim().url().max(2048).nullable().optional().or(z.literal("")),
   primaryColor: z.string().trim().regex(hexColor).nullable().optional().or(z.literal("")),
-  accentColor: z.string().trim().regex(hexColor).nullable().optional().or(z.literal(""))
+  accentColor: z.string().trim().regex(hexColor).nullable().optional().or(z.literal("")),
+  backgroundColor: z.string().trim().regex(hexColor).nullable().optional().or(z.literal("")),
+  backgroundAccentColor: z.string().trim().regex(hexColor).nullable().optional().or(z.literal("")),
+  surfaceColor: z.string().trim().regex(hexColor).nullable().optional().or(z.literal("")),
+  sidebarColor: z.string().trim().regex(hexColor).nullable().optional().or(z.literal(""))
 });
 
 export const organizationCreateSchema = z.object({

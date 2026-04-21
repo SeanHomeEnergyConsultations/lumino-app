@@ -9,6 +9,10 @@ export async function updateOrganizationBranding(
     logoUrl?: string | null;
     primaryColor?: string | null;
     accentColor?: string | null;
+    backgroundColor?: string | null;
+    backgroundAccentColor?: string | null;
+    surfaceColor?: string | null;
+    sidebarColor?: string | null;
   },
   context: AuthSessionContext
 ): Promise<OrganizationBranding> {
@@ -20,6 +24,12 @@ export async function updateOrganizationBranding(
     logo_url: input.logoUrl?.trim() || null,
     primary_color: input.primaryColor?.trim() || null,
     accent_color: input.accentColor?.trim() || null,
+    theme_config: {
+      backgroundColor: input.backgroundColor?.trim() || null,
+      backgroundAccentColor: input.backgroundAccentColor?.trim() || null,
+      surfaceColor: input.surfaceColor?.trim() || null,
+      sidebarColor: input.sidebarColor?.trim() || null
+    },
     updated_at: new Date().toISOString()
   };
 

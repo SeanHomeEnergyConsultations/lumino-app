@@ -70,7 +70,7 @@ export function AppSidebar() {
   const filteredNav = getVisibleAppNav({ appContext });
 
   return (
-    <aside className="w-72 shrink-0 border-r border-slate-200/80 bg-white/70 px-5 py-6 backdrop-blur">
+    <aside className="app-sidebar-surface w-72 shrink-0 border-r px-5 py-6">
       <div className="flex items-center gap-3">
         <LogoMark appName={appName} logoUrl={organizationBranding?.logoUrl ?? null} primaryColor={primaryColor} />
         <div>
@@ -89,7 +89,7 @@ export function AppSidebar() {
             className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition ${
               pathname?.startsWith(href)
                 ? "text-white"
-                : "text-slate-700 hover:bg-slate-950 hover:text-white"
+                : "text-slate-700 hover:bg-[rgba(var(--app-primary-rgb),0.92)] hover:text-white"
             }`}
             style={pathname?.startsWith(href) ? { backgroundColor: primaryColor } : undefined}
           >

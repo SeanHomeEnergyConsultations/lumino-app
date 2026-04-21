@@ -17,6 +17,7 @@ import type {
   TerritoryPropertyItem,
   TerritoryPropertySearchResponse
 } from "@/types/api";
+import { DEFAULT_ORGANIZATION_THEME } from "@/lib/branding/theme";
 
 function statusPill(status: string) {
   return status === "active"
@@ -55,8 +56,14 @@ export function TerritoryAdminPage() {
   const [inviteRole, setInviteRole] = useState<"owner" | "admin" | "manager" | "rep" | "setter">("rep");
   const [brandName, setBrandName] = useState("Lumino");
   const [logoUrl, setLogoUrl] = useState("");
-  const [primaryColor, setPrimaryColor] = useState("#0b1220");
-  const [accentColor, setAccentColor] = useState("#94a3b8");
+  const [primaryColor, setPrimaryColor] = useState<string>(DEFAULT_ORGANIZATION_THEME.primaryColor);
+  const [accentColor, setAccentColor] = useState<string>(DEFAULT_ORGANIZATION_THEME.accentColor);
+  const [backgroundColor, setBackgroundColor] = useState<string>(DEFAULT_ORGANIZATION_THEME.backgroundColor);
+  const [backgroundAccentColor, setBackgroundAccentColor] = useState<string>(
+    DEFAULT_ORGANIZATION_THEME.backgroundAccentColor
+  );
+  const [surfaceColor, setSurfaceColor] = useState<string>(DEFAULT_ORGANIZATION_THEME.surfaceColor);
+  const [sidebarColor, setSidebarColor] = useState<string>(DEFAULT_ORGANIZATION_THEME.sidebarColor);
   const [organizationName, setOrganizationName] = useState("");
   const [organizationSlug, setOrganizationSlug] = useState("");
   const [organizationAppName, setOrganizationAppName] = useState("");
@@ -176,8 +183,14 @@ export function TerritoryAdminPage() {
     if (!organizationBranding) return;
     setBrandName(organizationBranding.appName || "Lumino");
     setLogoUrl(organizationBranding.logoUrl || "");
-    setPrimaryColor(organizationBranding.primaryColor || "#0b1220");
-    setAccentColor(organizationBranding.accentColor || "#94a3b8");
+    setPrimaryColor(organizationBranding.primaryColor || DEFAULT_ORGANIZATION_THEME.primaryColor);
+    setAccentColor(organizationBranding.accentColor || DEFAULT_ORGANIZATION_THEME.accentColor);
+    setBackgroundColor(organizationBranding.backgroundColor || DEFAULT_ORGANIZATION_THEME.backgroundColor);
+    setBackgroundAccentColor(
+      organizationBranding.backgroundAccentColor || DEFAULT_ORGANIZATION_THEME.backgroundAccentColor
+    );
+    setSurfaceColor(organizationBranding.surfaceColor || DEFAULT_ORGANIZATION_THEME.surfaceColor);
+    setSidebarColor(organizationBranding.sidebarColor || DEFAULT_ORGANIZATION_THEME.sidebarColor);
   }, [organizationBranding]);
 
   useEffect(() => {
@@ -438,7 +451,11 @@ export function TerritoryAdminPage() {
           appName: brandName.trim(),
           logoUrl: logoUrl.trim() || null,
           primaryColor: primaryColor.trim(),
-          accentColor: accentColor.trim()
+          accentColor: accentColor.trim(),
+          backgroundColor: backgroundColor.trim(),
+          backgroundAccentColor: backgroundAccentColor.trim(),
+          surfaceColor: surfaceColor.trim(),
+          sidebarColor: sidebarColor.trim()
         })
       });
 
@@ -569,12 +586,12 @@ export function TerritoryAdminPage() {
 
       {canEditBranding ? (
         <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <section className="app-panel rounded-[2rem] border p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Branding</div>
               <p className="mt-2 text-sm text-slate-500">
-                Set the organization name, logo URL, and brand colors that drive the white-label shell.
+                Set the organization name, logo URL, and shell colors that make the app feel like your team&apos;s product.
               </p>
             </div>
             <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
@@ -599,22 +616,62 @@ export function TerritoryAdminPage() {
                 className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
               />
               <div className="grid gap-3 md:grid-cols-2">
-                <label className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                <label className="app-chip rounded-2xl px-3 py-2 text-sm text-slate-600">
                   <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Primary</span>
                   <input
                     type="color"
                     value={primaryColor}
                     onChange={(event) => setPrimaryColor(event.target.value)}
-                    className="h-10 w-full cursor-pointer rounded-xl border-0 bg-transparent"
+                    className="app-color-swatch rounded-xl"
                   />
                 </label>
-                <label className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                <label className="app-chip rounded-2xl px-3 py-2 text-sm text-slate-600">
                   <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Accent</span>
                   <input
                     type="color"
                     value={accentColor}
                     onChange={(event) => setAccentColor(event.target.value)}
-                    className="h-10 w-full cursor-pointer rounded-xl border-0 bg-transparent"
+                    className="app-color-swatch rounded-xl"
+                  />
+                </label>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="app-chip rounded-2xl px-3 py-2 text-sm text-slate-600">
+                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Background</span>
+                  <input
+                    type="color"
+                    value={backgroundColor}
+                    onChange={(event) => setBackgroundColor(event.target.value)}
+                    className="app-color-swatch rounded-xl"
+                  />
+                </label>
+                <label className="app-chip rounded-2xl px-3 py-2 text-sm text-slate-600">
+                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Background Glow</span>
+                  <input
+                    type="color"
+                    value={backgroundAccentColor}
+                    onChange={(event) => setBackgroundAccentColor(event.target.value)}
+                    className="app-color-swatch rounded-xl"
+                  />
+                </label>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="app-chip rounded-2xl px-3 py-2 text-sm text-slate-600">
+                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Surface</span>
+                  <input
+                    type="color"
+                    value={surfaceColor}
+                    onChange={(event) => setSurfaceColor(event.target.value)}
+                    className="app-color-swatch rounded-xl"
+                  />
+                </label>
+                <label className="app-chip rounded-2xl px-3 py-2 text-sm text-slate-600">
+                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Sidebar</span>
+                  <input
+                    type="color"
+                    value={sidebarColor}
+                    onChange={(event) => setSidebarColor(event.target.value)}
+                    className="app-color-swatch rounded-xl"
                   />
                 </label>
               </div>
@@ -622,18 +679,23 @@ export function TerritoryAdminPage() {
                 type="button"
                 onClick={() => void handleSaveBranding()}
                 disabled={!brandName.trim() || brandingState === "saving"}
-                className="rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="app-primary-button rounded-2xl px-4 py-2.5 text-sm font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {brandingState === "saving" ? "Saving..." : "Save Branding"}
               </button>
             </div>
 
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+            <div
+              className="overflow-hidden rounded-3xl border border-slate-200 p-4"
+              style={{
+                background: `radial-gradient(circle at 18% 0%, ${accentColor}44, transparent 26%), linear-gradient(180deg, ${backgroundColor} 0%, ${backgroundAccentColor} 100%)`
+              }}
+            >
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Shell preview</div>
-              <div className="mt-3 overflow-hidden rounded-3xl border border-slate-200 bg-white">
-                <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-3">
+              <div className="mt-3 overflow-hidden rounded-3xl border border-slate-200/70">
+                <div className="flex items-center gap-3 border-b border-slate-200/70 px-4 py-3" style={{ backgroundColor: `${surfaceColor}CC` }}>
                   <div
-                    className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-white/60 bg-white text-sm font-semibold shadow-panel"
+                    className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-white/60 bg-white/90 text-sm font-semibold shadow-panel"
                     style={{ color: primaryColor }}
                   >
                     {logoUrl ? (
@@ -655,11 +717,14 @@ export function TerritoryAdminPage() {
                     <div className="text-sm font-semibold text-ink">Field CRM</div>
                   </div>
                 </div>
-                <div className="space-y-2 p-4">
-                  <div className="rounded-2xl px-3 py-2 text-sm font-medium text-white" style={{ backgroundColor: primaryColor }}>
+                <div className="space-y-3 p-4" style={{ backgroundColor: `${surfaceColor}B8` }}>
+                  <div className="rounded-2xl px-3 py-2 text-sm font-medium text-white shadow-panel" style={{ background: `linear-gradient(135deg, ${primaryColor} 0%, ${accentColor} 100%)` }}>
                     Active navigation
                   </div>
-                  <div className="rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-600">
+                  <div className="rounded-2xl border border-slate-200/70 px-3 py-2 text-sm text-slate-600" style={{ backgroundColor: `${sidebarColor}DD` }}>
+                    Sidebar / navigation tone
+                  </div>
+                  <div className="rounded-2xl border border-slate-200/70 px-3 py-2 text-sm text-slate-600" style={{ backgroundColor: `${surfaceColor}F2` }}>
                     Default card surface
                   </div>
                 </div>
@@ -668,7 +733,7 @@ export function TerritoryAdminPage() {
           </div>
           </section>
 
-          <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <section className="app-panel rounded-[2rem] border p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Rep Roster</div>

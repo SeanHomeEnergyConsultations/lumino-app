@@ -29,7 +29,7 @@ export function MapToolbar({
   showPriorityFilter?: boolean;
 }) {
   return (
-    <div className="overflow-x-auto border-b border-slate-200/80 bg-white/75 px-4 py-3 backdrop-blur md:px-6">
+    <div className="app-topbar-surface overflow-x-auto border-b px-4 py-3 md:px-6">
       <div className="flex min-w-max items-center gap-2">
         {canToggleTeamKnocks ? (
           <button
@@ -37,8 +37,8 @@ export function MapToolbar({
             onClick={onToggleTeamKnocks}
             className={`rounded-full border px-3 py-2 text-sm transition ${
               showTeamKnocks
-                ? "border-sky-600 bg-sky-600 text-white shadow-panel"
-                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                ? "border-[rgba(var(--app-primary-rgb),0.26)] bg-[rgba(var(--app-primary-rgb),0.9)] text-white shadow-panel"
+                : "app-chip text-slate-600 hover:bg-white/90"
             }`}
           >
             <span className="hidden sm:inline">{showTeamKnocks ? "Showing Team Knocks" : "Show Team Knocks"}</span>
@@ -54,8 +54,8 @@ export function MapToolbar({
               onClick={() => onToggle(option.key)}
               className={`rounded-full border px-3 py-2 text-sm transition ${
                 active
-                  ? "border-ink bg-ink text-white shadow-panel"
-                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                  ? "border-[rgba(var(--app-primary-rgb),0.26)] bg-[rgba(var(--app-primary-rgb),0.9)] text-white shadow-panel"
+                  : "app-chip text-slate-600 hover:bg-white/90"
               }`}
             >
               <span className="hidden sm:inline">{option.label}</span>
