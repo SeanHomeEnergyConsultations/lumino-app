@@ -107,6 +107,34 @@ function toneForDatasetStatus(label: PlatformDatasetItem["organizationStatuses"]
   return "bg-slate-200 text-slate-700";
 }
 
+function summarizeEffectivePreset(item: PlatformOrganizationOverviewItem) {
+  if (item.isPlatformSource) {
+    return "Platform source with every premium data and intelligence feature enabled.";
+  }
+  if (item.billingPlan === "intelligence") {
+    return "Low-cost upload plus premium enrichment, bulk solar, clustering, marketplace, and planning.";
+  }
+  if (item.billingPlan === "pro") {
+    return "Low-cost upload workflow with teams, tasks, territories, and solar-related access, but no premium enrichment.";
+  }
+  if (item.billingPlan === "starter") {
+    return "Low-cost upload workflow with core CRM and appointments only.";
+  }
+  return "Entry workflow with low-cost uploads and no premium enrichment.";
+}
+
+function effectivePresetBadges(item: PlatformOrganizationOverviewItem) {
+  const features = item.effectiveFeatures;
+  return [
+    features.selfImportsEnabled ? "Upload-first imports" : "No imports",
+    features.importEnrichmentEnabled ? "Premium enrichment" : "No premium enrichment",
+    features.bulkSolarEnrichmentEnabled ? "Bulk solar" : "No bulk solar",
+    features.clusterAnalysisEnabled ? "Cluster analysis" : "No clustering",
+    features.premiumRoutingInsightsEnabled ? "Routing insights" : "No routing insights",
+    features.datasetMarketplaceEnabled ? "Marketplace" : "No marketplace"
+  ];
+}
+
 export function PlatformControlCenterPage() {
   const { session, appContext } = useAuth();
   const canMutate = Boolean(appContext?.isPlatformOwner);
@@ -621,19 +649,23 @@ export function PlatformControlCenterPage() {
                       <div className="mt-3 text-sm text-slate-500">
                         Effective preset:
                         <span className="ml-2 font-medium text-slate-700">
-                          {item.effectiveFeatures.datasetMarketplaceEnabled ? "Marketplace" : "No marketplace"},{" "}
-                          {item.effectiveFeatures.solarCheckEnabled ? "Solar check" : "No solar check"},{" "}
-                          {item.effectiveFeatures.enrichmentEnabled ? "Enrichment" : "No enrichment"}
+                          {item.effectiveFeatures.importEnrichmentEnabled ? "Premium enrichment" : "Upload-first only"},{" "}
+                          {item.effectiveFeatures.bulkSolarEnrichmentEnabled ? "Bulk solar" : "No bulk solar"},{" "}
+                          {item.effectiveFeatures.datasetMarketplaceEnabled ? "Marketplace" : "No marketplace"}
                         </span>
                       </div>
                       <div className="mt-2 text-xs text-slate-500">
-                        {item.isPlatformSource
-                          ? "Locked as the platform source organization with full platform dataset access."
-                          : item.billingPlan === "intelligence"
-                          ? "New shared datasets auto-release into this org."
-                          : item.effectiveFeatures.datasetMarketplaceEnabled
-                            ? "This org can receive shared datasets through marketplace release."
-                            : "This org cannot receive shared datasets yet."}
+                        {summarizeEffectivePreset(item)}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {effectivePresetBadges(item).map((badge) => (
+                          <div
+                            key={badge}
+                            className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600"
+                          >
+                            {badge}
+                          </div>
+                        ))}
                       </div>
                     </div>
 
