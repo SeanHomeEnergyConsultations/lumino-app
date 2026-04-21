@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CalendarClock, CalendarSync, CheckCircle2, ExternalLink, Link2Off, TriangleAlert } from "lucide-react";
+import {
+  CalendarClock,
+  CalendarSync,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  Link2Off,
+  TriangleAlert
+} from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import type {
   GoogleCalendarConflictCheckResponse,
@@ -24,6 +33,7 @@ export function GoogleCalendarSyncCard({
   const [busyCheck, setBusyCheck] = useState<GoogleCalendarConflictCheckResponse | null>(null);
   const [actionState, setActionState] = useState<"idle" | "connecting" | "disconnecting" | "checking">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const loadStatus = useCallback(async () => {
     if (!session?.access_token) return;
@@ -49,6 +59,14 @@ export function GoogleCalendarSyncCard({
     setBusyCheck(null);
     setError(null);
   }, [appointmentAt]);
+
+  useEffect(() => {
+    if (!status?.connected) {
+      setExpanded(false);
+    }
+  }, [status?.connected]);
+
+  const showExpandedConnectedState = !compact || expanded || Boolean(busyCheck) || Boolean(error);
 
   async function handleConnect() {
     if (!session?.access_token) return;
@@ -124,29 +142,34 @@ export function GoogleCalendarSyncCard({
             {status?.connected ? "Connected scheduling layer" : "Optional personal calendar sync"}
           </div>
         </div>
-        <div className="app-glass-button rounded-2xl p-3 text-[rgba(var(--app-primary-rgb),0.72)]">
-          <CalendarSync className="h-4 w-4" />
+        <div className="flex items-center gap-2">
+          {compact && status?.connected ? (
+            <button
+              type="button"
+              onClick={() => setExpanded((current) => !current)}
+              className="app-glass-button flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold text-[rgba(var(--app-primary-rgb),0.72)]"
+            >
+              {expanded ? "Hide" : "Details"}
+              {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+          ) : null}
+          <div className="app-glass-button rounded-2xl p-3 text-[rgba(var(--app-primary-rgb),0.72)]">
+            <CalendarSync className="h-4 w-4" />
+          </div>
         </div>
       </div>
 
-      <p className="mt-3 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">
-        {status?.connected
-          ? "Use Google free/busy to catch conflicts before you save an appointment, while Lumino stays your source of truth."
-          : "Google Calendar is optional. Connect it when you want availability checks and automatic calendar posting."}
-      </p>
+      {!compact || !status?.connected || showExpandedConnectedState ? (
+        <p className="mt-3 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">
+          {status?.connected
+            ? "Use Google free/busy to catch conflicts before you save an appointment, while Lumino stays your source of truth."
+            : "Google Calendar is optional. Connect it when you want availability checks and automatic calendar posting."}
+        </p>
+      ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
         {status?.connected ? (
           <>
-            <button
-              type="button"
-              onClick={() => void handleDisconnect()}
-              disabled={actionState === "disconnecting"}
-              className="app-glass-button flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-ink transition hover:brightness-105 disabled:opacity-50"
-            >
-              <Link2Off className="h-4 w-4" />
-              {actionState === "disconnecting" ? "Disconnecting..." : "Disconnect"}
-            </button>
             <button
               type="button"
               onClick={() => void handleCheckConflict()}
@@ -156,6 +179,17 @@ export function GoogleCalendarSyncCard({
               <CalendarClock className="h-4 w-4" />
               {actionState === "checking" ? "Checking..." : "Check conflicts"}
             </button>
+            {showExpandedConnectedState ? (
+              <button
+                type="button"
+                onClick={() => void handleDisconnect()}
+                disabled={actionState === "disconnecting"}
+                className="app-glass-button flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-ink transition hover:brightness-105 disabled:opacity-50"
+              >
+                <Link2Off className="h-4 w-4" />
+                {actionState === "disconnecting" ? "Disconnecting..." : "Disconnect"}
+              </button>
+            ) : null}
           </>
         ) : (
           <button
@@ -176,10 +210,17 @@ export function GoogleCalendarSyncCard({
         </div>
       ) : null}
 
-      {status?.connected ? (
+      {status?.connected && showExpandedConnectedState ? (
         <div className="mt-3 rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.42)] px-3 py-3 text-xs text-[rgba(var(--app-primary-rgb),0.62)]">
           {status.calendarEmail ? `Connected account: ${status.calendarEmail}` : "Connected to the rep's primary Google Calendar."}
           {status.lastSyncedAt ? ` Last sync: ${new Date(status.lastSyncedAt).toLocaleString()}.` : ""}
+        </div>
+      ) : null}
+
+      {status?.connected && compact && !showExpandedConnectedState ? (
+        <div className="mt-3 flex items-center gap-2 rounded-2xl border border-emerald-500/18 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-700">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          {status.calendarEmail ? `Connected: ${status.calendarEmail}` : "Connected to Google Calendar"}
         </div>
       ) : null}
 
