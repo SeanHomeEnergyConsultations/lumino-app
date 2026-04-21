@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgeHelp,
   Ban,
@@ -161,6 +161,8 @@ export function PropertyDrawer({
     useState<(typeof GO_BACK_TIMING_OPTIONS)[number]["value"]>("default");
   const [goBackNote, setGoBackNote] = useState("");
   const [leadCaptureError, setLeadCaptureError] = useState<string | null>(null);
+  const [appointmentLeadReady, setAppointmentLeadReady] = useState(false);
+  const appointmentSchedulerRef = useRef<HTMLDivElement | null>(null);
 
   function toDateTimeLocal(value: string | null | undefined) {
     if (!value) return "";
@@ -193,6 +195,7 @@ export function PropertyDrawer({
     setGoBackTiming("default");
     setGoBackNote("");
     setLeadCaptureError(null);
+    setAppointmentLeadReady(Boolean(property?.leadId));
     setGoogleBusyError(null);
   }, [property]);
 
@@ -413,6 +416,22 @@ export function PropertyDrawer({
     window.location.href = `sms:${destination}?&body=${encodeURIComponent(body)}`;
   }
 
+  function openPrefilledAppointmentConfirmationText() {
+    const destination = phone.trim();
+    if (!destination || !appointmentAt || typeof window === "undefined") return;
+
+    const homeownerName = firstName.trim() || "there";
+    const scheduledTime = new Date(appointmentAt).toLocaleString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    });
+    const body = `Hi ${homeownerName}, this is ${repName} with ${brandName}. Thanks again for setting time with me. We're confirmed for ${scheduledTime}. If anything changes, feel free to reply here.`;
+    window.location.href = `sms:${destination}?&body=${encodeURIComponent(body)}`;
+  }
+
   async function handleInstantOutcome(outcome: string) {
     if (!property) return;
     setActionState("saving");
@@ -476,9 +495,33 @@ export function PropertyDrawer({
     setSaveState("saving");
 
     if (postAction === "appointment_set") {
-      setSaveState("saved");
-      setMobileSection("actions");
-      return;
+      try {
+        await onSaveLead({
+          propertyId: property.propertyId,
+          firstName,
+          lastName,
+          phone,
+          email,
+          notes,
+          leadStatus: "Connected",
+          interestLevel,
+          preferredChannel: phone.trim() ? "text" : "door",
+          textConsent: phone.trim() ? true : null,
+          nextFollowUpAt: null
+        });
+        setAppointmentLeadReady(true);
+        setSaveState("saved");
+        setMobileSection("actions");
+        if (typeof window !== "undefined") {
+          window.requestAnimationFrame(() => {
+            appointmentSchedulerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+        }
+        return;
+      } catch {
+        setSaveState("error");
+        return;
+      }
     }
 
     try {
@@ -526,7 +569,8 @@ export function PropertyDrawer({
       return;
     }
     if (outcome === "appointment_set") {
-      setLeadStatus("Appointment Set");
+      setLeadStatus(property?.leadStatus ?? "Connected");
+      setAppointmentLeadReady(Boolean(property?.leadId));
       return;
     }
     if (outcome === "callback_requested") {
@@ -684,13 +728,23 @@ export function PropertyDrawer({
         ) : null}
 
         {postAction === "appointment_set" ? (
-          <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+          <div ref={appointmentSchedulerRef} className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-ink">
               <CalendarCheck2 className="h-4 w-4" />
               Capture appointment
             </div>
-            <p className="mt-1 text-xs text-slate-500">Lock in the actual appointment time so the CRM stays trustworthy.</p>
-            <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="mt-1 text-xs text-slate-500">
+              {appointmentLeadReady
+                ? "Lock in the actual appointment time so the CRM stays trustworthy."
+                : "Enter homeowner info first, then the scheduler unlocks right here."}
+            </p>
+            {!appointmentLeadReady ? (
+              <div className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-4 text-sm text-slate-600">
+                Save the homeowner info below first. As soon as that is done, this scheduler will unlock and you can pick the appointment without jumping around.
+              </div>
+            ) : (
+            <div className="mt-3 space-y-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mist">Mini Calendar</div>
@@ -878,13 +932,15 @@ export function PropertyDrawer({
                 </div>
               </div>
             </div>
-            <div className="mt-3">
+            <div>
               <GoogleCalendarSyncCard appointmentAt={appointmentAt || null} returnTo="/map" compact />
             </div>
-            <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-3">
               <div className="text-xs text-slate-500">
                 {actionState === "saved"
-                  ? "Appointment saved."
+                  ? phone.trim()
+                    ? "Appointment saved and ready to confirm by text."
+                    : "Appointment saved."
                   : actionState === "error"
                     ? "Could not save appointment."
                     : "This also updates the property icon and lead stage."}
@@ -893,12 +949,12 @@ export function PropertyDrawer({
                 type="button"
                 onClick={async () => {
                   if (!property) return;
-                  if (!hasHomeownerInfo) {
-                    setLeadCaptureError("Add homeowner info before scheduling the appointment.");
-                    setMobileSection("lead");
+                  if (!appointmentAt) {
+                    setActionState("error");
+                    setLeadCaptureError("Pick a date and time before saving the appointment.");
                     return;
                   }
-                  setMobileSection("lead");
+                  setLeadCaptureError(null);
                   setActionState("saving");
                   try {
                     await onSaveLead({
@@ -910,11 +966,16 @@ export function PropertyDrawer({
                       notes,
                       leadStatus: "Appointment Set",
                       interestLevel,
-                      appointmentAt: appointmentAt ? new Date(appointmentAt).toISOString() : null,
-                      nextFollowUpAt: appointmentAt ? new Date(appointmentAt).toISOString() : null
+                      preferredChannel: phone.trim() ? "text" : "door",
+                      textConsent: phone.trim() ? true : null,
+                      appointmentAt: new Date(appointmentAt).toISOString(),
+                      nextFollowUpAt: new Date(appointmentAt).toISOString()
                     });
                     await onLogOutcome("appointment_set");
                     setActionState("saved");
+                    if (phone.trim()) {
+                      openPrefilledAppointmentConfirmationText();
+                    }
                   } catch {
                     setActionState("error");
                   }
@@ -924,6 +985,8 @@ export function PropertyDrawer({
                 {actionState === "saving" ? "Saving..." : "Save Appointment"}
               </button>
             </div>
+            </div>
+            )}
           </div>
         ) : null}
 
@@ -972,7 +1035,7 @@ export function PropertyDrawer({
           ) : null}
           {postAction === "appointment_set" ? (
             <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-600">
-              Enter homeowner info first, then continue into the appointment scheduler.
+              Save homeowner info first. The appointment scheduler will unlock above and scroll into view automatically.
             </div>
           ) : null}
           <div className="mt-3 grid grid-cols-2 gap-3">
@@ -1062,7 +1125,7 @@ export function PropertyDrawer({
                 ? leadCaptureError
                 : saveState === "saved"
                   ? postAction === "appointment_set"
-                    ? "Homeowner info captured. Now pick the appointment time."
+                    ? "Homeowner info captured. Appointment scheduler unlocked."
                     : "Lead saved."
                 : saveState === "error"
                   ? "Save failed. Try again."
