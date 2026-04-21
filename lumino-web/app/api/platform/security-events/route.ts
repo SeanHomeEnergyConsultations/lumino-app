@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { hasPlatformAccess } from "@/lib/auth/permissions";
 import { getRequestSessionContext } from "@/lib/auth/server";
 import { getPlatformSecurityEvents } from "@/lib/db/queries/platform";
+import { recordSecurityEvent } from "@/lib/security/security-events";
 
 export const dynamic = "force-dynamic";
 
@@ -21,4 +22,26 @@ export async function GET(request: Request) {
   });
 
   return NextResponse.json({ items });
+}
+
+export async function POST(request: Request) {
+  const context = await getRequestSessionContext(request);
+  if (!context) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!context.isPlatformOwner) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  await recordSecurityEvent({
+    request,
+    context,
+    eventType: "platform_security_alert_test",
+    severity: "high",
+    triggerAlert: true,
+    metadata: {
+      source: "platform_control_center",
+      note: "Controlled test alert triggered by platform owner."
+    }
+  });
+
+  return NextResponse.json({ ok: true });
 }

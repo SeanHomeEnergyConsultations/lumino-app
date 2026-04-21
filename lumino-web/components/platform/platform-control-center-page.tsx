@@ -151,6 +151,7 @@ export function PlatformControlCenterPage() {
   const [savingOrgId, setSavingOrgId] = useState<string | null>(null);
   const [navigatingOrgId, setNavigatingOrgId] = useState<string | null>(null);
   const [releasingDatasetId, setReleasingDatasetId] = useState<string | null>(null);
+  const [sendingTestAlert, setSendingTestAlert] = useState(false);
   const [datasetTargets, setDatasetTargets] = useState<Record<string, string>>({});
 
   async function loadOverview(showSpinner = false) {
@@ -394,6 +395,30 @@ export function PlatformControlCenterPage() {
       setError(revokeError instanceof Error ? revokeError.message : "Failed to revoke dataset access.");
     } finally {
       setReleasingDatasetId(null);
+    }
+  }
+
+  async function sendTestSecurityAlert() {
+    if (!session?.access_token || !canMutate) return;
+    setSendingTestAlert(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      const response = await authFetch(session.access_token, "/api/platform/security-events", {
+        method: "POST"
+      });
+      const json = (await response.json().catch(() => ({ error: "Failed to send test alert." }))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(json.error || "Failed to send test alert.");
+      }
+
+      await loadSecurityEvents();
+      setMessage("Sent a controlled high-severity test alert. Check Slack and the security event feed.");
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Failed to send test alert.");
+    } finally {
+      setSendingTestAlert(false);
     }
   }
 
@@ -1029,6 +1054,22 @@ export function PlatformControlCenterPage() {
             ))}
           </select>
         </div>
+
+        {canMutate ? (
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                void sendTestSecurityAlert();
+              }}
+              disabled={sendingTestAlert}
+              className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <ShieldAlert className="h-4 w-4" />
+              {sendingTestAlert ? "Sending Test Alert…" : "Send Test Alert"}
+            </button>
+          </div>
+        ) : null}
 
         <div className="mt-5 space-y-3">
           {events.length ? (
