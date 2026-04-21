@@ -14,66 +14,66 @@ export const ORGANIZATION_THEME_PRESETS = [
   {
     id: "titanium-glass",
     label: "Titanium Glass",
-    description: "Cool titanium body with a pale steel sidebar, brighter alloy surfaces, and icy blue glass highlights.",
+    description: "Dark gunmetal body with a cold steel glow, pale titanium surfaces, and icy blue glass highlights.",
     theme: {
-      primaryColor: "#273241",
-      accentColor: "#9fc2df",
-      backgroundColor: "#aeb7c1",
-      backgroundAccentColor: "#edf5fb",
-      surfaceColor: "#f8fbff",
-      sidebarColor: "#c2cbd5"
+      primaryColor: "#1f2b38",
+      accentColor: "#9fd4ff",
+      backgroundColor: "#454f5b",
+      backgroundAccentColor: "#8ca7c4",
+      surfaceColor: "#e0e7ef",
+      sidebarColor: "#afbbc8"
     }
   },
   {
     id: "solar-focused",
     label: "Solar Focused",
-    description: "Sun-warmed brushed metal with a champagne glow, bright ivory surfaces, and amber glass accents.",
+    description: "Dark bronze-metal body with a solar amber glow, warm alloy surfaces, and brighter honeyed glass accents.",
     theme: {
-      primaryColor: "#2f343c",
-      accentColor: "#d8a548",
-      backgroundColor: "#bbb7af",
-      backgroundAccentColor: "#f5e7c7",
-      surfaceColor: "#fffaf1",
-      sidebarColor: "#cbc2b7"
+      primaryColor: "#2d241d",
+      accentColor: "#ffb347",
+      backgroundColor: "#51453a",
+      backgroundAccentColor: "#e4a03a",
+      surfaceColor: "#ece2d2",
+      sidebarColor: "#bba894"
     }
   },
   {
     id: "roofing-focused",
     label: "Roofing Focused",
-    description: "Slate-and-zinc base with weathered copper glow, cooler silver surfaces, and tougher structural contrast.",
+    description: "Storm-slate body with a heated copper glow, silver-zinc surfaces, and sharper structural contrast.",
     theme: {
-      primaryColor: "#2a3038",
-      accentColor: "#b86c4e",
-      backgroundColor: "#9ea7b3",
-      backgroundAccentColor: "#d9e0e8",
-      surfaceColor: "#eef2f6",
-      sidebarColor: "#b0bac5"
+      primaryColor: "#242a31",
+      accentColor: "#d87952",
+      backgroundColor: "#47505a",
+      backgroundAccentColor: "#8b97a5",
+      surfaceColor: "#dde3ea",
+      sidebarColor: "#aab4c0"
     }
   },
   {
     id: "blue-gold",
     label: "Blue and Gold",
-    description: "Naval metal body with a deep sapphire glow, pale brass-tinted surfaces, and refined gold glass accents.",
+    description: "Deep naval body with a sapphire glow, pale brass surfaces, and bolder gold glass accents.",
     theme: {
-      primaryColor: "#223553",
-      accentColor: "#c7a14c",
-      backgroundColor: "#98a8bb",
-      backgroundAccentColor: "#d8e4f2",
-      surfaceColor: "#faf7ef",
-      sidebarColor: "#b7c1cd"
+      primaryColor: "#162844",
+      accentColor: "#e0b84b",
+      backgroundColor: "#24374e",
+      backgroundAccentColor: "#4d6f95",
+      surfaceColor: "#e7dfcf",
+      sidebarColor: "#aeb8c5"
     }
   },
   {
     id: "midnight-glass",
     label: "Midnight Glass",
-    description: "Dark alloy backdrop with a cool midnight glow, brighter metallic surfaces, and crisp blue-white glass controls.",
+    description: "Black mirror backdrop with electric neon glow, bright metallic surfaces, and vivid cyber-glass controls.",
     theme: {
-      primaryColor: "#d7e4f5",
-      accentColor: "#78b7ff",
-      backgroundColor: "#232a33",
-      backgroundAccentColor: "#3b4c64",
-      surfaceColor: "#cbd4de",
-      sidebarColor: "#8d99a8"
+      primaryColor: "#101828",
+      accentColor: "#00f5ff",
+      backgroundColor: "#050505",
+      backgroundAccentColor: "#ff00b8",
+      surfaceColor: "#d6dfeb",
+      sidebarColor: "#8fa0b7"
     }
   }
 ] as const;
