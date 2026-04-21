@@ -192,8 +192,8 @@ export function LiveFieldMap({
   const [isSavingVisit, setIsSavingVisit] = useState(false);
   const [isResolvingTap, setIsResolvingTap] = useState(false);
   const [isResultsOpen, setIsResultsOpen] = useState(false);
-  const [isResultsPanelVisible, setIsResultsPanelVisible] = useState(true);
-  const [isDrawerVisible, setIsDrawerVisible] = useState(true);
+  const [isResultsPanelVisible, setIsResultsPanelVisible] = useState(false);
+  const [isDrawerVisible, setIsDrawerVisible] = useState(false);
   const [mobileOpenNonce, setMobileOpenNonce] = useState(0);
   const [showTeamKnocks, setShowTeamKnocks] = useState(isManager);
   const [activeRoute, setActiveRoute] = useState<ActiveRouteRunResponse | null>(null);
@@ -1163,9 +1163,8 @@ export function LiveFieldMap({
               <div className="relative">
                 <span className="absolute -inset-3 rounded-full bg-sky-500/20" />
                 <span className="absolute -inset-1 rounded-full bg-sky-500/25 animate-ping" />
-                <div className="relative flex items-center gap-2 rounded-full border border-sky-200 bg-white/95 px-2 py-1 shadow-lg">
+                <div className="relative flex items-center rounded-full border border-sky-200 bg-white/95 p-1 shadow-lg">
                   <span className="block h-4 w-4 rounded-full border-4 border-white bg-sky-500 shadow" />
-                  <span className="text-xs font-semibold text-sky-700">You</span>
                 </div>
               </div>
             </Marker>
