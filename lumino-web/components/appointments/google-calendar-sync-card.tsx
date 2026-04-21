@@ -21,11 +21,13 @@ import type {
 export function GoogleCalendarSyncCard({
   appointmentAt,
   returnTo = "/appointments",
-  compact = false
+  compact = false,
+  manualConflictCheck = true
 }: {
   appointmentAt?: string | null;
   returnTo?: string;
   compact?: boolean;
+  manualConflictCheck?: boolean;
 }) {
   const { session } = useAuth();
   const [status, setStatus] = useState<GoogleCalendarConnectionStatusResponse["item"] | null>(null);
@@ -162,7 +164,9 @@ export function GoogleCalendarSyncCard({
       {!compact || !status?.connected || showExpandedConnectedState ? (
         <p className="mt-3 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">
           {status?.connected
-            ? "Use Google free/busy to catch conflicts before you save an appointment, while Lumino stays your source of truth."
+            ? manualConflictCheck
+              ? "Use Google free/busy to catch conflicts before you save an appointment, while Lumino stays your source of truth."
+              : "Google Calendar is connected and its busy windows are already reflected in this scheduler."
             : "Google Calendar is optional. Connect it when you want availability checks and automatic calendar posting."}
         </p>
       ) : null}
@@ -170,15 +174,17 @@ export function GoogleCalendarSyncCard({
       <div className="mt-4 flex flex-wrap gap-2">
         {status?.connected ? (
           <>
-            <button
-              type="button"
-              onClick={() => void handleCheckConflict()}
-              disabled={!appointmentAt || actionState === "checking"}
-              className="app-primary-button flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold transition hover:brightness-105 disabled:opacity-50"
-            >
-              <CalendarClock className="h-4 w-4" />
-              {actionState === "checking" ? "Checking..." : "Check conflicts"}
-            </button>
+            {manualConflictCheck ? (
+              <button
+                type="button"
+                onClick={() => void handleCheckConflict()}
+                disabled={!appointmentAt || actionState === "checking"}
+                className="app-primary-button flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold transition hover:brightness-105 disabled:opacity-50"
+              >
+                <CalendarClock className="h-4 w-4" />
+                {actionState === "checking" ? "Checking..." : "Check conflicts"}
+              </button>
+            ) : null}
             {showExpandedConnectedState ? (
               <button
                 type="button"

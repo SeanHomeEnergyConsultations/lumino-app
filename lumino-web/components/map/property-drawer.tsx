@@ -93,6 +93,16 @@ function formatAppointmentTime(value: string) {
   });
 }
 
+function formatTimeRange(start: string | Date, end: string | Date) {
+  return `${new Date(start).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit"
+  })} - ${new Date(end).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit"
+  })}`;
+}
+
 function rangesOverlap(startA: Date, endA: Date, startB: Date, endB: Date) {
   return startA < endB && startB < endA;
 }
@@ -336,6 +346,14 @@ export function PropertyDrawer({
   const selectedDayScheduleItems = selectedAppointmentDateKey
     ? appointmentScheduleItemsByDay.get(selectedAppointmentDateKey) ?? []
     : [];
+  const selectedDayLuminoBusy = useMemo(
+    () =>
+      selectedDayScheduleItems.map((item) => ({
+        start: item.scheduledAt,
+        end: new Date(new Date(item.scheduledAt).getTime() + DEFAULT_APPOINTMENT_DURATION_MINUTES * 60_000).toISOString()
+      })),
+    [selectedDayScheduleItems]
+  );
   const googleBusyItemsByDay = useMemo(() => {
     const next = new Map<string, GoogleCalendarConflictCheckResponse["busy"]>();
 
@@ -353,6 +371,14 @@ export function PropertyDrawer({
     return next;
   }, [googleMonthBusy]);
   const selectedDayGoogleBusy = selectedAppointmentDateKey ? googleBusyItemsByDay.get(selectedAppointmentDateKey) ?? [] : [];
+  const selectedDayBusyWindows = useMemo(
+    () =>
+      [
+        ...selectedDayLuminoBusy.map((slot) => ({ ...slot, source: "lumino" as const })),
+        ...selectedDayGoogleBusy.map((slot) => ({ ...slot, source: "google" as const }))
+      ].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
+    [selectedDayGoogleBusy, selectedDayLuminoBusy]
+  );
   const quickTimeConflictMap = useMemo(() => {
     if (!selectedAppointmentDate) return new Map<string, boolean>();
 
@@ -361,13 +387,34 @@ export function PropertyDrawer({
         const start = new Date(selectedAppointmentDate);
         start.setHours(slot.hour, slot.minute, 0, 0);
         const end = new Date(start.getTime() + DEFAULT_APPOINTMENT_DURATION_MINUTES * 60_000);
-        const hasConflict = selectedDayGoogleBusy.some((busySlot) =>
+        const hasConflict = selectedDayBusyWindows.some((busySlot) =>
           rangesOverlap(start, end, new Date(busySlot.start), new Date(busySlot.end))
         );
         return [slot.label, hasConflict];
       })
     );
-  }, [selectedAppointmentDate, selectedDayGoogleBusy]);
+  }, [selectedAppointmentDate, selectedDayBusyWindows]);
+  const selectedAppointmentConflict = useMemo(() => {
+    if (!appointmentAt) {
+      return { hasConflict: false, sources: [] as ("google" | "lumino")[] };
+    }
+
+    const start = new Date(appointmentAt);
+    const end = new Date(start.getTime() + DEFAULT_APPOINTMENT_DURATION_MINUTES * 60_000);
+    const conflicts = selectedDayBusyWindows.filter((slot) =>
+      rangesOverlap(start, end, new Date(slot.start), new Date(slot.end))
+    );
+
+    return {
+      hasConflict: conflicts.length > 0,
+      sources: Array.from(new Set(conflicts.map((slot) => slot.source)))
+    };
+  }, [appointmentAt, selectedDayBusyWindows]);
+  const openQuickTimes = useMemo(
+    () =>
+      APPOINTMENT_TIME_SLOTS.filter((slot) => !(quickTimeConflictMap.get(slot.label) ?? false)).map((slot) => slot.label),
+    [quickTimeConflictMap]
+  );
   const appointmentCalendarDays = useMemo(() => {
     const gridStart = startOfMonthGrid(appointmentCalendarMonth);
     const month = appointmentCalendarMonth.getMonth();
@@ -842,7 +889,7 @@ export function PropertyDrawer({
                         }`}
                       >
                         {slot.label}
-                        {hasGoogleConflict ? " • Busy" : ""}
+                        {hasGoogleConflict ? " • Busy" : " • Open"}
                       </button>
                     );
                   })}
@@ -929,11 +976,62 @@ export function PropertyDrawer({
                       No other appointments are on the schedule right now.
                     </div>
                   )}
+                  {selectedDayBusyWindows.length ? (
+                    <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-600">
+                      <div className="font-semibold text-ink">Busy windows</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {selectedDayBusyWindows.map((slot) => (
+                          <span
+                            key={`${slot.source}-${slot.start}-${slot.end}`}
+                            className={`rounded-full px-2.5 py-1 ${
+                              slot.source === "google"
+                                ? "bg-amber-100 text-amber-800"
+                                : "bg-sky-100 text-sky-800"
+                            }`}
+                          >
+                            {slot.source === "google" ? "Google" : "Lumino"} {formatTimeRange(slot.start, slot.end)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {appointmentAt ? (
+                    <div
+                      className={`rounded-2xl px-3 py-3 text-sm ${
+                        selectedAppointmentConflict.hasConflict
+                          ? "border border-rose-200 bg-rose-50 text-rose-800"
+                          : "border border-emerald-200 bg-emerald-50 text-emerald-800"
+                      }`}
+                    >
+                      <div className="font-semibold">
+                        {selectedAppointmentConflict.hasConflict
+                          ? `${formatAppointmentTime(appointmentAt)} conflicts with an existing block`
+                          : `${formatAppointmentTime(appointmentAt)} looks open`}
+                      </div>
+                      <div className="mt-1 text-xs">
+                        {selectedAppointmentConflict.hasConflict
+                          ? "Pick one of the open quick times below or choose another slot in the datetime picker."
+                          : openQuickTimes.length
+                            ? `Best open times today: ${openQuickTimes.join(", ")}`
+                            : "This is the best currently visible opening on the selected day."}
+                      </div>
+                    </div>
+                  ) : openQuickTimes.length ? (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800">
+                      <div className="font-semibold">Best open times today</div>
+                      <div className="mt-1 text-xs">{openQuickTimes.join(", ")}</div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
             <div>
-              <GoogleCalendarSyncCard appointmentAt={appointmentAt || null} returnTo="/map" compact />
+              <GoogleCalendarSyncCard
+                appointmentAt={appointmentAt || null}
+                returnTo="/map"
+                compact
+                manualConflictCheck={false}
+              />
             </div>
             <div className="flex items-center justify-between gap-3">
               <div className="text-xs text-slate-500">
@@ -941,9 +1039,17 @@ export function PropertyDrawer({
                   ? phone.trim()
                     ? "Appointment saved and ready to confirm by text."
                     : "Appointment saved."
+                  : !appointmentAt
+                    ? "Pick a date and time to save the appointment."
+                  : selectedAppointmentConflict.hasConflict
+                    ? `That time conflicts with ${selectedAppointmentConflict.sources.includes("google") && selectedAppointmentConflict.sources.includes("lumino")
+                        ? "Google and Lumino"
+                        : selectedAppointmentConflict.sources.includes("google")
+                          ? "Google"
+                          : "Lumino"} calendar activity.`
                   : actionState === "error"
                     ? "Could not save appointment."
-                    : "This also updates the property icon and lead stage."}
+                    : "Selected time looks open and ready to save."}
               </div>
               <button
                 type="button"
@@ -952,6 +1058,10 @@ export function PropertyDrawer({
                   if (!appointmentAt) {
                     setActionState("error");
                     setLeadCaptureError("Pick a date and time before saving the appointment.");
+                    return;
+                  }
+                  if (selectedAppointmentConflict.hasConflict) {
+                    setActionState("error");
                     return;
                   }
                   setLeadCaptureError(null);
@@ -980,9 +1090,16 @@ export function PropertyDrawer({
                     setActionState("error");
                   }
                 }}
+                disabled={!appointmentAt || selectedAppointmentConflict.hasConflict || actionState === "saving"}
                 className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200"
               >
-                {actionState === "saving" ? "Saving..." : "Save Appointment"}
+                {actionState === "saving"
+                  ? "Saving..."
+                  : !appointmentAt
+                    ? "Pick a Time"
+                    : selectedAppointmentConflict.hasConflict
+                      ? "Pick Another Time"
+                      : "Save Appointment"}
               </button>
             </div>
             </div>
