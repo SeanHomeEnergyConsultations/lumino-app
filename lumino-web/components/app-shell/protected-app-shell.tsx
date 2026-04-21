@@ -67,8 +67,8 @@ export function ProtectedAppShell({
 
   if (mounted && !envReady) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#f7f3ea_0%,#edf2f8_100%)] px-6">
-        <div className="max-w-md rounded-3xl border border-white/70 bg-white/80 p-6 text-sm text-slate-600 shadow-panel backdrop-blur">
+      <div className="app-frame flex min-h-screen items-center justify-center px-6">
+        <div className="app-panel max-w-md rounded-3xl border p-6 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
           Missing Supabase environment variables. Add them to <code>.env.local</code> to use the new app.
         </div>
       </div>
@@ -77,8 +77,8 @@ export function ProtectedAppShell({
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#f7f3ea_0%,#edf2f8_100%)]">
-        <div className="rounded-3xl border border-white/70 bg-white/80 px-6 py-4 text-sm text-slate-600 shadow-panel backdrop-blur">
+      <div className="app-frame flex min-h-screen items-center justify-center">
+        <div className="app-panel rounded-3xl border px-6 py-4 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
           Loading Lumino…
         </div>
       </div>
@@ -88,8 +88,8 @@ export function ProtectedAppShell({
   if (!session) return null;
   if (!appContext) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#f7f3ea_0%,#edf2f8_100%)] px-6">
-        <div className="max-w-md rounded-3xl border border-white/70 bg-white/80 p-6 text-sm text-slate-600 shadow-panel backdrop-blur">
+      <div className="app-frame flex min-h-screen items-center justify-center px-6">
+        <div className="app-panel max-w-md rounded-3xl border p-6 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
           Your session could not be verified for this organization. Sign out and back in, or ask an admin to confirm your access.
         </div>
       </div>
@@ -104,8 +104,8 @@ export function ProtectedAppShell({
           : "You no longer have an active organization membership. Ask an admin to restore your access.";
 
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#f7f3ea_0%,#edf2f8_100%)] px-6">
-        <div className="max-w-md rounded-3xl border border-white/70 bg-white/80 p-6 text-sm text-slate-600 shadow-panel backdrop-blur">
+      <div className="app-frame flex min-h-screen items-center justify-center px-6">
+        <div className="app-panel max-w-md rounded-3xl border p-6 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
           {message}
         </div>
       </div>

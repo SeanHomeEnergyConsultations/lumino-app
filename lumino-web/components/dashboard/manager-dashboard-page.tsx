@@ -61,7 +61,7 @@ export function ManagerDashboardPage() {
       <div className="app-panel mt-6 rounded-[2rem] border p-6">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Manager Dashboard</div>
         <h1 className="mt-2 text-3xl font-semibold text-ink">Team operating view</h1>
-        <p className="mt-3 max-w-3xl text-sm text-slate-600">
+        <p className="mt-3 max-w-3xl text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
           See who is working, whether field activity is creating real opportunities, and where follow-up is starting to leak.
         </p>
 
@@ -75,10 +75,10 @@ export function ManagerDashboardPage() {
           ].map((item) => {
             const Icon = item.icon;
             return (
-              <Link key={item.label} href={item.href as Route} className="app-panel-soft rounded-3xl border p-4 transition hover:border-[rgba(var(--app-primary-rgb),0.18)] hover:bg-white/90">
+              <Link key={item.label} href={item.href as Route} className="app-panel-soft rounded-3xl border p-4 transition hover:border-[rgba(var(--app-primary-rgb),0.18)] hover:brightness-105">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">{item.label}</div>
-                  <Icon className="h-4 w-4 text-slate-500" />
+                  <Icon className="h-4 w-4 text-[rgba(var(--app-primary-rgb),0.56)]" />
                 </div>
                 <div className="mt-2 text-3xl font-semibold text-ink">{loading ? "…" : item.value}</div>
               </Link>
@@ -112,7 +112,7 @@ export function ManagerDashboardPage() {
             <div key={item.label} className="app-panel-soft rounded-3xl border p-4">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">{item.label}</div>
               <div className="mt-2 text-2xl font-semibold text-ink">{item.value}</div>
-              <div className="mt-1 text-xs text-slate-500">{item.detail}</div>
+              <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">{item.detail}</div>
             </div>
           ))}
         </div>
@@ -123,9 +123,9 @@ export function ManagerDashboardPage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Manager Alerts</div>
-              <p className="mt-2 text-sm text-slate-500">Immediate issues that need manager attention today.</p>
+              <p className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">Immediate issues that need manager attention today.</p>
             </div>
-            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+            <div className="app-chip rounded-full px-3 py-1 text-sm font-semibold text-[rgba(var(--app-primary-rgb),0.74)]">
               {dashboard?.alerts.length ?? 0}
             </div>
           </div>
@@ -136,14 +136,14 @@ export function ManagerDashboardPage() {
                 <div
                   className={`rounded-3xl border p-4 ${
                     alert.severity === "high"
-                      ? "border-rose-200 bg-rose-50"
-                      : alert.severity === "medium"
-                        ? "border-amber-200 bg-amber-50"
-                        : "border-slate-200 bg-slate-50"
+                      ? "border-rose-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.24),rgba(255,255,255,0)_34%),rgba(254,226,226,0.82)]"
+                        : alert.severity === "medium"
+                        ? "border-amber-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.24),rgba(255,255,255,0)_34%),rgba(254,243,199,0.82)]"
+                        : "app-panel-soft"
                   }`}
                 >
                   <div className="text-sm font-semibold text-ink">{alert.title}</div>
-                  <div className="mt-1 text-sm text-slate-600">{alert.body}</div>
+                  <div className="mt-1 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">{alert.body}</div>
                 </div>
               );
 
@@ -156,7 +156,7 @@ export function ManagerDashboardPage() {
               );
             })}
             {!loading && !(dashboard?.alerts.length ?? 0) ? (
-              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              <div className="app-panel-soft rounded-3xl border border-dashed p-4 text-sm text-[rgba(var(--app-primary-rgb),0.6)]">
                 No active alerts right now.
               </div>
             ) : null}
@@ -167,20 +167,20 @@ export function ManagerDashboardPage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Coaching Flags</div>
-              <p className="mt-2 text-sm text-slate-500">Rep-quality and process-discipline signals worth coaching on.</p>
+              <p className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">Rep-quality and process-discipline signals worth coaching on.</p>
             </div>
-            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+            <div className="app-chip rounded-full px-3 py-1 text-sm font-semibold text-[rgba(var(--app-primary-rgb),0.74)]">
               {dashboard?.coachingFlags.length ?? 0}
             </div>
           </div>
 
           <div className="mt-4 space-y-3">
             {(dashboard?.coachingFlags ?? []).map((flag) => (
-              <Link key={flag.id} href={flag.href as Route} className="block rounded-3xl border border-slate-200 bg-slate-50 p-4 transition hover:border-slate-300 hover:bg-white">
+              <Link key={flag.id} href={flag.href as Route} className="app-panel-soft block rounded-3xl border p-4 transition hover:border-[rgba(var(--app-primary-rgb),0.18)] hover:brightness-105">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold text-ink">{flag.repName ?? "Rep"}</div>
-                    <div className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{flag.reason}</div>
+                    <div className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-[rgba(var(--app-primary-rgb),0.56)]">{flag.reason}</div>
                   </div>
                   <div
                     className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
@@ -188,17 +188,17 @@ export function ManagerDashboardPage() {
                         ? "border-rose-200 bg-rose-50 text-rose-700"
                         : flag.severity === "medium"
                           ? "border-amber-200 bg-amber-50 text-amber-700"
-                          : "border-slate-200 bg-white text-slate-700"
+                          : "border-[rgba(var(--app-primary-rgb),0.12)] bg-[rgba(var(--app-surface-rgb),0.72)] text-[rgba(var(--app-primary-rgb),0.74)]"
                     }`}
                   >
                     {flag.severity}
                   </div>
                 </div>
-                <div className="mt-2 text-sm text-slate-600">{flag.detail}</div>
+                <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">{flag.detail}</div>
               </Link>
             ))}
             {!loading && !(dashboard?.coachingFlags.length ?? 0) ? (
-              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              <div className="app-panel-soft rounded-3xl border border-dashed p-4 text-sm text-[rgba(var(--app-primary-rgb),0.6)]">
                 No coaching flags right now.
               </div>
             ) : null}

@@ -134,18 +134,18 @@ export function QueueCard({
           ) : null}
           <div>
           <div className="text-sm font-semibold text-ink">{item.address}</div>
-          <div className="mt-1 text-xs text-slate-500">
+          <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">
             {item.lastVisitOutcome ?? "No last outcome"} · {item.visitCount} visits
             {item.notHomeCount > 1 ? ` · ${item.notHomeCount} not-home tries` : ""}
           </div>
         </div>
         </div>
-        <span className="app-chip rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600">
+        <span className="app-chip rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[rgba(var(--app-primary-rgb),0.72)]">
           {item.leadStatus ?? "New"}
         </span>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-500">
+      <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">
         <div>
           <div className="font-semibold text-slate-700">Last visit</div>
           <div className="mt-1">{formatDateTime(item.lastVisitedAt) ?? "Never"}</div>
@@ -175,7 +175,7 @@ export function QueueCard({
         </Link>
         <Link
           href={`/properties/${item.propertyId}`}
-          className="app-glass-button flex items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-white/90"
+          className="app-glass-button flex items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-semibold text-ink transition hover:brightness-105"
         >
           Full Property
         </Link>
@@ -183,15 +183,15 @@ export function QueueCard({
 
       <div className="app-panel-soft mt-4 rounded-3xl border p-4">
         <div className="text-sm font-semibold text-ink">{actionConfig.title}</div>
-        <p className="mt-1 text-xs text-slate-500">{actionConfig.helper}</p>
+        <p className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">{actionConfig.helper}</p>
         <input
           type="datetime-local"
           value={actionConfig.value}
           onChange={(event) => actionConfig.setValue(event.target.value)}
-          className="mt-3 w-full rounded-2xl border border-slate-200 bg-white/90 px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+          className="app-glass-input mt-3 w-full rounded-2xl px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
         />
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-[rgba(var(--app-primary-rgb),0.58)]">
             {actionState === "saved"
               ? "Saved."
               : actionState === "error"

@@ -24,10 +24,10 @@ function TaskSection({
 }) {
   return (
     <section className="app-panel rounded-[2rem] border p-5">
-      <div>
-        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">{title}</div>
-        <p className="mt-2 text-sm text-slate-500">{description}</p>
-      </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">{title}</div>
+          <p className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">{description}</p>
+        </div>
 
       <div className="mt-4 space-y-3">
         {items.length ? (
@@ -36,36 +36,36 @@ function TaskSection({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-ink">{item.title}</div>
-                  <div className="mt-1 text-xs text-slate-500">{item.address}</div>
+                  <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">{item.address}</div>
                 </div>
-                <div className="app-chip rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+                <div className="app-chip rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[rgba(var(--app-primary-rgb),0.72)]">
                   {item.kind.replaceAll("_", " ")}
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-3">
+              <div className="mt-4 grid gap-3 text-sm text-[rgba(var(--app-primary-rgb),0.72)] md:grid-cols-3">
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Due</div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[rgba(var(--app-primary-rgb),0.56)]">Due</div>
                   <div className="mt-1">{formatDateTime(item.dueAt)}</div>
                 </div>
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Lead State</div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[rgba(var(--app-primary-rgb),0.56)]">Lead State</div>
                   <div className="mt-1">{item.leadStatus ?? "No lead state"}</div>
                 </div>
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Area</div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[rgba(var(--app-primary-rgb),0.56)]">Area</div>
                   <div className="mt-1">{[item.city, item.state].filter(Boolean).join(", ") || "Unknown area"}</div>
                 </div>
               </div>
 
-              {item.notes ? <div className="mt-3 text-sm text-slate-600">{item.notes}</div> : null}
+              {item.notes ? <div className="mt-3 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">{item.notes}</div> : null}
 
               <div className="mt-4 flex flex-wrap gap-2">
                 {item.propertyId ? (
                   <>
                     <Link
                       href={`/properties/${item.propertyId}` as Route}
-                      className="app-glass-button rounded-2xl px-4 py-2 text-sm font-semibold text-ink transition hover:bg-white/90"
+                      className="app-glass-button rounded-2xl px-4 py-2 text-sm font-semibold text-ink transition hover:brightness-105"
                     >
                       Property
                     </Link>
@@ -80,7 +80,7 @@ function TaskSection({
                 {item.leadId ? (
                   <Link
                     href="/queue"
-                    className="app-glass-button rounded-2xl px-4 py-2 text-sm font-semibold text-ink transition hover:bg-white/90"
+                    className="app-glass-button rounded-2xl px-4 py-2 text-sm font-semibold text-ink transition hover:brightness-105"
                   >
                     Queue
                   </Link>
@@ -89,7 +89,7 @@ function TaskSection({
             </div>
           ))
         ) : (
-          <div className="app-panel-soft rounded-3xl border border-dashed p-4 text-sm text-slate-500">
+          <div className="app-panel-soft rounded-3xl border border-dashed p-4 text-sm text-[rgba(var(--app-primary-rgb),0.6)]">
             {emptyLabel}
           </div>
         )}
@@ -129,7 +129,7 @@ export function TasksPage({ initialOwnerId = null }: { initialOwnerId?: string |
       <div className="app-panel rounded-[2rem] border p-6">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Tasks</div>
         <h1 className="mt-2 text-3xl font-semibold text-ink">Follow-up execution board</h1>
-        <p className="mt-3 max-w-3xl text-sm text-slate-600">
+        <p className="mt-3 max-w-3xl text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
           Work every promised next step from one place, whether it came from a lead follow-up, appointment, or a manual task.
         </p>
 

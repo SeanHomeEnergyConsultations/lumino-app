@@ -78,7 +78,7 @@ export function LeadsPage() {
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Leads</div>
             <h1 className="mt-2 text-3xl font-semibold text-ink">Pipeline and homeowner records</h1>
-            <p className="mt-3 max-w-3xl text-sm text-slate-600">
+            <p className="mt-3 max-w-3xl text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
               See the opportunity layer that sits on top of property memory, follow-up work, and appointments.
             </p>
           </div>
@@ -91,7 +91,7 @@ export function LeadsPage() {
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder="Address, homeowner, phone, email, outcome"
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                  className="app-glass-input mt-2 w-full rounded-2xl px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
                 />
               </label>
               <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -99,7 +99,7 @@ export function LeadsPage() {
                 <select
                   value={statusFilter}
                   onChange={(event) => setStatusFilter(event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                  className="app-glass-input mt-2 w-full rounded-2xl px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
                 >
                   {uniqueStatuses.map((status) => (
                     <option key={status} value={status}>
@@ -114,7 +114,7 @@ export function LeadsPage() {
                   <select
                     value={ownerFilter}
                     onChange={(event) => setOwnerFilter(event.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                    className="app-glass-input mt-2 w-full rounded-2xl px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
                   >
                     {uniqueOwners.map((owner) => (
                       <option key={owner.value} value={owner.value}>
@@ -129,7 +129,7 @@ export function LeadsPage() {
                 <select
                   value={cityFilter}
                   onChange={(event) => setCityFilter(event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                  className="app-glass-input mt-2 w-full rounded-2xl px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
                 >
                   {uniqueCities.map((city) => (
                     <option key={city} value={city}>
@@ -143,7 +143,7 @@ export function LeadsPage() {
                 <select
                   value={followUpFilter}
                   onChange={(event) => setFollowUpFilter(event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                  className="app-glass-input mt-2 w-full rounded-2xl px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
                 >
                   <option value="all">All</option>
                   <option value="overdue">Overdue</option>
@@ -156,7 +156,7 @@ export function LeadsPage() {
                 <select
                   value={appointmentFilter}
                   onChange={(event) => setAppointmentFilter(event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                  className="app-glass-input mt-2 w-full rounded-2xl px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
                 >
                   <option value="all">All</option>
                   <option value="scheduled">Scheduled</option>
@@ -168,10 +168,10 @@ export function LeadsPage() {
         </div>
       </div>
 
-      <div className="app-panel mt-6 rounded-[2rem] border p-5">
+      <div className="app-metal-table mt-6 rounded-[2rem] border border-[rgba(var(--app-primary-rgb),0.08)] p-5 shadow-panel">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
-            <thead className="text-xs uppercase tracking-[0.14em] text-slate-500">
+            <thead className="text-xs uppercase tracking-[0.14em] text-[rgba(var(--app-primary-rgb),0.56)]">
               <tr>
                 <th className="pb-3 pr-4 font-semibold">Lead</th>
                 <th className="pb-3 pr-4 font-semibold">Stage</th>
@@ -182,18 +182,18 @@ export function LeadsPage() {
                 <th className="pb-3 font-semibold">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
+            <tbody className="divide-y divide-[rgba(var(--app-primary-rgb),0.08)] text-slate-700">
               {items.map((item) => (
                 <tr key={item.leadId}>
                   <td className="py-3 pr-4">
                     <div className="font-semibold text-ink">{item.contactName ?? item.address}</div>
-                    <div className="mt-1 text-xs text-slate-500">
+                    <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">
                       {item.address}
                       {[item.city, item.state, item.postalCode].filter(Boolean).length
                         ? ` · ${[item.city, item.state, item.postalCode].filter(Boolean).join(", ")}`
                         : ""}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">{item.phone ?? item.email ?? "No contact yet"}</div>
+                    <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">{item.phone ?? item.email ?? "No contact yet"}</div>
                   </td>
                   <td className="py-3 pr-4">{item.leadStatus}</td>
                   <td className="py-3 pr-4">{item.lastActivityOutcome ?? "None"}</td>
@@ -204,14 +204,14 @@ export function LeadsPage() {
                     <div className="flex flex-wrap gap-2">
                       <Link
                         href={`/leads/${item.leadId}` as Route}
-                        className="app-glass-button rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition hover:bg-white/90"
+                        className="app-glass-button rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[rgba(var(--app-primary-rgb),0.72)] transition hover:brightness-105"
                       >
                         Detail
                       </Link>
                       {item.propertyId ? (
                         <Link
                           href={`/properties/${item.propertyId}` as Route}
-                          className="app-glass-button rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition hover:bg-white/90"
+                          className="app-glass-button rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[rgba(var(--app-primary-rgb),0.72)] transition hover:brightness-105"
                         >
                           Property
                         </Link>
@@ -222,7 +222,7 @@ export function LeadsPage() {
               ))}
               {!loading && !items.length ? (
                 <tr>
-                  <td colSpan={isManager ? 7 : 6} className="py-6 text-center text-slate-500">
+                  <td colSpan={isManager ? 7 : 6} className="py-6 text-center text-[rgba(var(--app-primary-rgb),0.6)]">
                     No leads match this filter yet.
                   </td>
                 </tr>

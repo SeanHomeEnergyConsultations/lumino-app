@@ -69,7 +69,7 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
         <button
           type="button"
           onClick={onOpenNav}
-          className="app-chip inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-3 text-slate-700 transition hover:bg-white/90 xl:hidden"
+          className="app-chip inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-3 text-[rgba(var(--app-primary-rgb),0.78)] transition hover:brightness-105 xl:hidden"
           aria-label="Open app menu"
         >
           <Menu className="h-5 w-5" />
@@ -91,7 +91,7 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
             value={appContext.organizationId ?? ""}
             disabled={switchingOrg || !organizations.length}
             onChange={(event) => void handleSwitchOrganization(event.target.value)}
-            className="max-w-[15rem] rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 outline-none transition focus:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="app-glass-input max-w-[15rem] rounded-full px-3 py-1.5 text-sm text-[rgba(var(--app-primary-rgb),0.78)] outline-none transition focus:border-ink disabled:cursor-not-allowed disabled:opacity-60"
           >
             {organizations.map((organization) => (
               <option key={organization.organizationId} value={organization.organizationId}>
@@ -100,14 +100,14 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
             ))}
           </select>
         ) : null}
-        <div className="app-chip rounded-full px-3 py-1.5 text-sm text-slate-600">
+        <div className="app-chip rounded-full px-3 py-1.5 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
           {appContext?.appUser.fullName || appContext?.appUser.email || "Signed in"}
         </div>
         {supabase ? (
           <button
             type="button"
             onClick={handleSignOut}
-            className="app-chip rounded-full border bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-[rgba(var(--app-primary-rgb),0.92)] hover:text-white"
+            className="app-glass-button rounded-full px-3 py-1.5 text-sm text-[rgba(var(--app-primary-rgb),0.72)] transition hover:bg-[rgba(var(--app-primary-rgb),0.92)] hover:text-white"
             style={{ borderColor: `${primaryColor}33` }}
           >
             Sign out

@@ -185,11 +185,11 @@ export function QueuePage({
       <div className="app-panel rounded-[2rem] border p-5 md:p-6">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Rep Queue</div>
         <h1 className="mt-2 text-2xl font-semibold text-ink md:text-3xl">Daily follow-up command center</h1>
-        <p className="mt-3 max-w-3xl text-sm text-slate-600">
+        <p className="mt-3 max-w-3xl text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
           Work the day from here when you are not actively walking the map. On mobile, stay in one lane at a time and push the next best property back onto the map quickly.
         </p>
         {repName ? (
-          <div className="mt-3 inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">
+          <div className="app-chip mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[rgba(var(--app-primary-rgb),0.72)]">
             Viewing {repName}&apos;s queue
           </div>
         ) : null}
@@ -202,8 +202,8 @@ export function QueuePage({
               onClick={() => setActiveMobileSection(item.key)}
               className={`min-w-[10rem] rounded-3xl border p-4 text-left transition md:min-w-0 ${
                 activeMobileSection === item.key
-                  ? "border-ink bg-ink text-white shadow-panel"
-                  : "border-slate-200 bg-slate-50 text-ink"
+                  ? "border-[rgba(var(--app-primary-rgb),0.24)] bg-[rgba(var(--app-primary-rgb),0.92)] text-white shadow-panel"
+                  : "app-panel-soft text-ink"
               }`}
             >
               <div
@@ -223,9 +223,9 @@ export function QueuePage({
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Focus Lane</div>
               <div className="mt-2 text-lg font-semibold text-ink">{activeSection.title}</div>
-              <p className="mt-1 text-sm text-slate-600">{activeSection.description}</p>
+              <p className="mt-1 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">{activeSection.description}</p>
             </div>
-            <div className="rounded-2xl bg-white px-3 py-2 text-center shadow-sm ring-1 ring-slate-200">
+            <div className="app-glass-button rounded-2xl px-3 py-2 text-center">
               <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-mist">Live</div>
               <div className="mt-1 text-lg font-semibold text-ink">{loading ? "…" : activeSection.count}</div>
             </div>
@@ -289,8 +289,8 @@ export function QueuePage({
                 onClick={() => setActiveMobileSection(section.key)}
                 className={`flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold transition ${
                   active
-                    ? "border-ink bg-ink text-white shadow-panel"
-                    : "border-slate-200 bg-white text-slate-600"
+                  ? "border-[rgba(var(--app-primary-rgb),0.24)] bg-[rgba(var(--app-primary-rgb),0.92)] text-white shadow-panel"
+                    : "app-glass-button text-[rgba(var(--app-primary-rgb),0.72)]"
                 }`}
               >
                 <Icon className="h-4 w-4" />
