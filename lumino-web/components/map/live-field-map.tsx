@@ -1225,7 +1225,7 @@ export function LiveFieldMap({
               routeSelectionMode
                 ? "border-ink bg-ink text-white"
                 : "border-slate-200 bg-white/95 text-slate-700"
-            }`}
+            } xl:right-20`}
           >
             <MapPinned className="h-4 w-4" />
             {routeSelectionMode ? "Close Route Select" : "Route Select"}
