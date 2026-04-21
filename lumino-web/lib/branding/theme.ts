@@ -11,6 +11,48 @@ export const DEFAULT_ORGANIZATION_THEME = {
   sidebarColor: "#f6f2ea"
 } as const;
 
+export const ORGANIZATION_THEME_PRESETS = [
+  {
+    id: "titanium-glass",
+    label: "Titanium Glass",
+    description: "Cool metallic shell with icy glass surfaces and a darker control spine.",
+    theme: {
+      primaryColor: "#1d2738",
+      accentColor: "#8db6d9",
+      backgroundColor: "#dfe5ec",
+      backgroundAccentColor: "#f6f8fb",
+      surfaceColor: "#ffffff",
+      sidebarColor: "#d7dde6"
+    }
+  },
+  {
+    id: "obsidian-chrome",
+    label: "Obsidian Chrome",
+    description: "Dark brushed-metal control language with sharper silver highlights.",
+    theme: {
+      primaryColor: "#171b23",
+      accentColor: "#c1d4ea",
+      backgroundColor: "#ccd3dc",
+      backgroundAccentColor: "#eef2f6",
+      surfaceColor: "#fbfcfe",
+      sidebarColor: "#c4ccd7"
+    }
+  },
+  {
+    id: "champagne-fog",
+    label: "Champagne Fog",
+    description: "Warmer premium shell with satin gold notes and soft frosted surfaces.",
+    theme: {
+      primaryColor: "#3a2f28",
+      accentColor: "#c8a96b",
+      backgroundColor: "#efe6db",
+      backgroundAccentColor: "#f8fbff",
+      surfaceColor: "#fffdfb",
+      sidebarColor: "#e7ddd0"
+    }
+  }
+] as const;
+
 function expandHexColor(input: string) {
   const normalized = input.replace("#", "").trim();
   if (normalized.length === 3) {

@@ -892,15 +892,15 @@ export function LiveFieldMap({
         selectedRouteLeadIds={new Set(selectedRouteLeadIds)}
         onToggleRouteLead={toggleSelectedRouteLead}
         showPriority={featureAccess.priorityScoringEnabled}
-        className={`relative z-20 shrink-0 border-r border-slate-200/80 bg-white/80 backdrop-blur ${isResultsPanelVisible ? "hidden w-80 xl:block" : "hidden xl:hidden"}`}
+        className={`app-sidebar-surface relative z-20 shrink-0 border-r ${isResultsPanelVisible ? "hidden w-80 xl:block" : "hidden xl:hidden"}`}
       />
 
-      <div className="relative flex-1 overflow-hidden bg-[linear-gradient(135deg,#f8fafc_0%,#e7eef9_100%)]">
+      <div className="relative flex-1 overflow-hidden bg-[linear-gradient(135deg,rgba(var(--app-surface-rgb),0.44)_0%,rgba(var(--app-background-accent-rgb),0.58)_100%)]">
         <div className="absolute left-4 top-4 z-20 hidden items-center gap-2 xl:flex">
           <button
             type="button"
             onClick={() => setIsResultsPanelVisible((current) => !current)}
-            className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel transition hover:bg-white"
+            className="app-glass-button flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel transition hover:bg-white/90"
           >
             {isResultsPanelVisible ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
             {isResultsPanelVisible ? "Hide List" : "Show List"}
@@ -908,7 +908,7 @@ export function LiveFieldMap({
           <button
             type="button"
             onClick={() => setIsDrawerVisible((current) => !current)}
-            className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel transition hover:bg-white"
+            className="app-glass-button flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel transition hover:bg-white/90"
           >
             {isDrawerVisible ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
             {isDrawerVisible ? "Hide Details" : "Show Details"}
@@ -917,7 +917,7 @@ export function LiveFieldMap({
 
         {activeRoute ? (
           <div className="absolute left-4 right-4 top-20 z-20 xl:left-4 xl:right-auto xl:w-[24rem]">
-            <div className="rounded-[1.75rem] border border-slate-200 bg-white/96 p-4 shadow-2xl backdrop-blur">
+            <div className="app-panel rounded-[1.75rem] border p-4 shadow-2xl">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Active Route</div>
@@ -928,7 +928,7 @@ export function LiveFieldMap({
                     Stop {activeRoute.nextStop?.sequenceNumber ?? "—"} of {activeRoute.totalStops} · {activeRoute.completedStops} completed · {activeRoute.skippedStops} skipped
                   </div>
                 </div>
-                <div className="rounded-2xl bg-slate-50 px-3 py-2 text-center ring-1 ring-slate-200">
+                <div className="app-chip rounded-2xl px-3 py-2 text-center">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-mist">Next</div>
                   <div className="mt-1 text-lg font-semibold text-ink">
                     {activeRoute.nextStop?.sequenceNumber ?? "—"}
@@ -954,7 +954,7 @@ export function LiveFieldMap({
                         openSelectedProperty(activeRoute.nextStop.propertyId);
                         void refreshSelectedProperty(activeRoute.nextStop.propertyId);
                       }}
-                      className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white"
+                      className="app-primary-button rounded-2xl px-4 py-2 text-sm font-semibold"
                     >
                       Open Stop
                     </button>
@@ -963,12 +963,12 @@ export function LiveFieldMap({
                         href={nextStopDirectionsUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-ink"
+                        className="app-glass-button rounded-2xl px-4 py-2 text-sm font-semibold text-ink"
                       >
                         Navigate
                       </a>
                     ) : (
-                      <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-2 text-center text-sm font-semibold text-slate-400">
+                      <div className="app-chip rounded-2xl border-dashed px-4 py-2 text-center text-sm font-semibold text-slate-400">
                         Directions unavailable
                       </div>
                     )}
@@ -976,7 +976,7 @@ export function LiveFieldMap({
                       type="button"
                       onClick={() => void handleOptimizeRemainingStops()}
                       disabled={routeActionState === "optimizing"}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                      className="app-glass-button rounded-2xl px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
                     >
                       {routeActionState === "optimizing" ? "Optimizing..." : "Optimize Remaining"}
                     </button>
@@ -984,7 +984,7 @@ export function LiveFieldMap({
                       type="button"
                       onClick={() => void handleSkipRouteStop()}
                       disabled={routeActionState === "skipping"}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 disabled:opacity-60"
+                      className="app-glass-button rounded-2xl px-4 py-2 text-sm font-semibold text-slate-600 disabled:opacity-60"
                     >
                       {routeActionState === "skipping" ? "Skipping..." : "Skip"}
                     </button>
@@ -1028,7 +1028,7 @@ export function LiveFieldMap({
           </div>
         ) : routeSelectionMode ? (
           <div className="absolute left-4 right-4 top-20 z-20 xl:left-4 xl:right-auto xl:w-[24rem]">
-            <div className="rounded-[1.75rem] border border-slate-200 bg-white/96 p-4 shadow-2xl backdrop-blur">
+            <div className="app-panel rounded-[1.75rem] border p-4 shadow-2xl">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Route Selection</div>
@@ -1046,7 +1046,7 @@ export function LiveFieldMap({
                     setSelectedRouteLeadIds([]);
                     setRouteBuilderError(null);
                   }}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600"
+                  className="app-glass-button rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-600"
                 >
                   Cancel
                 </button>
@@ -1083,7 +1083,7 @@ export function LiveFieldMap({
                   type="button"
                   onClick={() => void handleBuildRouteFromMapSelection()}
                   disabled={!selectedRouteLeadIds.length || routeActionState === "building"}
-                  className="rounded-2xl bg-ink px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  className="app-primary-button rounded-2xl px-4 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {routeActionState === "building" ? "Building..." : "Build Route"}
                 </button>
@@ -1091,7 +1091,7 @@ export function LiveFieldMap({
                   type="button"
                   onClick={() => setSelectedRouteLeadIds([])}
                   disabled={!selectedRouteLeadIds.length}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                  className="app-glass-button rounded-2xl px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50"
                 >
                   Clear
                 </button>
@@ -1163,7 +1163,7 @@ export function LiveFieldMap({
               <div className="relative">
                 <span className="absolute -inset-3 rounded-full bg-sky-500/20" />
                 <span className="absolute -inset-1 rounded-full bg-sky-500/25 animate-ping" />
-                <div className="relative flex items-center rounded-full border border-sky-200 bg-white/95 p-1 shadow-lg">
+                <div className="app-glass-button relative flex items-center rounded-full p-1 shadow-lg">
                   <span className="block h-4 w-4 rounded-full border-4 border-white bg-sky-500 shadow" />
                 </div>
               </div>
@@ -1171,7 +1171,7 @@ export function LiveFieldMap({
           ) : null}
         </MapView>
 
-        <div className="absolute bottom-24 left-4 right-4 rounded-2xl border border-slate-200 bg-white/92 px-4 py-3 text-sm text-slate-600 shadow-panel sm:right-auto sm:rounded-full sm:py-2 xl:bottom-4">
+        <div className="app-glass-button absolute bottom-24 left-4 right-4 rounded-2xl px-4 py-3 text-sm text-slate-600 shadow-panel sm:right-auto sm:rounded-full sm:py-2 xl:bottom-4">
           {isSavingVisit
             ? "Saving visit..."
             : isResolvingTap
@@ -1193,7 +1193,7 @@ export function LiveFieldMap({
                 zoom: Math.max(current.zoom, 18)
               }))
             }
-            className="absolute bottom-40 right-4 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-700 shadow-panel transition hover:bg-white sm:bottom-20"
+            className="app-glass-button absolute bottom-40 right-4 flex h-11 w-11 items-center justify-center rounded-full text-slate-700 shadow-panel transition hover:bg-white/90 sm:bottom-20"
             aria-label="Center on my location"
           >
             <LocateFixed className="h-5 w-5" />
@@ -1203,7 +1203,7 @@ export function LiveFieldMap({
         <button
           type="button"
           onClick={() => setIsResultsOpen(true)}
-          className="absolute left-4 top-4 flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel xl:hidden"
+          className="app-glass-button absolute left-4 top-4 flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel xl:hidden"
         >
           <MapIcon className="h-4 w-4" />
           List
@@ -1221,11 +1221,11 @@ export function LiveFieldMap({
                 return next;
               });
             }}
-            className={`absolute left-4 top-20 z-20 flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold shadow-panel transition xl:left-auto xl:right-4 xl:top-4 ${
+            className={`absolute left-4 top-20 z-20 flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold shadow-panel transition xl:left-auto xl:right-20 xl:top-4 ${
               routeSelectionMode
-                ? "border-ink bg-ink text-white"
-                : "border-slate-200 bg-white/95 text-slate-700"
-            } xl:right-20`}
+                ? "app-primary-button text-white"
+                : "app-glass-button text-slate-700"
+            }`}
           >
             <MapPinned className="h-4 w-4" />
             {routeSelectionMode ? "Close Route Select" : "Route Select"}
@@ -1240,7 +1240,7 @@ export function LiveFieldMap({
                 setSelectedProperty(null);
                 setPropertyLoading(false);
               }}
-              className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-2 text-sm font-semibold text-slate-700 shadow-panel"
+              className="app-glass-button flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-slate-700 shadow-panel"
             >
               {selectedVisual ? (
                 <span className={`flex h-7 w-7 items-center justify-center rounded-full ${selectedVisual.className}`}>
@@ -1274,7 +1274,7 @@ export function LiveFieldMap({
       {isResultsOpen ? (
         <div className="fixed inset-0 z-30 bg-slate-950/20 xl:hidden" onClick={() => setIsResultsOpen(false)}>
           <div
-            className="absolute inset-x-0 bottom-0 max-h-[70vh] rounded-t-[2rem] border border-slate-200 bg-white shadow-2xl"
+            className="app-panel absolute inset-x-0 bottom-0 max-h-[70vh] rounded-t-[2rem] border shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
@@ -1285,7 +1285,7 @@ export function LiveFieldMap({
               <button
                 type="button"
                 onClick={() => setIsResultsOpen(false)}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600"
+                className="app-glass-button flex h-9 w-9 items-center justify-center rounded-full text-slate-600"
                 aria-label="Hide nearby targets"
               >
                 <ChevronDown className="h-4 w-4" />
@@ -1302,7 +1302,7 @@ export function LiveFieldMap({
               selectedRouteLeadIds={new Set(selectedRouteLeadIds)}
               onToggleRouteLead={toggleSelectedRouteLead}
               showPriority={featureAccess.priorityScoringEnabled}
-              className="block max-h-[calc(70vh-4.5rem)] w-full overflow-y-auto bg-white"
+              className="block max-h-[calc(70vh-4.5rem)] w-full overflow-y-auto"
               showHeader={false}
             />
           </div>

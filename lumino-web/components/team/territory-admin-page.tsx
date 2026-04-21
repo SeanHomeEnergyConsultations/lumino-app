@@ -17,7 +17,7 @@ import type {
   TerritoryPropertyItem,
   TerritoryPropertySearchResponse
 } from "@/types/api";
-import { DEFAULT_ORGANIZATION_THEME } from "@/lib/branding/theme";
+import { DEFAULT_ORGANIZATION_THEME, ORGANIZATION_THEME_PRESETS } from "@/lib/branding/theme";
 
 function statusPill(status: string) {
   return status === "active"
@@ -468,6 +468,19 @@ export function TerritoryAdminPage() {
     }
   }
 
+  function applyThemePreset(presetId: (typeof ORGANIZATION_THEME_PRESETS)[number]["id"]) {
+    const preset = ORGANIZATION_THEME_PRESETS.find((item) => item.id === presetId);
+    if (!preset) return;
+
+    setPrimaryColor(preset.theme.primaryColor);
+    setAccentColor(preset.theme.accentColor);
+    setBackgroundColor(preset.theme.backgroundColor);
+    setBackgroundAccentColor(preset.theme.backgroundAccentColor);
+    setSurfaceColor(preset.theme.surfaceColor);
+    setSidebarColor(preset.theme.sidebarColor);
+    setBrandingState("idle");
+  }
+
   async function handleCreateOrganization() {
     if (!accessToken || !isPlatformOwner || !organizationName.trim()) return;
 
@@ -601,6 +614,38 @@ export function TerritoryAdminPage() {
 
           <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_0.9fr]">
             <div className="space-y-3">
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Presets</div>
+                <div className="grid gap-2">
+                  {ORGANIZATION_THEME_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => applyThemePreset(preset.id)}
+                      className="app-chip flex items-center justify-between gap-3 rounded-2xl px-3 py-3 text-left transition hover:translate-y-[-1px]"
+                    >
+                      <div>
+                        <div className="text-sm font-semibold text-ink">{preset.label}</div>
+                        <div className="mt-1 text-xs text-slate-500">{preset.description}</div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {[
+                          preset.theme.primaryColor,
+                          preset.theme.accentColor,
+                          preset.theme.backgroundColor,
+                          preset.theme.sidebarColor
+                        ].map((color) => (
+                          <span
+                            key={`${preset.id}-${color}`}
+                            className="h-4 w-4 rounded-full border border-white/70 shadow-sm"
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <input
                 type="text"
                 value={brandName}
