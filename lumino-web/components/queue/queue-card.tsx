@@ -111,8 +111,8 @@ export function QueueCard({
 
   return (
     <div
-      className={`rounded-3xl border bg-white p-4 shadow-panel transition ${
-        selected ? "border-ink ring-2 ring-ink/10" : "border-slate-200"
+      className={`app-panel rounded-3xl border p-4 transition ${
+        selected ? "border-ink ring-2 ring-ink/10" : ""
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -124,7 +124,7 @@ export function QueueCard({
               className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-xs font-bold transition ${
                 selected
                   ? "border-ink bg-ink text-white"
-                  : "border-slate-300 bg-white text-transparent"
+                  : "app-glass-button text-transparent"
               }`}
               aria-pressed={selected}
               aria-label={selected ? "Deselect lead from route" : "Select lead for route"}
@@ -140,7 +140,7 @@ export function QueueCard({
           </div>
         </div>
         </div>
-        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600">
+        <span className="app-chip rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600">
           {item.leadStatus ?? "New"}
         </span>
       </div>
@@ -169,26 +169,26 @@ export function QueueCard({
       <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
         <Link
           href={`/map?propertyId=${item.propertyId}`}
-          className="flex items-center justify-center rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+          className="app-primary-button flex items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-semibold transition hover:brightness-110"
         >
           Open on Map
         </Link>
         <Link
           href={`/properties/${item.propertyId}`}
-          className="flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-slate-300"
+          className="app-glass-button flex items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-white/90"
         >
           Full Property
         </Link>
       </div>
 
-      <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+      <div className="app-panel-soft mt-4 rounded-3xl border p-4">
         <div className="text-sm font-semibold text-ink">{actionConfig.title}</div>
         <p className="mt-1 text-xs text-slate-500">{actionConfig.helper}</p>
         <input
           type="datetime-local"
           value={actionConfig.value}
           onChange={(event) => actionConfig.setValue(event.target.value)}
-          className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+          className="mt-3 w-full rounded-2xl border border-slate-200 bg-white/90 px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
         />
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs text-slate-500">
@@ -204,7 +204,7 @@ export function QueueCard({
             type="button"
             onClick={() => void handleSaveAction()}
             disabled={!accessToken || actionState === "saving"}
-            className="w-full rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            className="app-glass-button w-full rounded-2xl px-4 py-2.5 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             {actionState === "saving" ? "Saving..." : actionConfig.buttonLabel}
           </button>

@@ -49,7 +49,7 @@ export function ManagerSupervisionMap({
   const selectedPoint = points.find((point) => point.id === selectedPointId) ?? null;
 
   return (
-    <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+    <section className="app-panel rounded-[2rem] border p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Live Manager Map</div>
@@ -57,13 +57,13 @@ export function ManagerSupervisionMap({
             Recent field activity, who is active right now, and where the team is actually working.
           </p>
         </div>
-        <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">
+        <div className="app-chip rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">
           {repPresence.length} reps active
         </div>
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1.5fr_0.9fr]">
-        <div className="relative overflow-hidden rounded-[1.75rem] border border-slate-200 bg-slate-100">
+        <div className="app-panel-soft relative overflow-hidden rounded-[1.75rem] border">
           <div className="h-[24rem]">
             <Map
               initialViewState={initialView}
@@ -97,7 +97,7 @@ export function ManagerSupervisionMap({
               {repPresence.map((rep) =>
                 rep.lat != null && rep.lng != null ? (
                   <Marker key={`rep-${rep.userId}`} latitude={rep.lat} longitude={rep.lng} anchor="bottom">
-                    <div className="flex items-center gap-2 rounded-full border border-white bg-white/95 px-2 py-1 shadow-panel">
+                    <div className="app-glass-button flex items-center gap-2 rounded-full px-2 py-1 shadow-panel">
                       <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-[10px] font-bold text-white">
                         {(rep.fullName ?? "R").slice(0, 1).toUpperCase()}
                       </span>
@@ -111,7 +111,7 @@ export function ManagerSupervisionMap({
         </div>
 
         <div className="grid gap-4">
-          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+          <div className="app-panel-soft rounded-[1.5rem] border p-4">
             <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">Selected Activity</div>
             {selectedPoint ? (
               <div className="mt-3 space-y-2 text-sm text-slate-600">
@@ -125,7 +125,7 @@ export function ManagerSupervisionMap({
             )}
           </div>
 
-          <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+          <div className="app-panel-soft rounded-[1.5rem] border p-4">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-mist">
               <Users className="h-3.5 w-3.5" />
               Rep Presence
@@ -133,7 +133,7 @@ export function ManagerSupervisionMap({
             <div className="mt-3 space-y-3">
               {repPresence.length ? (
                 repPresence.map((rep) => (
-                  <div key={rep.userId} className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                  <div key={rep.userId} className="app-glass-button rounded-2xl px-3 py-3">
                     <div className="text-sm font-semibold text-ink">{rep.fullName ?? "Rep"}</div>
                     <div className="mt-1 text-xs text-slate-500">
                       {rep.lastOutcome?.replaceAll("_", " ") ?? "Recent activity"} ·{" "}

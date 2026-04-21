@@ -21,13 +21,13 @@ export function QueueSection({
   onToggleSelected?: (leadId: string) => void;
 }) {
   return (
-    <section className="rounded-[2rem] border border-slate-200/80 bg-white/70 p-5 shadow-panel backdrop-blur">
+    <section className="app-panel rounded-[2rem] border p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">{title}</div>
           <p className="mt-2 text-sm text-slate-500">{description}</p>
         </div>
-        <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+        <div className="app-chip rounded-full px-3 py-1 text-sm font-semibold text-slate-700">
           {items.length}
         </div>
       </div>
@@ -46,7 +46,7 @@ export function QueueSection({
             />
           ))
         ) : (
-          <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+          <div className="app-panel-soft rounded-3xl border border-dashed p-5 text-sm text-slate-500">
             Nothing in this queue right now.
           </div>
         )}

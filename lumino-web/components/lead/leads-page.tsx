@@ -73,7 +73,7 @@ export function LeadsPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
+      <div className="app-panel rounded-[2rem] border p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Leads</div>
@@ -83,7 +83,7 @@ export function LeadsPage() {
             </p>
           </div>
 
-          <div className="w-full rounded-3xl border border-slate-200 bg-slate-50 p-3 xl:max-w-4xl">
+          <div className="app-panel-soft w-full rounded-3xl border p-3 xl:max-w-4xl">
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
               <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 xl:col-span-2">
                 Search leads
@@ -168,7 +168,7 @@ export function LeadsPage() {
         </div>
       </div>
 
-      <div className="mt-6 rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+      <div className="app-panel mt-6 rounded-[2rem] border p-5">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="text-xs uppercase tracking-[0.14em] text-slate-500">
@@ -204,14 +204,14 @@ export function LeadsPage() {
                     <div className="flex flex-wrap gap-2">
                       <Link
                         href={`/leads/${item.leadId}` as Route}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition hover:border-slate-300"
+                        className="app-glass-button rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition hover:bg-white/90"
                       >
                         Detail
                       </Link>
                       {item.propertyId ? (
                         <Link
                           href={`/properties/${item.propertyId}` as Route}
-                          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition hover:border-slate-300"
+                          className="app-glass-button rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition hover:bg-white/90"
                         >
                           Property
                         </Link>

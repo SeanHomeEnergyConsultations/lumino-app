@@ -40,7 +40,7 @@ export function DailySummaryPanel() {
   }
 
   return (
-    <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+    <section className="app-panel rounded-[2rem] border p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Daily Summary</div>
@@ -59,11 +59,11 @@ export function DailySummaryPanel() {
             type="button"
             onClick={() => void handleCopyEmail()}
             disabled={!report?.emailBody}
-            className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            className="app-primary-button rounded-2xl px-4 py-2 text-sm font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {copyState === "copied" ? "Summary Copied" : "Send Summary"}
           </button>
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+          <div className="app-chip rounded-2xl px-4 py-2 text-sm text-slate-500">
             Automation next
           </div>
         </div>
@@ -78,7 +78,7 @@ export function DailySummaryPanel() {
           { label: "Overdue", value: report?.summary.overdueFollowUps ?? 0 },
           { label: "Stale Opps", value: report?.summary.staleOpportunities ?? 0 }
         ].map((item) => (
-          <div key={item.label} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+          <div key={item.label} className="app-panel-soft rounded-3xl border p-4">
             <div className="text-xs font-semibold uppercase tracking-[0.14em] text-mist">{item.label}</div>
             <div className="mt-2 text-2xl font-semibold text-ink">{loading ? "…" : item.value}</div>
           </div>
@@ -86,11 +86,11 @@ export function DailySummaryPanel() {
       </div>
 
       <div className="mt-5 grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+        <div className="app-panel-soft rounded-3xl border p-4">
           <div className="text-sm font-semibold text-ink">Highlights</div>
           <div className="mt-3 space-y-2 text-sm text-slate-600">
             {(report?.highlights ?? []).slice(0, 3).map((item) => (
-              <div key={item} className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
+              <div key={item} className="app-glass-button rounded-2xl px-3 py-2">
                 {item}
               </div>
             ))}
@@ -100,16 +100,16 @@ export function DailySummaryPanel() {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+        <div className="app-panel-soft rounded-3xl border p-4">
           <div className="text-sm font-semibold text-ink">Risks and focus</div>
           <div className="mt-3 space-y-2 text-sm text-slate-600">
             {(report?.risks ?? []).slice(0, 3).map((item) => (
-              <div key={item} className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
+              <div key={item} className="app-glass-button rounded-2xl px-3 py-2">
                 {item}
               </div>
             ))}
             {report?.territoryNotes ? (
-              <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
+              <div className="app-glass-button rounded-2xl px-3 py-2">
                 {report.territoryNotes}
               </div>
             ) : null}
