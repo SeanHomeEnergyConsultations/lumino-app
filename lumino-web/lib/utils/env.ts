@@ -32,6 +32,31 @@ export function getGoogleMapsApiKey() {
   return process.env.GOOGLE_MAPS_API_KEY || null;
 }
 
+export function getGoogleCalendarOAuthEnv() {
+  const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim();
+  const baseUrl = getAppBaseUrl();
+
+  if (!clientId || !clientSecret || !baseUrl) {
+    return null;
+  }
+
+  return {
+    clientId,
+    clientSecret,
+    baseUrl: baseUrl.replace(/\/$/, "")
+  };
+}
+
+export function getAppBaseUrl() {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    process.env.APP_URL?.trim() ||
+    null
+  );
+}
+
 export function getSecurityAlertWebhookUrl() {
   const value = process.env.SECURITY_ALERT_WEBHOOK_URL?.trim();
   return value ? value : null;
@@ -46,6 +71,8 @@ export function getProductionSecurityConfigPresence() {
     hasSendEmailHookSecret: Boolean(process.env.SEND_EMAIL_HOOK_SECRET),
     hasResendFromEmail: Boolean(process.env.RESEND_FROM_EMAIL),
     hasAppUrl: Boolean(process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL),
+    hasGoogleCalendarClientId: Boolean(process.env.GOOGLE_CALENDAR_CLIENT_ID),
+    hasGoogleCalendarClientSecret: Boolean(process.env.GOOGLE_CALENDAR_CLIENT_SECRET),
     hasSecurityAlertWebhookUrl: Boolean(process.env.SECURITY_ALERT_WEBHOOK_URL)
   };
 }

@@ -1,4 +1,9 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
+import {
+  deleteSyncedGoogleCalendarAppointment,
+  syncAppointmentToGoogleCalendar
+} from "@/lib/google-calendar/service";
+import { getAppBaseUrl } from "@/lib/utils/env";
 import type { AuthSessionContext } from "@/types/auth";
 
 export async function updateAppointmentStatus(
@@ -82,6 +87,19 @@ export async function updateAppointmentStatus(
       notes
     }
   });
+
+  if (input.status === "cancelled") {
+    await deleteSyncedGoogleCalendarAppointment({
+      context,
+      leadId: input.leadId
+    }).catch(() => null);
+  } else {
+    await syncAppointmentToGoogleCalendar({
+      context,
+      leadId: input.leadId,
+      appUrl: getAppBaseUrl() ?? "http://localhost:3000"
+    }).catch(() => null);
+  }
 
   return { appointmentId };
 }

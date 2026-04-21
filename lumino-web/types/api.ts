@@ -385,6 +385,32 @@ export interface AppointmentsResponse {
   upcoming: AppointmentScheduleItem[];
 }
 
+export interface GoogleCalendarConnectionStatus {
+  configured: boolean;
+  connected: boolean;
+  calendarEmail: string | null;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  updatedAt: string | null;
+}
+
+export interface GoogleCalendarConnectionStatusResponse {
+  item: GoogleCalendarConnectionStatus;
+}
+
+export interface GoogleCalendarConnectResponse {
+  authUrl: string;
+}
+
+export interface GoogleCalendarConflictCheckResponse {
+  connected: boolean;
+  hasConflict: boolean;
+  busy: Array<{
+    start: string;
+    end: string;
+  }>;
+}
+
 export interface SearchResultItem {
   id: string;
   kind: "property" | "lead";

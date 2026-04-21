@@ -1,5 +1,10 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { ensureOutcomeTask } from "@/lib/db/mutations/tasks";
+import {
+  deleteSyncedGoogleCalendarAppointment,
+  syncAppointmentToGoogleCalendar
+} from "@/lib/google-calendar/service";
+import { getAppBaseUrl } from "@/lib/utils/env";
 import type { AuthSessionContext } from "@/types/auth";
 import type { LeadInput } from "@/types/entities";
 
@@ -165,6 +170,20 @@ export async function upsertLead(input: LeadInput, context: AuthSessionContext) 
       dueAt: appointmentAt,
       notes: "Auto-created from appointment scheduling."
     });
+  }
+
+  const appBaseUrl = getAppBaseUrl() ?? "http://localhost:3000";
+  if (appointmentAt && leadId) {
+    await syncAppointmentToGoogleCalendar({
+      context,
+      leadId,
+      appUrl: appBaseUrl
+    }).catch(() => null);
+  } else if (leadId) {
+    await deleteSyncedGoogleCalendarAppointment({
+      context,
+      leadId
+    }).catch(() => null);
   }
 
   return {

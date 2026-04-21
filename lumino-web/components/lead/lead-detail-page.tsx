@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useEffect, useState } from "react";
 import type { LeadDetailResponse } from "@/types/api";
+import { GoogleCalendarSyncCard } from "@/components/appointments/google-calendar-sync-card";
 import type { LeadInput, TaskInput } from "@/types/entities";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
@@ -265,6 +266,13 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
                   />
                 </label>
+                <div className="md:col-span-2">
+                  <GoogleCalendarSyncCard
+                    appointmentAt={appointmentAt || null}
+                    returnTo={`/leads/${leadId}`}
+                    compact
+                  />
+                </div>
                 <label className="text-xs text-slate-500 md:col-span-2">
                   Notes
                   <textarea
