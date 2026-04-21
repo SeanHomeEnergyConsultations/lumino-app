@@ -15,40 +15,53 @@ export const ORGANIZATION_THEME_PRESETS = [
   {
     id: "titanium-glass",
     label: "Titanium Glass",
-    description: "Cool metallic shell with icy glass surfaces and a darker control spine.",
+    description: "Neutral titanium shell with icy blue highlights and crisp floating controls.",
     theme: {
-      primaryColor: "#1d2738",
-      accentColor: "#8db6d9",
-      backgroundColor: "#dfe5ec",
-      backgroundAccentColor: "#f6f8fb",
-      surfaceColor: "#ffffff",
-      sidebarColor: "#d7dde6"
+      primaryColor: "#273241",
+      accentColor: "#9fc2df",
+      backgroundColor: "#cdd4dc",
+      backgroundAccentColor: "#eef3f8",
+      surfaceColor: "#fcfdff",
+      sidebarColor: "#b9c2cc"
     }
   },
   {
-    id: "obsidian-chrome",
-    label: "Obsidian Chrome",
-    description: "Dark brushed-metal control language with sharper silver highlights.",
+    id: "solar-focused",
+    label: "Solar Focused",
+    description: "Brushed steel base with warm solar amber highlights and bright frosted controls.",
     theme: {
-      primaryColor: "#171b23",
-      accentColor: "#c1d4ea",
-      backgroundColor: "#ccd3dc",
-      backgroundAccentColor: "#eef2f6",
+      primaryColor: "#2f343c",
+      accentColor: "#d8a548",
+      backgroundColor: "#d4d8dd",
+      backgroundAccentColor: "#f4f1e8",
+      surfaceColor: "#fffdf8",
+      sidebarColor: "#c2c7ce"
+    }
+  },
+  {
+    id: "roofing-focused",
+    label: "Roofing Focused",
+    description: "Slate-metal shell with copper roofing accents and cooler structural depth.",
+    theme: {
+      primaryColor: "#2a3038",
+      accentColor: "#b86c4e",
+      backgroundColor: "#c8ced6",
+      backgroundAccentColor: "#e8edf2",
       surfaceColor: "#fbfcfe",
-      sidebarColor: "#c4ccd7"
+      sidebarColor: "#b4bcc7"
     }
   },
   {
-    id: "champagne-fog",
-    label: "Champagne Fog",
-    description: "Warmer premium shell with satin gold notes and soft frosted surfaces.",
+    id: "blue-gold",
+    label: "Blue and Gold",
+    description: "Polished naval metal with deep blue authority and refined gold highlights.",
     theme: {
-      primaryColor: "#3a2f28",
-      accentColor: "#c8a96b",
-      backgroundColor: "#efe6db",
-      backgroundAccentColor: "#f8fbff",
-      surfaceColor: "#fffdfb",
-      sidebarColor: "#e7ddd0"
+      primaryColor: "#223553",
+      accentColor: "#c7a14c",
+      backgroundColor: "#cfd6df",
+      backgroundAccentColor: "#edf1f6",
+      surfaceColor: "#fffefb",
+      sidebarColor: "#bcc6d1"
     }
   }
 ] as const;

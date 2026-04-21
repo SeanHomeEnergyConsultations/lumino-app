@@ -37,18 +37,33 @@ body {
 .app-frame {
   min-height: 100vh;
   background:
-    radial-gradient(circle at 12% 0%, rgba(var(--app-accent-rgb), 0.26), transparent 24%),
-    radial-gradient(circle at 92% 8%, rgba(var(--app-primary-rgb), 0.18), transparent 21%),
+    radial-gradient(circle at 14% 0%, rgba(255, 255, 255, 0.46), transparent 18%),
+    radial-gradient(circle at 88% 7%, rgba(var(--app-accent-rgb), 0.18), transparent 20%),
+    linear-gradient(180deg, rgba(var(--app-primary-rgb), 0.05), rgba(var(--app-primary-rgb), 0.01)),
     linear-gradient(180deg, var(--app-background) 0%, var(--app-background-accent) 100%);
 }
 
 .app-sidebar-surface {
   border-color: rgba(var(--app-primary-rgb), 0.08);
   background:
+    repeating-linear-gradient(
+      110deg,
+      rgba(255, 255, 255, 0.05) 0px,
+      rgba(255, 255, 255, 0.05) 2px,
+      rgba(255, 255, 255, 0) 2px,
+      rgba(255, 255, 255, 0) 9px
+    ),
     linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 28%),
-    linear-gradient(180deg, rgba(var(--app-surface-rgb), 0.72), rgba(var(--app-sidebar-rgb), 0.94));
+    linear-gradient(
+      135deg,
+      rgba(var(--app-sidebar-rgb), 0.98) 0%,
+      rgba(var(--app-surface-rgb), 0.78) 34%,
+      rgba(var(--app-sidebar-rgb), 0.96) 68%,
+      rgba(var(--app-primary-rgb), 0.08) 100%
+    );
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.05),
     0 18px 46px rgba(10, 16, 28, 0.12);
   backdrop-filter: blur(22px);
 }
@@ -63,10 +78,23 @@ body {
 
 .app-topbar-surface {
   background:
+    repeating-linear-gradient(
+      108deg,
+      rgba(255, 255, 255, 0.04) 0px,
+      rgba(255, 255, 255, 0.04) 2px,
+      rgba(255, 255, 255, 0) 2px,
+      rgba(255, 255, 255, 0) 11px
+    ),
     linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0) 32%),
-    linear-gradient(180deg, rgba(var(--app-surface-rgb), 0.68), rgba(var(--app-background-rgb), 0.74));
+    linear-gradient(
+      135deg,
+      rgba(var(--app-sidebar-rgb), 0.72) 0%,
+      rgba(var(--app-surface-rgb), 0.66) 38%,
+      rgba(var(--app-background-rgb), 0.78) 100%
+    );
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.04),
     0 18px 42px rgba(10, 16, 28, 0.08);
 }
 
@@ -81,10 +109,23 @@ body {
 
 .app-panel {
   background:
+    repeating-linear-gradient(
+      112deg,
+      rgba(255, 255, 255, 0.04) 0px,
+      rgba(255, 255, 255, 0.04) 2px,
+      rgba(255, 255, 255, 0) 2px,
+      rgba(255, 255, 255, 0) 12px
+    ),
     linear-gradient(180deg, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0) 30%),
-    linear-gradient(180deg, rgba(var(--app-surface-rgb), 0.82), rgba(var(--app-surface-rgb), 0.64));
+    linear-gradient(
+      135deg,
+      rgba(var(--app-sidebar-rgb), 0.66) 0%,
+      rgba(var(--app-surface-rgb), 0.84) 34%,
+      rgba(var(--app-background-rgb), 0.82) 100%
+    );
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.04),
     0 20px 52px rgba(9, 15, 27, 0.12);
 }
 
@@ -124,12 +165,12 @@ body {
 .app-glass-button {
   border: 1px solid rgba(var(--app-primary-rgb), 0.12);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0) 36%),
-    rgba(var(--app-surface-rgb), 0.82);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.56), rgba(255, 255, 255, 0.08) 36%),
+    rgba(var(--app-surface-rgb), 0.54);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.58),
     0 16px 30px rgba(9, 15, 27, 0.1);
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(24px) saturate(135%);
 }
 
 .maplibregl-ctrl-group {
