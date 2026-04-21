@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
-import { Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Search, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { SearchResponse } from "@/types/api";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
 export function CommandSearch() {
   const router = useRouter();
   const { session } = useAuth();
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResponse["items"]>([]);
   const [loading, setLoading] = useState(false);
@@ -18,19 +19,43 @@ export function CommandSearch() {
   const trimmedQuery = query.trim();
 
   useEffect(() => {
-    if (!session?.access_token || trimmedQuery.length < 2) {
+    if (!open) return;
+
+    const timeout = window.setTimeout(() => {
+      inputRef.current?.focus();
+    }, 20);
+
+    return () => window.clearTimeout(timeout);
+  }, [open]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setOpen(true);
+        return;
+      }
+
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!open || !session?.access_token || trimmedQuery.length < 2) {
       setResults([]);
       setLoading(false);
       return;
     }
 
-    const timeout = setTimeout(async () => {
+    const timeout = window.setTimeout(async () => {
       setLoading(true);
       try {
-        const response = await authFetch(
-          session.access_token,
-          `/api/search?q=${encodeURIComponent(trimmedQuery)}`
-        );
+        const response = await authFetch(session.access_token, `/api/search?q=${encodeURIComponent(trimmedQuery)}`);
         if (!response.ok) {
           setResults([]);
           return;
@@ -40,84 +65,122 @@ export function CommandSearch() {
       } finally {
         setLoading(false);
       }
-    }, 250);
+    }, 200);
 
-    return () => clearTimeout(timeout);
-  }, [trimmedQuery, session?.access_token]);
+    return () => window.clearTimeout(timeout);
+  }, [open, trimmedQuery, session?.access_token]);
+
+  function closeSearch() {
+    setOpen(false);
+    setQuery("");
+    setResults([]);
+  }
 
   function handleOpenAddressOnMap() {
     if (!trimmedQuery) return;
-    setOpen(false);
-    setQuery("");
+    closeSearch();
     router.push(`/map?address=${encodeURIComponent(trimmedQuery)}` as Route);
   }
 
   return (
-    <div className="relative w-full max-w-md">
-      <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 shadow-sm">
-        <Search className="h-4 w-4 text-slate-400" />
-        <input
-          value={query}
-          onFocus={() => setOpen(true)}
-          onBlur={() => {
-            setTimeout(() => setOpen(false), 150);
-          }}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search address, homeowner, phone, or email"
-          className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-slate-400"
-        />
-      </div>
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="app-glass-input flex w-full max-w-md items-center gap-2 rounded-full px-4 py-2.5 text-left text-sm text-[rgba(var(--app-primary-rgb),0.72)] transition hover:brightness-105"
+      >
+        <Search className="h-4 w-4 text-[rgba(var(--app-primary-rgb),0.5)]" />
+        <span className="flex-1 truncate text-[rgba(var(--app-primary-rgb),0.58)]">
+          Search address, homeowner, phone, or email
+        </span>
+        <span className="hidden rounded-full border border-[rgba(var(--app-primary-rgb),0.14)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[rgba(var(--app-primary-rgb),0.48)] sm:inline">
+          Cmd K
+        </span>
+      </button>
 
-      {open && (trimmedQuery.length >= 2 || loading) ? (
-        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-40 rounded-3xl border border-slate-200 bg-white p-2 shadow-2xl">
-          {loading ? (
-            <div className="px-3 py-4 text-sm text-slate-500">Searching…</div>
-          ) : results.length ? (
-            <>
-              {results.map((item) => (
-                <Link
-                  key={item.id}
-                  href={item.href as Route}
-                  className="block rounded-2xl px-3 py-3 transition hover:bg-slate-50"
-                  onClick={() => {
-                    setOpen(false);
-                    setQuery("");
-                  }}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-ink">{item.title}</div>
-                      <div className="mt-1 text-xs text-slate-500">{item.subtitle}</div>
-                    </div>
-                    <div className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
-                      {item.kind}
-                    </div>
-                  </div>
-                </Link>
-              ))}
+      {open ? (
+        <div className="fixed inset-0 z-[120] flex items-start justify-center bg-black/35 px-4 py-20 backdrop-blur-sm">
+          <div className="app-panel w-full max-w-2xl rounded-[2rem] border shadow-2xl">
+            <form
+              className="flex items-center gap-3 border-b border-[rgba(var(--app-primary-rgb),0.08)] px-5 py-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleOpenAddressOnMap();
+              }}
+            >
+              <Search className="h-5 w-5 text-[rgba(var(--app-primary-rgb),0.52)]" />
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search address, homeowner, phone, or email"
+                className="w-full bg-transparent text-base text-ink outline-none placeholder:text-[rgba(var(--app-primary-rgb),0.4)]"
+              />
               <button
                 type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={handleOpenAddressOnMap}
-                className="mt-1 block w-full rounded-2xl border border-dashed border-[rgba(var(--app-primary-rgb),0.16)] px-3 py-3 text-left transition hover:bg-slate-50"
+                onClick={closeSearch}
+                className="app-glass-button inline-flex h-10 w-10 items-center justify-center rounded-full text-[rgba(var(--app-primary-rgb),0.58)] transition hover:brightness-105"
+                aria-label="Close search"
               >
-                <div className="text-sm font-semibold text-ink">Open &quot;{trimmedQuery}&quot; on the map</div>
-                <div className="mt-1 text-xs text-slate-500">Use this when the address is not already in Lumino.</div>
+                <X className="h-4 w-4" />
               </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={handleOpenAddressOnMap}
-              className="block w-full rounded-2xl px-3 py-4 text-left transition hover:bg-slate-50"
-            >
-              <div className="text-sm font-semibold text-ink">Open &quot;{trimmedQuery}&quot; on the map</div>
-              <div className="mt-1 text-xs text-slate-500">No saved match found. Search and preview this address instead.</div>
-            </button>
-          )}
+            </form>
+
+            <div className="max-h-[70vh] overflow-y-auto p-3">
+              {trimmedQuery.length < 2 ? (
+                <div className="px-3 py-8 text-center text-sm text-[rgba(var(--app-primary-rgb),0.56)]">
+                  Start typing to find a saved lead or open a new address on the map.
+                </div>
+              ) : loading ? (
+                <div className="px-3 py-8 text-center text-sm text-[rgba(var(--app-primary-rgb),0.56)]">Searching…</div>
+              ) : results.length ? (
+                <div className="space-y-2">
+                  {results.map((item) => (
+                    <Link
+                      key={item.id}
+                      href={item.href as Route}
+                      className="block rounded-[1.4rem] border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-4 transition hover:bg-[rgba(var(--app-primary-rgb),0.04)]"
+                      onClick={closeSearch}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-ink">{item.title}</div>
+                          <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.54)]">{item.subtitle}</div>
+                        </div>
+                        <div className="rounded-full border border-[rgba(var(--app-primary-rgb),0.12)] bg-[rgba(var(--app-surface-rgb),0.5)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[rgba(var(--app-primary-rgb),0.56)]">
+                          {item.kind}
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={handleOpenAddressOnMap}
+                    className="block w-full rounded-[1.4rem] border border-dashed border-[rgba(var(--app-primary-rgb),0.18)] px-4 py-4 text-left transition hover:bg-[rgba(var(--app-primary-rgb),0.04)]"
+                  >
+                    <div className="text-sm font-semibold text-ink">Open &quot;{trimmedQuery}&quot; on the map</div>
+                    <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.54)]">
+                      Use this when the address is not already saved in Lumino.
+                    </div>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleOpenAddressOnMap}
+                  className="block w-full rounded-[1.4rem] border border-dashed border-[rgba(var(--app-primary-rgb),0.18)] px-4 py-5 text-left transition hover:bg-[rgba(var(--app-primary-rgb),0.04)]"
+                >
+                  <div className="text-sm font-semibold text-ink">Open &quot;{trimmedQuery}&quot; on the map</div>
+                  <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.54)]">
+                    No saved match found. Search and preview this address instead.
+                  </div>
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }
