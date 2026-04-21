@@ -90,14 +90,34 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        email,
+        password
+      })
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; session?: { access_token: string; refresh_token: string } }
+      | null;
+
+    if (!response.ok || !payload?.session) {
+      setLoading(false);
+      setError(payload?.error ?? "Invalid email or password.");
+      return;
+    }
+
+    const { error: setSessionError } = await supabase.auth.setSession({
+      access_token: payload.session.access_token,
+      refresh_token: payload.session.refresh_token
     });
 
     setLoading(false);
-    if (signInError) {
-      setError(signInError.message);
+    if (setSessionError) {
+      setError(setSessionError.message);
       return;
     }
 
@@ -121,13 +141,21 @@ export default function LoginPage() {
         ? `${window.location.origin}/set-password?mode=recovery`
         : undefined;
 
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo
+    const response = await fetch("/api/auth/password-reset", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        email: email.trim(),
+        redirectTo
+      })
     });
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
 
-    if (resetError) {
+    if (!response.ok) {
       setResetState("error");
-      setError(resetError.message);
+      setError(payload?.error ?? "Unable to send a password reset right now.");
       return;
     }
 

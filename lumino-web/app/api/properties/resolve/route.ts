@@ -64,6 +64,23 @@ export async function POST(request: Request) {
       );
     }
 
+    if (persistRequested) {
+      const persistRateLimit = await enforceRateLimit({
+        request,
+        context,
+        bucket: "property_resolve_commit",
+        limit: 12,
+        windowSeconds: 600,
+        logEventType: "property_resolve_commit_rate_limit_exceeded"
+      });
+      if (!persistRateLimit.allowed) {
+        return NextResponse.json(
+          { error: "Too many new property creations. Please wait before adding more addresses." },
+          { status: 429, headers: { "Retry-After": String(persistRateLimit.retryAfterSeconds) } }
+        );
+      }
+    }
+
     const result = await resolveOrCreateProperty(
       {
         ...parsed.data,

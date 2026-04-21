@@ -3,6 +3,28 @@ const multer = require('multer');
 const path = require('path');
 const XLSX = require('xlsx');
 
+function isLegacyOverrideEnabled() {
+  return String(process.env.ALLOW_LEGACY_STACK || '').trim() === '1';
+}
+
+function isProductionLikeEnvironment() {
+  return (
+    String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production' ||
+    Boolean(process.env.RAILWAY_ENVIRONMENT) ||
+    Boolean(process.env.VERCEL) ||
+    Boolean(process.env.RENDER) ||
+    Boolean(process.env.FLY_APP_NAME) ||
+    Boolean(process.env.DYNO)
+  );
+}
+
+if (isProductionLikeEnvironment() && !isLegacyOverrideEnabled()) {
+  throw new Error(
+    'Legacy solar-route-optimizer is disabled for production-style environments. ' +
+      'Use lumino-web instead, or set ALLOW_LEGACY_STACK=1 only for a deliberate short-lived override.'
+  );
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 

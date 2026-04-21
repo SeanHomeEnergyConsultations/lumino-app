@@ -8,6 +8,32 @@ import urllib.parse
 from datetime import datetime, timedelta
 from pathlib import Path
 
+PRODUCTION_MARKER_ENV_VARS = (
+    "RAILWAY_ENVIRONMENT",
+    "RENDER",
+    "VERCEL",
+    "FLY_APP_NAME",
+    "DYNO",
+)
+
+
+def _legacy_stack_override_enabled():
+    return os.getenv("ALLOW_LEGACY_STACK", "").strip() == "1"
+
+
+def _running_in_production_like_environment():
+    if os.getenv("NODE_ENV", "").strip().lower() == "production":
+        return True
+
+    return any(os.getenv(name, "").strip() for name in PRODUCTION_MARKER_ENV_VARS)
+
+
+if _running_in_production_like_environment() and not _legacy_stack_override_enabled():
+    raise RuntimeError(
+        "Legacy Streamlit stack is disabled for production-style environments. "
+        "Use lumino-web instead, or set ALLOW_LEGACY_STACK=1 only for a deliberate short-lived override."
+    )
+
 import googlemaps
 import pandas as pd
 import pydeck as pdk
@@ -50,7 +76,6 @@ except ModuleNotFoundError:
         allowed_outcomes_for_activity,
     )
 from engine.persistence import load_app_snapshot, save_app_snapshot
-from engine.processing import build_processing_error_result, process_address
 from engine.reporting import build_route_csv, build_zip_summary, generate_html_report
 from engine.routing import optimize_route
 from engine.supabase_auth import (
@@ -65,29 +90,36 @@ from engine.supabase_auth import (
 from engine.supabase_store import (
     add_lead_activity,
     create_manual_lead,
+    create_import_batch,
     create_onboarding_user,
     create_route_run,
     delete_lead_activity,
+    bulk_merge_duplicate_groups,
+    get_duplicate_lead_groups,
     get_current_app_user,
     get_lead_analysis_snapshot,
     get_lead_activity_rows,
     get_org_lead_count,
     get_open_lead_pool,
+    get_recent_import_batches,
     get_team_route_activity,
+    get_visible_lead_appointments,
     get_visible_lead_by_id,
+    get_visible_lead_summaries,
     get_visible_leads,
     get_rep_options,
     get_route_drafts,
     get_user_memberships,
+    log_property_visit,
     load_route_draft_results,
-    save_analysis_result,
+    merge_duplicate_leads,
+    ingest_uploaded_rows,
     save_route_draft,
     supabase_enabled,
     update_lead_core_details,
     update_lead_assignment,
     update_route_run_stop,
 )
-from engine.sheets import get_sheets_service, summarize_result_sources, sync_results_to_sheet
 from engine.geo import extract_zip
 
 
@@ -1318,7 +1350,22 @@ def sync_route_stop_details(result, execution_entry, auth_context=None):
     )
 
 
-def persist_rep_stop_update(result, execution_entry, auth_context=None):
+def _visit_outcome_from_status(status_value):
+    normalized_status = str(status_value or "").strip().lower()
+    mapping = {
+        "interested": "interested",
+        "callback": "callback_requested",
+        "appt set": "appointment_set",
+        "closed": "contact_made",
+        "not interested": "not_interested",
+        "not home 1": "not_home",
+        "not home 2": "not_home",
+        "not home 3": "not_home",
+    }
+    return mapping.get(normalized_status)
+
+
+def persist_rep_stop_update(result, execution_entry, auth_context=None, *, log_visit=False):
     # TODO(lead-workflow-v1): Route stop persistence still translates the legacy field-status
     # model into route_run_stops outcomes. This path is intentionally left isolated until
     # route execution logging is migrated to the structured lead activity model.
@@ -1376,6 +1423,24 @@ def persist_rep_stop_update(result, execution_entry, auth_context=None):
         )
         if not updated:
             return False
+
+    if log_visit:
+        visit_outcome = _visit_outcome_from_status(status_value)
+        property_address = (result or {}).get("address") or (result or {}).get("raw_address")
+        if visit_outcome and property_address:
+            visit_result = log_property_visit(
+                address=property_address,
+                outcome=visit_outcome,
+                notes=execution_entry.get("notes"),
+                interest_level=execution_entry.get("interest_level"),
+                lat=(result or {}).get("lat"),
+                lng=(result or {}).get("lng"),
+                route_run_id=(result or {}).get("route_run_id"),
+                auth_context=auth_context,
+            )
+            if not visit_result.get("ok"):
+                return False
+            execution_entry["last_visit_id"] = visit_result.get("visit_id") or ""
 
     if result is not None:
         result["route_run_status"] = stop_status
@@ -1904,7 +1969,7 @@ def build_route_candidates(results):
             "address": result["parking_address"],
             "latitude": result["lat"],
             "longitude": result["lng"],
-            "priority": result["priority_score"],
+            "priority": safe_result_priority(result),
             "source_result": result,
         }
         for result in results
@@ -2458,6 +2523,25 @@ def lead_flag_badges(flags):
     return " · ".join(badges) if badges else "None"
 
 
+def preview_note_text(value, limit=80):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def duplicate_confidence_badge(label):
+    palette = {
+        "Exact": "#2E7D32",
+        "High": "#C9A84C",
+        "Review": "#BF5A00",
+    }
+    color = palette.get(label, "#4A5A70")
+    return f":{color}[{label}]"
+
+
 LEAD_CARD_QUICK_ACTIONS = [
     {
         "label": "Call",
@@ -2913,7 +2997,10 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
     total_leads_in_scope = 0
     filtered_rows = []
     if not selected_lead:
-        lead_rows = get_visible_leads(auth_context=auth_context)
+        lead_rows = get_visible_lead_summaries(
+            limit=5000 if can_access_manager_workspace(active_org_role) else 1000,
+            auth_context=auth_context,
+        )
         total_leads_in_scope = get_org_lead_count(auth_context=auth_context)
         if not lead_rows:
             if can_access_manager_workspace(active_org_role):
@@ -2950,7 +3037,7 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
             options=["All"] + sorted({row["Assigned To"] for row in prepared_rows}),
             key="leads_assigned_to_filter",
         )
-        extra_filter_cols = st.columns(6)
+        extra_filter_cols = st.columns(2)
         zip_filter = extra_filter_cols[0].multiselect(
             "ZIP Codes",
             options=sorted({row["ZIP"] for row in prepared_rows if row["ZIP"]}),
@@ -2961,32 +3048,6 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
             options=sorted({row["City"] for row in prepared_rows if row["City"] and row["City"] != "Unknown"}),
             key="leads_cities_filter",
         )
-        date_field_filter = extra_filter_cols[2].selectbox(
-            "Date Field",
-            options=["Sold Date", "Permit Pulled"],
-            key="leads_date_field_filter",
-        )
-        min_price_filter = extra_filter_cols[3].number_input(
-            "Min Price",
-            min_value=0,
-            value=0,
-            step=50000,
-            key="leads_min_price_filter",
-        )
-        min_sun_filter = extra_filter_cols[4].number_input(
-            "Min Sun Hrs",
-            min_value=0.0,
-            value=0.0,
-            step=50.0,
-            key="leads_min_sun_filter",
-        )
-        from_date_filter = extra_filter_cols[5].date_input(
-            "From Date",
-            value=None,
-            key="leads_from_date_filter",
-        )
-
-        selected_date_field = "Sold Date" if date_field_filter == "Sold Date" else "Permit Pulled"
         filtered_rows = [
             row
             for row in prepared_rows
@@ -2996,15 +3057,6 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
             and (assigned_to_filter == "All" or row["Assigned To"] == assigned_to_filter)
             and (not zip_filter or row["ZIP"] in zip_filter)
             and (not city_filter or row["City"] in city_filter)
-            and (min_price_filter <= 0 or row["Sale Price"] is None or row["Sale Price"] >= float(min_price_filter))
-            and (min_sun_filter <= 0 or row["Sun Hours"] is None or row["Sun Hours"] >= float(min_sun_filter))
-            and (
-                not from_date_filter
-                or (
-                    parse_filterable_month(row.get(selected_date_field))
-                    and parse_filterable_month(row.get(selected_date_field)) >= from_date_filter
-                )
-            )
         ]
 
         metric_cols = st.columns(4)
@@ -3337,21 +3389,24 @@ def render_leads_hub(current_app_user, auth_context, active_org_role):
 
 
 def build_team_activity_frames(auth_context):
-    activity_rows = get_team_route_activity(auth_context=auth_context) if auth_context else []
-    if not activity_rows:
+    route_rows = get_team_route_activity(auth_context=auth_context) if auth_context else []
+    crm_appointment_rows = get_visible_lead_appointments(auth_context=auth_context) if auth_context else []
+    if not route_rows and not crm_appointment_rows:
         empty_scoreboard = pd.DataFrame(
             columns=["Rep", "rep_id", "Doors Knocked", "Appointments Set", "Marketing Qualified Leads", "Closed Customers"]
         )
         empty_calendar = pd.DataFrame(columns=["rep_id", "Rep", "Address", "Appointment", "Phone", "Email", "Status"])
         empty_activity = pd.DataFrame(
-            columns=["rep_id", "Rep", "Address", "Disposition", "Interest Level", "Stop Status", "Completed At"]
+            columns=["rep_id", "Rep", "Address", "Disposition", "Outcome", "Interest Level", "Stop Status", "Completed At", "doors", "appointments", "mqls", "closed_customers"]
         )
         return empty_scoreboard, empty_calendar, empty_activity
 
     scoreboard = {}
-    calendar_rows = []
+    # CRM lead appointments are the primary appointment source for calendar/reporting.
+    # Legacy route appointments are merged in as transition compatibility data.
+    appointment_lookup = {}
     activity_frame_rows = []
-    for row in activity_rows:
+    for row in route_rows:
         rep_id = row.get("rep_id") or row.get("rep_name")
         rep_name = row.get("rep_name") or "Unknown Rep"
         record = scoreboard.setdefault(
@@ -3370,25 +3425,33 @@ def build_team_activity_frames(auth_context):
         disposition_value = str(row.get("disposition") or outcome_value or "").strip()
         disposition = disposition_value.lower()
         interest_level = str(row.get("interest_level") or "").strip().lower()
-        if str(row.get("stop_status") or "").lower() == "completed":
+        door_count = 1 if str(row.get("stop_status") or "").lower() == "completed" else 0
+        has_appointment = bool(row.get("best_follow_up_time"))
+        mql_count = 1 if interest_level in {"hot", "warm"} or outcome in {"interested", "requested callback", "booked appointment", "qualified"} else 0
+        closed_count = 1 if disposition in {"closed", "closed won"} or outcome == "qualified" else 0
+        if door_count:
             record["Doors Knocked"] += 1
-        if row.get("best_follow_up_time"):
-            record["Appointments Set"] += 1
-            calendar_rows.append(
-                {
-                    "rep_id": rep_id,
-                    "Rep": rep_name,
-                    "Address": row.get("address") or "",
-                    "Appointment": row.get("best_follow_up_time") or "",
-                    "Phone": row.get("phone") or "",
-                    "Email": row.get("email") or "",
-                    "Status": disposition_value or "Scheduled",
-                }
-            )
-        if interest_level in {"hot", "warm"} or outcome in {"interested", "requested callback", "booked appointment", "qualified"}:
+        if mql_count:
             record["Marketing Qualified Leads"] += 1
-        if disposition in {"closed", "closed won"} or outcome == "qualified":
+        if closed_count:
             record["Closed Customers"] += 1
+        if has_appointment:
+            appointment_key = appointment_dedupe_key(rep_id, row.get("address"), row.get("best_follow_up_time"))
+            if appointment_key:
+                appointment_lookup.setdefault(
+                    appointment_key,
+                    {
+                        "lead_id": None,
+                        "rep_id": rep_id,
+                        "Rep": rep_name,
+                        "Address": row.get("address") or "",
+                        "Appointment": row.get("best_follow_up_time") or "",
+                        "Phone": row.get("phone") or "",
+                        "Email": row.get("email") or "",
+                        "Status": disposition_value or "Scheduled",
+                        "Source": "Legacy Route",
+                    },
+                )
         activity_frame_rows.append(
             {
                 "rep_id": rep_id,
@@ -3399,6 +3462,70 @@ def build_team_activity_frames(auth_context):
                 "Interest Level": interest_level.title() if interest_level else "",
                 "Stop Status": str(row.get("stop_status") or "").title(),
                 "Completed At": row.get("completed_at") or row.get("started_at") or "",
+                "doors": door_count,
+                "appointments": 0,
+                "mqls": mql_count,
+                "closed_customers": closed_count,
+            }
+        )
+
+    for row in crm_appointment_rows:
+        rep_id = row.get("rep_id") or row.get("rep_name") or "unassigned"
+        rep_name = row.get("rep_name") or "Unassigned"
+        scoreboard.setdefault(
+            rep_id,
+            {
+                "Rep": rep_name,
+                "rep_id": rep_id,
+                "Doors Knocked": 0,
+                "Appointments Set": 0,
+                "Marketing Qualified Leads": 0,
+                "Closed Customers": 0,
+            },
+        )
+        appointment_key = appointment_dedupe_key(rep_id, row.get("address"), row.get("appointment_at"), lead_id=row.get("lead_id"))
+        if appointment_key:
+            appointment_lookup[appointment_key] = {
+                "lead_id": row.get("lead_id"),
+                "rep_id": rep_id,
+                "Rep": rep_name,
+                "Address": row.get("address") or "",
+                "Appointment": row.get("appointment_at") or "",
+                "Phone": row.get("phone") or "",
+                "Email": row.get("email") or "",
+                "Status": row.get("lead_status") or "Appointment Set",
+                "Homeowner": " ".join(part for part in [row.get("first_name") or "", row.get("last_name") or ""] if part).strip(),
+                "Source": "CRM Lead",
+            }
+    for appointment in appointment_lookup.values():
+        rep_id = appointment.get("rep_id") or appointment.get("Rep")
+        rep_name = appointment.get("Rep") or "Unknown Rep"
+        record = scoreboard.setdefault(
+            rep_id,
+            {
+                "Rep": rep_name,
+                "rep_id": rep_id,
+                "Doors Knocked": 0,
+                "Appointments Set": 0,
+                "Marketing Qualified Leads": 0,
+                "Closed Customers": 0,
+            },
+        )
+        record["Appointments Set"] += 1
+        activity_frame_rows.append(
+            {
+                "rep_id": rep_id,
+                "Rep": rep_name,
+                "Address": appointment.get("Address") or "",
+                "Disposition": "Appointment Set",
+                "Outcome": "Booked Appointment",
+                "Interest Level": "",
+                "Stop Status": appointment.get("Source") or "Appointment",
+                "Completed At": appointment.get("Appointment") or "",
+                "doors": 0,
+                "appointments": 1,
+                "mqls": 1,
+                "closed_customers": 0,
             }
         )
 
@@ -3406,7 +3533,7 @@ def build_team_activity_frames(auth_context):
         ["Doors Knocked", "Appointments Set", "Marketing Qualified Leads", "Closed Customers", "Rep"],
         ascending=[False, False, False, False, True],
     ).reset_index(drop=True)
-    calendar_df = pd.DataFrame(calendar_rows)
+    calendar_df = pd.DataFrame(list(appointment_lookup.values()))
     activity_df = pd.DataFrame(activity_frame_rows)
     if not activity_df.empty:
         activity_df["Completed At"] = pd.to_datetime(activity_df["Completed At"], errors="coerce")
@@ -3451,16 +3578,17 @@ def build_leaderboard_frame_from_activity(activity_df):
         outcomes = rep_df["Outcome"].fillna("").str.lower() if "Outcome" in rep_df.columns else dispositions
         interest_levels = rep_df["Interest Level"].fillna("").str.lower()
         stop_statuses = rep_df["Stop Status"].fillna("").str.lower()
+        appointment_counts = rep_df["appointments"].fillna(0).astype(int) if "appointments" in rep_df.columns else ((dispositions == "appt set") | (outcomes == "booked appointment")).astype(int)
+        mql_counts = rep_df["mqls"].fillna(0).astype(int) if "mqls" in rep_df.columns else (((interest_levels.isin(["hot", "warm"])) | (outcomes.isin(["interested", "requested callback", "booked appointment", "qualified"]))).astype(int))
+        closed_counts = rep_df["closed_customers"].fillna(0).astype(int) if "closed_customers" in rep_df.columns else (((dispositions == "closed") | (outcomes == "qualified")).astype(int))
         leaderboard_rows.append(
             {
                 "Rep": rep_name,
                 "rep_id": rep_id,
                 "Doors Knocked": int((stop_statuses == "completed").sum()),
-                "Appointments Set": int(((dispositions == "appt set") | (outcomes == "booked appointment")).sum()),
-                "Marketing Qualified Leads": int(
-                    ((interest_levels.isin(["hot", "warm"])) | (outcomes.isin(["interested", "requested callback", "booked appointment", "qualified"]))).sum()
-                ),
-                "Closed Customers": int(((dispositions == "closed") | (outcomes == "qualified")).sum()),
+                "Appointments Set": int(appointment_counts.sum()),
+                "Marketing Qualified Leads": int(mql_counts.sum()),
+                "Closed Customers": int(closed_counts.sum()),
             }
         )
 
@@ -3474,12 +3602,44 @@ def parse_appointment_label(appointment_label):
     appointment_text = str(appointment_label or "").strip()
     if not appointment_text:
         return None
+    try:
+        parsed = pd.to_datetime(appointment_text, errors="coerce")
+        if pd.notna(parsed):
+            if getattr(parsed, "tzinfo", None) is not None:
+                parsed = parsed.tz_convert(None)
+            return parsed.to_pydatetime()
+    except Exception:
+        pass
     for pattern in ["%b %d, %Y at %I:%M %p", "%b %d, %Y"]:
         try:
             return datetime.strptime(appointment_text, pattern)
         except Exception:
             continue
     return None
+
+
+def appointment_dedupe_key(rep_id, address, appointment_value, lead_id=None):
+    appointment_dt = parse_appointment_label(appointment_value)
+    if not appointment_dt:
+        return None
+    appointment_dt = appointment_dt.replace(second=0, microsecond=0)
+    if lead_id:
+        return f"lead:{lead_id}:{appointment_dt.isoformat()}"
+    return f"{rep_id or 'unassigned'}|{str(address or '').strip().lower()}|{appointment_dt.isoformat()}"
+
+
+def safe_result_priority(result):
+    try:
+        return int(result.get("priority_score") or 0)
+    except Exception:
+        return 0
+
+
+def safe_result_doors(result):
+    try:
+        return int(result.get("doors_to_knock") or 0)
+    except Exception:
+        return 0
 
 
 def build_calendar_schedule_frame(calendar_df):
@@ -3645,12 +3805,20 @@ def render_calendar_hub(current_app_user, auth_context, active_org_role):
             "first_name": row.get("first_name"),
             "last_name": row.get("last_name"),
             "notes": row.get("notes"),
+            "appointment_at": row.get("appointment_at"),
+            "lead_status": row.get("lead_status"),
             "route_run_stop_id": None,
             "route_run_status": str(row.get("status") or "pending").lower(),
         }
     for result in route_results:
         if result.get("address"):
-            lead_options[result["address"]] = result
+            lead_options[result["address"]] = {
+                **lead_options.get(result["address"], {}),
+                **result,
+                "lead_id": result.get("lead_id") or lead_options.get(result["address"], {}).get("lead_id"),
+                "appointment_at": result.get("appointment_at") or lead_options.get(result["address"], {}).get("appointment_at"),
+                "lead_status": result.get("lead_status") or lead_options.get(result["address"], {}).get("lead_status"),
+            }
 
     if not lead_options:
         st.caption("No visible leads are available to schedule yet.")
@@ -3700,17 +3868,33 @@ def render_calendar_hub(current_app_user, auth_context, active_org_role):
         if not appointment_time:
             st.warning("No available time is open on the selected day.")
         else:
+            appointment_dt = datetime.combine(selected_date, appointment_time)
+            appointment_timestamp = appointment_dt.isoformat()
+            existing_appointment_dt = parse_datetime_value(selected_result.get("appointment_at"))
+            is_reschedule = bool(existing_appointment_dt)
+            activity_type = "Appointment Rescheduled" if is_reschedule else "Appointment Set"
+            outcome = "Rescheduled" if is_reschedule else "Booked Appointment"
+            activity_save_result = add_lead_activity(
+                selected_result.get("lead_id"),
+                activity_type=activity_type,
+                outcome=outcome,
+                note_body=f"Appointment scheduled for {appointment_label}",
+                appointment_at=appointment_timestamp,
+                event_metadata={"source": "calendar_tab", "appointment_label": appointment_label},
+                auth_context=auth_context,
+            ) if selected_result.get("lead_id") else {"ok": False, "error": "This lead is missing a lead id and cannot be scheduled from Calendar yet."}
             active_entry["best_follow_up_time"] = appointment_label
             active_entry["appointment_status"] = "Scheduled"
             active_entry["status"] = "Appt Set"
             active_entry["lead_stage"] = "Appointment Set"
             active_entry["next_action"] = "Confirm Appointment"
             append_activity_event(active_entry, "Appointment", f"Appointment scheduled for {appointment_label}")
-            if persist_rep_stop_update(selected_result, active_entry, auth_context=auth_context):
+            if activity_save_result.get("ok"):
+                persist_rep_stop_update(selected_result, active_entry, auth_context=auth_context)
                 save_app_snapshot(all_results=route_results, route_execution=route_execution)
                 st.success("Appointment saved.")
                 st.rerun()
-            st.warning("Could not save the appointment.")
+            st.warning(activity_save_result.get("error") or "Could not save the appointment.")
 
 
 def render_leaderboard_hub(current_app_user, auth_context):
@@ -4289,7 +4473,7 @@ def render_performance_hub(all_results, execution_state, current_app_user, auth_
                 st.line_chart(rep_history.set_index("Period")[selected_trend_kpi], use_container_width=True)
 
 
-def render_workspace_shell(workspace_mode, all_results, execution_state):
+def render_workspace_shell(workspace_mode, all_results, execution_state, auth_context=None):
     if workspace_mode == "Manager View":
         title = "Manager Workspace"
         kicker = "Operate"
@@ -4300,6 +4484,7 @@ def render_workspace_shell(workspace_mode, all_results, execution_state):
         conversations = 0
         appointments_set = 0
         deals_closed = 0
+        scoreboard_df, _calendar_df, _activity_df = build_team_activity_frames(auth_context) if auth_context else (pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
         for result in all_results or []:
             property_id = make_property_id("primary_stop", result.get("address"))
             entry = (execution_state or {}).get(property_id, {})
@@ -4308,10 +4493,10 @@ def render_workspace_shell(workspace_mode, all_results, execution_state):
                 doors_knocked += 1
             if status_text in {"interested", "callback", "not interested", "appt set"}:
                 conversations += 1
-            if status_text == "appt set":
-                appointments_set += 1
             if status_text == "closed":
                 deals_closed += 1
+        if not scoreboard_df.empty and "Appointments Set" in scoreboard_df.columns:
+            appointments_set = int(scoreboard_df["Appointments Set"].sum())
         primary_metric = doors_knocked
         primary_label = "Doors Knocked"
         secondary_metric = conversations
@@ -4426,6 +4611,48 @@ def filter_open_lead_pool_results(
     return filtered
 
 
+def load_rep_live_targets(results, *, source_label="Live Field Map"):
+    loaded_results = list(results or [])
+    st.session_state["all_results"] = loaded_results
+    st.session_state["selected_route_addresses"] = {
+        result.get("address") for result in loaded_results if result.get("address")
+    }
+    st.session_state["current_route_draft_id"] = None
+    st.session_state["current_route_draft_name"] = source_label
+    st.session_state["active_route_run"] = None
+    st.session_state["route_execution"] = ensure_execution_state(
+        st.session_state.get("route_execution", {}),
+        build_execution_properties(loaded_results),
+    )
+    if loaded_results:
+        st.session_state["active_property_id"] = make_property_id("primary_stop", loaded_results[0].get("address"))
+    save_app_snapshot(
+        all_results=loaded_results,
+        route_execution=st.session_state.get("route_execution", {}),
+    )
+
+
+def get_nearby_open_lead_pool_results(latitude, longitude, *, radius_miles=0.4, limit=150, auth_context=None):
+    pool_results = get_open_lead_pool(limit=5000, auth_context=auth_context) if auth_context else []
+    nearby_results = []
+    for result in pool_results:
+        distance = turf_distance_miles(latitude, longitude, result.get("lat"), result.get("lng"))
+        if distance is None or distance > radius_miles:
+            continue
+        enriched_result = dict(result)
+        enriched_result["distance_miles"] = distance
+        nearby_results.append(enriched_result)
+
+    nearby_results.sort(
+        key=lambda row: (
+            round(row.get("distance_miles") or 999, 4),
+            -safe_result_priority(row),
+            -safe_result_doors(row),
+        )
+    )
+    return nearby_results[:limit]
+
+
 def auto_load_rep_draft_if_available(current_app_user, auth_context):
     if not current_app_user or not auth_context:
         return
@@ -4470,9 +4697,9 @@ def render_empty_rep_turf_state():
 
 
 def render_blank_rep_map(auth_context):
-    st.markdown('<div class="siq-section">Blank Turf Map</div>', unsafe_allow_html=True)
+    st.markdown('<div class="siq-section">Live Field Map</div>', unsafe_allow_html=True)
     st.markdown(
-        "Start from your current location, then either load a route draft or drop a field pin to create a new knock."
+        "Open the map around your current location, tap nearby homes as you walk, and log what happened without loading a route first."
     )
 
     geolocation_result = geolocation_picker(
@@ -4496,10 +4723,43 @@ def render_blank_rep_map(auth_context):
             "longitude": st.session_state["turf_live_lng"],
         }
 
-    action_col1, action_col2 = st.columns(2)
-    if action_col1.button("Load Route Draft", use_container_width=True):
+    if "blank_turf_radius_miles" not in st.session_state:
+        st.session_state["blank_turf_radius_miles"] = 0.4
+
+    settings_col1, settings_col2 = st.columns([1, 1.2])
+    search_radius = settings_col1.select_slider(
+        "Nearby Radius",
+        options=[0.2, 0.3, 0.4, 0.5, 0.75, 1.0],
+        value=float(st.session_state.get("blank_turf_radius_miles", 0.4)),
+        key="blank_turf_radius_miles",
+        format_func=lambda value: f"{value:.2f} mi",
+    )
+    settings_col2.caption(
+        "Routes should be optional. Load nearby target homes first, then tap a property on the map to knock and capture what happened."
+    )
+
+    action_col1, action_col2, action_col3 = st.columns(3)
+    if action_col1.button("Load Nearby Homes", use_container_width=True, disabled=not current_location):
+        nearby_results = get_nearby_open_lead_pool_results(
+            current_location["latitude"],
+            current_location["longitude"],
+            radius_miles=float(search_radius),
+            limit=150,
+            auth_context=auth_context,
+        )
+        if nearby_results:
+            load_rep_live_targets(
+                nearby_results,
+                source_label=f"Nearby Homes ({search_radius:.2f} mi)",
+            )
+            st.session_state["turf_pin_feedback"] = (
+                f"Loaded {len(nearby_results)} nearby homes around your current location."
+            )
+            st.rerun()
+        st.warning("No nearby homes were found in the current target pool for that radius.")
+    if action_col2.button("Load Route Draft", use_container_width=True):
         st.session_state["show_rep_route_drafts"] = not st.session_state.get("show_rep_route_drafts", False)
-    if action_col2.button("Drop Pin At My Location", use_container_width=True, disabled=not current_location):
+    if action_col3.button("Drop Pin At My Location", use_container_width=True, disabled=not current_location):
         st.session_state["turf_dropped_pin"] = current_location
         added_result = add_ad_hoc_pin_result(
             current_location["latitude"],
@@ -4545,6 +4805,29 @@ def render_blank_rep_map(auth_context):
                     st.rerun()
         else:
             st.info("No saved drafts are available for this organization yet.")
+
+    if current_location:
+        nearby_preview_results = get_nearby_open_lead_pool_results(
+            current_location["latitude"],
+            current_location["longitude"],
+            radius_miles=float(search_radius),
+            limit=12,
+            auth_context=auth_context,
+        )
+        if nearby_preview_results:
+            preview_rows = [
+                {
+                    "Address": result.get("address"),
+                    "Distance": f"{(result.get('distance_miles') or 0):.2f} mi",
+                    "Priority": get_priority_meta(safe_result_priority(result))["label"],
+                    "Status": result.get("lead_status") or "New",
+                }
+                for result in nearby_preview_results[:8]
+            ]
+            st.markdown("#### Nearby Targets")
+            st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True, height=220)
+        else:
+            st.caption("No nearby target homes are inside the selected radius yet.")
 
     blank_layers = []
     if current_location:
@@ -4952,7 +5235,12 @@ def render_rep_turf_mode(
 
                 route_action_col1, route_action_col2 = st.columns(2)
                 if route_action_col1.button("Save Stop", key=f"save_stop_{active_property_id}", use_container_width=True):
-                    if persist_rep_stop_update(active_result or active_property, active_entry, auth_context=auth_context):
+                    if persist_rep_stop_update(
+                        active_result or active_property,
+                        active_entry,
+                        auth_context=auth_context,
+                        log_visit=True,
+                    ):
                         status_suffix = f" as {active_entry.get('status')}" if active_entry.get("status") else ""
                         append_activity_event(
                             active_entry,
@@ -5493,6 +5781,9 @@ selected_main_view = st.radio(
     label_visibility="collapsed",
 )
 
+if selected_main_view != "Leads":
+    st.session_state.pop("selected_lead_id", None)
+
 if selected_main_view == workspace_tab_label:
     render_context_shell(
         "Maps Context",
@@ -5509,7 +5800,7 @@ if selected_main_view == workspace_tab_label:
             zip_rank = {item["zipcode"]: i for i, item in enumerate(zip_summary)}
             sorted_manager_results = sorted(
                 manager_map_results,
-                key=lambda x: (zip_rank.get(x["zipcode"], 99), -x["priority_score"], -x["doors_to_knock"]),
+                key=lambda x: (zip_rank.get(x.get("zipcode"), 99), -safe_result_priority(x), -safe_result_doors(x)),
             )
             active_route = st.session_state.get("active_route_run")
             execution_results = active_route.get("results", []) if active_route else sorted_manager_results
@@ -5588,6 +5879,7 @@ if selected_main_view == "Manager Workspace" and manager_workspace_enabled:
             workspace_mode,
             st.session_state.get("all_results", []),
             st.session_state.get("route_execution", {}),
+            auth_context=auth_context,
         )
 
     uploaded_file = None
@@ -5651,143 +5943,160 @@ if selected_main_view == "Manager Workspace" and manager_workspace_enabled:
             if not invalid_address_df.empty:
                 with st.expander("Rows With Invalid Address Values", expanded=False):
                     st.dataframe(invalid_address_df, use_container_width=True, hide_index=True)
-
-            analysis_mode = st.selectbox(
-                "Analysis Mode",
-                options=["Fast", "Full"],
-                index=0,
-                help=(
-                    "Fast analyzes the primary home only. Full also checks nearby walkable homes and cluster potential, "
-                    "which is much slower."
-                ),
-                key="analysis_mode",
+            st.info(
+                "This first overhaul pass ingests leads immediately and tracks batch progress separately. "
+                "Full analysis will be resumed by the chunked runner in the next pass."
             )
 
-            if st.button("Run Analysis", type="primary", use_container_width=True):
-                gmaps_client = googlemaps.Client(key=api_key)
-                all_results = []
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                total = len(valid_idx)
+            if st.button("Load Leads", type="primary", use_container_width=True):
                 use_supabase = supabase_enabled() and auth_context is not None
-                sheets_service = None if use_supabase else get_sheets_service()
-                failed_addresses = []
-                supabase_saved = 0
-                supabase_failed = 0
-                supabase_errors = []
+                if not use_supabase:
+                    st.warning("Supabase is required for the new ingest-first pipeline.")
+                else:
+                    with st.status("Loading leads into Lumino...", expanded=True) as load_status:
+                        load_status.write("Preparing normalized rows from the upload...")
+                        row_payloads = []
+                        for row_number, (idx, row) in enumerate(df.loc[valid_idx].iterrows(), start=1):
+                            addr = compose_import_address(row, column_mapping).strip()
+                            row_payloads.append(
+                                {
+                                    "source_row_number": row_number,
+                                    "raw_address": addr,
+                                    "address": addr,
+                                    "zipcode": coerce_zipcode(get_row_value(row, column_mapping.get("zipcode"))),
+                                    "city": get_row_value(row, column_mapping.get("city")),
+                                    "state": get_row_value(row, column_mapping.get("state")),
+                                    "price": get_row_value(row, col_price),
+                                    "price_remainder": get_row_value(row, col_remainder),
+                                    "beds": get_row_value(row, col_beds),
+                                    "baths": get_row_value(row, col_baths),
+                                    "sqft": get_row_value(row, col_sqft),
+                                    "sold_date": get_row_value(row, col_sold),
+                                    "permit_pulled": get_row_value(row, col_permit_pulled),
+                                    "property_type": get_row_value(row, column_mapping.get("property_type")),
+                                    "lot_size": get_row_value(row, column_mapping.get("lot_size")),
+                                    "year_built": get_row_value(row, column_mapping.get("year_built")),
+                                    "source_latitude": get_row_value(row, column_mapping.get("latitude")),
+                                    "source_longitude": get_row_value(row, column_mapping.get("longitude")),
+                                    "listing_agent": get_row_value(row, column_mapping.get("listing_agent")),
+                                    "first_name": get_row_value(row, column_mapping.get("first_name")),
+                                    "last_name": get_row_value(row, column_mapping.get("last_name")),
+                                    "phone": get_row_value(row, column_mapping.get("phone")),
+                                    "email": get_row_value(row, column_mapping.get("email")),
+                                    "notes": combine_notes(
+                                        get_row_value(row, column_mapping.get("notes")),
+                                        get_row_value(row, column_mapping.get("unqualified_reason_notes")),
+                                    ),
+                                    "unqualified": get_row_value(row, column_mapping.get("unqualified")),
+                                    "unqualified_reason": get_row_value(row, column_mapping.get("unqualified_reason")),
+                                    "unqualified_reason_notes": get_row_value(
+                                        row,
+                                        column_mapping.get("unqualified_reason_notes"),
+                                    ),
+                                    "source": "imported",
+                                }
+                            )
 
-                for i, (idx, row) in enumerate(df.loc[valid_idx].iterrows()):
-                    addr = compose_import_address(row, column_mapping).strip()
-                    status_text.markdown(f"Analyzing **{i + 1} of {total}** — {str(addr)[:60]}")
-                    row_data = {
-                        "address": addr,
-                        "zipcode": coerce_zipcode(get_row_value(row, column_mapping.get("zipcode"))),
-                        "city": get_row_value(row, column_mapping.get("city")),
-                        "state": get_row_value(row, column_mapping.get("state")),
-                        "price": get_row_value(row, col_price),
-                        "price_remainder": get_row_value(row, col_remainder),
-                        "beds": get_row_value(row, col_beds),
-                        "baths": get_row_value(row, col_baths),
-                        "sqft": get_row_value(row, col_sqft),
-                        "sold_date": get_row_value(row, col_sold),
-                        "permit_pulled": get_row_value(row, col_permit_pulled),
-                        "property_type": get_row_value(row, column_mapping.get("property_type")),
-                        "lot_size": get_row_value(row, column_mapping.get("lot_size")),
-                        "year_built": get_row_value(row, column_mapping.get("year_built")),
-                        "source_latitude": get_row_value(row, column_mapping.get("latitude")),
-                        "source_longitude": get_row_value(row, column_mapping.get("longitude")),
-                        "listing_agent": get_row_value(row, column_mapping.get("listing_agent")),
-                        "first_name": get_row_value(row, column_mapping.get("first_name")),
-                        "last_name": get_row_value(row, column_mapping.get("last_name")),
-                        "phone": get_row_value(row, column_mapping.get("phone")),
-                        "email": get_row_value(row, column_mapping.get("email")),
-                        "notes": combine_notes(
-                            get_row_value(row, column_mapping.get("notes")),
-                            get_row_value(row, column_mapping.get("unqualified_reason_notes")),
-                        ),
-                        "unqualified": get_row_value(row, column_mapping.get("unqualified")),
-                        "unqualified_reason": get_row_value(row, column_mapping.get("unqualified_reason")),
-                        "unqualified_reason_notes": get_row_value(
-                            row,
-                            column_mapping.get("unqualified_reason_notes"),
-                        ),
-                    }
-                    try:
-                        result = enrich_result_with_source_fields(
-                            process_address(
-                                row_data,
-                                gmaps_client,
-                                api_key,
-                                auth_context=auth_context,
-                                analysis_mode=analysis_mode.lower(),
-                            ),
-                            row_data,
+                        load_status.write("Creating import batch record...")
+                        ingest_batch = create_import_batch(
+                            filename=uploaded_file.name,
+                            total_rows=len(df),
+                            detected_rows=len(valid_idx),
+                            skipped_rows=int(missing_address_mask.sum() + invalid_address_mask.sum()),
+                            auth_context=auth_context,
                         )
-                    except Exception as err:
-                        result = enrich_result_with_source_fields(
-                            build_processing_error_result(row_data, str(err)),
-                            row_data,
-                        )
-                        failed_addresses.append(addr)
-
-                    if use_supabase:
-                        saved_record = save_analysis_result(row_data, result, auth_context=auth_context)
-                        if saved_record and saved_record.get("ok"):
-                            result["lead_id"] = saved_record["lead_id"]
-                            supabase_saved += 1
+                        if not ingest_batch:
+                            load_status.update(label="Could not create the import batch record.", state="error")
+                            st.warning("Could not create the import batch record.")
                         else:
-                            supabase_failed += 1
-                            if saved_record and saved_record.get("error"):
-                                supabase_errors.append(saved_record["error"])
+                            load_status.write(f"Saving {len(row_payloads)} lead rows in batched writes...")
+                            ingest_result = ingest_uploaded_rows(
+                                ingest_batch["id"],
+                                row_payloads,
+                                auth_context=auth_context,
+                            )
+                            st.session_state["latest_ingest_result"] = {
+                                **ingest_result,
+                                "filename": uploaded_file.name,
+                                "created_at": ingest_batch.get("created_at"),
+                                "total_rows": len(df),
+                                "detected_rows": len(valid_idx),
+                            }
+                            st.session_state["active_import_batch_id"] = ingest_batch["id"]
+                            load_status.update(
+                                label=(
+                                    f"Lead load finished — {ingest_result.get('inserted_count', 0)} inserted, "
+                                    f"{ingest_result.get('updated_count', 0)} updated, "
+                                    f"{ingest_result.get('pending_analysis_count', 0)} pending analysis."
+                                ),
+                                state="complete" if ingest_result.get("ok") else "error",
+                            )
+                            if ingest_result.get("ok"):
+                                st.success(
+                                    f"Lead load complete — {ingest_result['inserted_count']} inserted, "
+                                    f"{ingest_result['updated_count']} updated, "
+                                    f"{ingest_result['duplicate_matched_count']} matched existing, "
+                                    f"{ingest_result['pending_analysis_count']} pending analysis."
+                                )
+                            else:
+                                st.warning(ingest_result.get("error") or "Lead load completed with errors.")
+                            if ingest_result.get("errors"):
+                                st.code("\n\n".join(ingest_result["errors"][:3]), language="text")
 
-                    all_results.append(result)
-                    st.session_state["all_results"] = all_results
-                    st.session_state["current_route_draft_id"] = None
-                    st.session_state["current_route_draft_name"] = None
-                    st.session_state["active_route_run"] = None
-                    if (i + 1) % 10 == 0 or (i + 1) == total:
-                        save_app_snapshot(
-                            all_results=all_results,
-                            route_execution=st.session_state.get("route_execution", {}),
-                        )
-
-                    progress_bar.progress((i + 1) / total)
-
-                status_text.markdown("Analysis complete.")
-                if use_supabase:
-                    source_counts = summarize_result_sources(all_results)
-                    if supabase_failed == 0:
-                        st.success(
-                            "Supabase updated — "
-                            f"{source_counts['original_count']} original addresses and "
-                            f"{source_counts['neighbor_count']} cluster neighbors are now available in the shared analysis store. "
-                            f"({supabase_saved} lead records synced successfully.)"
-                        )
-                    else:
-                        st.warning(
-                            "Supabase sync was partial — "
-                            f"{supabase_saved} saved, {supabase_failed} failed. "
-                            "Lead pool and draft actions may be incomplete for this run."
-                        )
-                        if supabase_errors:
-                            st.code("\n\n".join(supabase_errors[:3]), language="text")
-                elif sheets_service:
-                    status_text.markdown("Analysis complete — syncing to Google Sheets...")
-                    sheet_counts = sync_results_to_sheet(sheets_service, all_results)
-                    source_counts = summarize_result_sources(all_results)
-                    st.success(
-                        f"Sheets updated — **{sheet_counts['inserted_total']}** new records added "
-                        f"({sheet_counts['inserted_original']} original + {sheet_counts['inserted_neighbors']} cluster neighbors) · "
-                        f"**{sheet_counts['updated_total']}** existing records refreshed "
-                        f"({sheet_counts['updated_original']} original + {sheet_counts['updated_neighbors']} cluster neighbors) "
-                        f"out of {source_counts['original_count']} original addresses and {source_counts['neighbor_count']} cluster neighbors analyzed"
-                    )
-
-                if failed_addresses:
-                    st.warning(
-                        f"Completed with **{len(failed_addresses)}** analysis errors. "
-                        "Those addresses were kept in the results with a low-priority fallback instead of crashing the batch."
-                    )
+    if selected_main_view == "Manager Workspace" and workspace_mode == "Manager View" and supabase_enabled():
+        recent_batches = get_recent_import_batches(auth_context=auth_context)
+        active_batch = next(
+            (
+                row
+                for row in recent_batches
+                if (row.get("status") in {"ready_for_analysis", "analyzing"})
+                and ((row.get("pending_analysis_count") or 0) > 0 or (row.get("analyzing_count") or 0) > 0)
+            ),
+            None,
+        )
+        latest_ingest = st.session_state.get("latest_ingest_result")
+        if latest_ingest or recent_batches:
+            st.markdown("---")
+            st.markdown('<div class="siq-section">Batch Progress</div>', unsafe_allow_html=True)
+            if latest_ingest:
+                batch_cols = st.columns(5)
+                batch_cols[0].metric("Rows Detected", latest_ingest.get("detected_rows", 0))
+                batch_cols[1].metric("Inserted", latest_ingest.get("inserted_count", 0))
+                batch_cols[2].metric("Updated", latest_ingest.get("updated_count", 0))
+                batch_cols[3].metric("Matched Existing", latest_ingest.get("duplicate_matched_count", 0))
+                batch_cols[4].metric("Pending Analysis", latest_ingest.get("pending_analysis_count", 0))
+                st.caption(
+                    f"{latest_ingest.get('filename') or 'Latest batch'} is now in "
+                    f"`{latest_ingest.get('status') or 'ready_for_analysis'}`. "
+                    "A separate background worker now handles analysis so the app stays responsive."
+                )
+            if active_batch:
+                st.caption(
+                    f"{active_batch.get('pending_analysis_count', 0)} leads are still pending analysis in "
+                    f"{active_batch.get('filename') or 'the latest batch'}. "
+                    'For local testing, run `python3 -m engine.import_worker` in a second terminal.'
+                )
+            if recent_batches:
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "Filename": row.get("filename") or row.get("original_filename") or row.get("source_name") or "Upload",
+                                "Status": row.get("status") or "uploaded",
+                                "Rows": row.get("total_rows") or row.get("row_count") or 0,
+                                "Inserted": row.get("inserted_count") or 0,
+                                "Updated": row.get("updated_count") or 0,
+                                "Pending Analysis": row.get("pending_analysis_count") or 0,
+                                "Failed": row.get("failed_count") or 0,
+                                "Started": (row.get("started_at") or row.get("created_at") or "")[:19].replace("T", " "),
+                            }
+                            for row in recent_batches
+                        ]
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                    height=220,
+                )
 
     if workspace_mode == "Manager View" and supabase_enabled():
         st.markdown("---")
@@ -5938,6 +6247,133 @@ if selected_main_view == "Manager Workspace" and manager_workspace_enabled:
             else:
                 st.info("No saved drafts found yet.")
 
+        st.markdown("---")
+        st.markdown('<div class="siq-section">Duplicate Review</div>', unsafe_allow_html=True)
+        st.markdown("Review duplicate lead groups and bulk-merge the safe ones while keeping richer CRM data on the lead you keep.")
+
+        duplicate_groups = st.session_state.get("duplicate_lead_groups", [])
+        duplicate_col1, duplicate_col2 = st.columns([0.8, 1.2])
+        if duplicate_col1.button("Load Duplicate Candidates", use_container_width=True):
+            duplicate_groups = get_duplicate_lead_groups(auth_context=auth_context)
+            st.session_state["duplicate_lead_groups"] = duplicate_groups
+            if duplicate_groups:
+                st.success(f"Loaded **{len(duplicate_groups)}** duplicate candidate groups.")
+            else:
+                st.info("No duplicate candidates were found.")
+
+        if duplicate_groups:
+            exact_groups = [group for group in duplicate_groups if group.get("confidence_label") == "Exact"]
+            high_groups = [group for group in duplicate_groups if group.get("confidence_label") == "High"]
+            review_groups = [group for group in duplicate_groups if group.get("confidence_label") == "Review"]
+            stats_cols = st.columns(4)
+            stats_cols[0].metric("Groups", len(duplicate_groups))
+            stats_cols[1].metric("Exact", len(exact_groups))
+            stats_cols[2].metric("High", len(high_groups))
+            stats_cols[3].metric("Needs Review", len(review_groups))
+
+            bulk_col1, bulk_col2 = st.columns([0.9, 1.1])
+            if bulk_col1.button("Merge All Exact", use_container_width=True, disabled=not exact_groups):
+                bulk_result = bulk_merge_duplicate_groups(confidence_labels=["Exact"], auth_context=auth_context)
+                if bulk_result.get("error"):
+                    st.warning(bulk_result.get("error"))
+                elif bulk_result.get("merged_groups"):
+                    st.success(
+                        f"Merged **{bulk_result['merged_groups']}** exact groups covering "
+                        f"**{bulk_result['merged_leads']}** duplicate leads."
+                    )
+                    if bulk_result.get("skipped_groups"):
+                        st.info(
+                            f"Skipped **{bulk_result['skipped_groups']}** groups that no longer matched the "
+                            "exact duplicate scan or hit an error."
+                        )
+                    if bulk_result.get("errors"):
+                        st.warning(
+                            "\n".join(
+                                f"{item.get('address') or item.get('group_key') or 'duplicate group'}: {item.get('error') or 'Unknown merge error'}"
+                                for item in bulk_result["errors"][:5]
+                            )
+                        )
+                    st.session_state["duplicate_lead_groups"] = get_duplicate_lead_groups(auth_context=auth_context)
+                    st.rerun()
+                else:
+                    st.info("No exact duplicate groups were merged.")
+            bulk_col2.caption(
+                "Exact groups now merge in the database as the primary path. "
+                "High and Review groups stay manual so we don’t merge ambiguous properties by accident."
+            )
+
+            rep_rows = get_rep_options(auth_context=auth_context)
+            people_lookup = {}
+            if current_app_user and current_app_user.get("id"):
+                people_lookup[current_app_user["id"]] = current_app_user.get("full_name") or current_app_user.get("email") or current_app_user["id"]
+            for rep in rep_rows:
+                if rep.get("id"):
+                    people_lookup[rep["id"]] = rep.get("full_name") or rep.get("email") or rep["id"]
+
+            group_labels = [
+                f"{group['confidence_label']} · {group['size']} leads · {group['display_address']} · {group.get('zipcode') or 'No ZIP'}"
+                for group in duplicate_groups
+            ]
+            selected_group_label = duplicate_col2.selectbox(
+                "Duplicate Group",
+                options=group_labels,
+                key="duplicate_group_select",
+            )
+            selected_group = duplicate_groups[group_labels.index(selected_group_label)]
+            st.caption(
+                f"Confidence: **{selected_group.get('confidence_label')}**. "
+                "Exact groups can be bulk-merged in the database. High/Review groups should be checked manually."
+            )
+
+            review_rows = []
+            for row in selected_group.get("rows", []):
+                review_rows.append(
+                    {
+                        "Lead ID": row.get("id"),
+                        "Address": row.get("address") or "",
+                        "Lead Status": row.get("lead_status") or "New",
+                        "Assigned To": people_lookup.get(row.get("assigned_to")) or ("Unassigned" if not row.get("assigned_to") else row.get("assigned_to")),
+                        "Appointment": format_follow_up_datetime(row.get("appointment_at")) if row.get("appointment_at") else "",
+                        "Updated": (row.get("updated_at") or row.get("created_at") or "")[:19].replace("T", " "),
+                        "Confidence": selected_group.get("confidence_label"),
+                        "Notes": preview_note_text(row.get("notes")),
+                    }
+                )
+            st.dataframe(pd.DataFrame(review_rows), use_container_width=True, hide_index=True, height=240)
+
+            canonical_options = {
+                f"{row.get('address') or 'Unknown Address'} · {row.get('lead_status') or 'New'} · "
+                f"{people_lookup.get(row.get('assigned_to')) or 'Unassigned'}": row.get("id")
+                for row in selected_group.get("rows", [])
+            }
+            canonical_label = st.selectbox(
+                "Keep This Lead",
+                options=list(canonical_options.keys()),
+                key="duplicate_canonical_select",
+            )
+            canonical_lead_id = canonical_options[canonical_label]
+            duplicate_ids = [
+                row.get("id")
+                for row in selected_group.get("rows", [])
+                if row.get("id") and row.get("id") != canonical_lead_id
+            ]
+            st.caption("Merge keeps the selected lead, carries over richer notes/status/appointments when possible, transfers related activity, then removes the duplicate lead rows.")
+            if st.button("Merge Selected Group", use_container_width=True):
+                merge_result = merge_duplicate_leads(
+                    canonical_lead_id,
+                    duplicate_ids,
+                    auth_context=auth_context,
+                )
+                if merge_result.get("ok"):
+                    st.session_state["duplicate_lead_groups"] = [
+                        group for group in duplicate_groups if group.get("group_key") != selected_group.get("group_key")
+                    ]
+                    st.success(
+                        f"Merged **{merge_result.get('merged_count', len(duplicate_ids))}** duplicates into lead `{canonical_lead_id}`."
+                    )
+                    st.rerun()
+                st.warning(merge_result.get("error") or "Could not merge that duplicate group.")
+
     if "all_results" in st.session_state:
         all_results = st.session_state["all_results"]
 
@@ -5945,9 +6381,9 @@ if selected_main_view == "Manager Workspace" and manager_workspace_enabled:
             st.markdown("---")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Properties Analyzed", len(all_results))
-            c2.metric("Premium + Highest", sum(1 for result in all_results if result["priority_score"] >= 3))
-            c3.metric("High + Medium", sum(1 for result in all_results if result["priority_score"] in [1, 2]))
-            c4.metric("Total Doors", sum(result["doors_to_knock"] for result in all_results))
+            c2.metric("Premium + Highest", sum(1 for result in all_results if safe_result_priority(result) >= 3))
+            c3.metric("High + Medium", sum(1 for result in all_results if safe_result_priority(result) in [1, 2]))
+            c4.metric("Total Doors", sum(safe_result_doors(result) for result in all_results))
 
             html_report = generate_html_report(all_results)
             st.download_button(
@@ -5990,7 +6426,7 @@ if selected_main_view == "Manager Workspace" and manager_workspace_enabled:
         zip_rank = {item["zipcode"]: i for i, item in enumerate(zip_summary)}
         sorted_results = sorted(
             all_results,
-            key=lambda x: (zip_rank.get(x["zipcode"], 99), -x["priority_score"], -x["doors_to_knock"]),
+            key=lambda x: (zip_rank.get(x.get("zipcode"), 99), -safe_result_priority(x), -safe_result_doors(x)),
         )
 
         if "selected_route_addresses" not in st.session_state:
@@ -6005,10 +6441,10 @@ if selected_main_view == "Manager Workspace" and manager_workspace_enabled:
 
             current_zip = None
             for result in sorted_results:
-                if result["priority_score"] == 0:
+                if safe_result_priority(result) == 0:
                     continue
-                if result["zipcode"] != current_zip:
-                    current_zip = result["zipcode"]
+                if result.get("zipcode") != current_zip:
+                    current_zip = result.get("zipcode")
                     z_data = next((item for item in zip_summary if item["zipcode"] == current_zip), {})
                     st.markdown(
                         f'<div class="siq-zip-header">Zip {current_zip} &nbsp;·&nbsp; '
@@ -6018,12 +6454,12 @@ if selected_main_view == "Manager Workspace" and manager_workspace_enabled:
                         unsafe_allow_html=True,
                     )
 
-                priority_score = result["priority_score"]
+                priority_score = safe_result_priority(result)
                 priority_meta = get_priority_meta(priority_score)
                 label = (
                     f'{priority_meta["label"]}  {result["address"][:50]}  —  '
                     f'{result["price_display"]}  |  {result["sqft_display"]}  |  '
-                    f'{result["sun_hours_display"]} sun hrs  |  {result["doors_to_knock"]} doors'
+                    f'{result["sun_hours_display"]} sun hrs  |  {safe_result_doors(result)} doors'
                 )
                 checked = st.checkbox(
                     label,
@@ -6037,9 +6473,9 @@ if selected_main_view == "Manager Workspace" and manager_workspace_enabled:
                     st.session_state["selected_route_addresses"].discard(result["address"])
         else:
             st.session_state["selected_route_addresses"] = {
-                result["address"] for result in sorted_results if result["priority_score"] > 0
+                result["address"] for result in sorted_results if safe_result_priority(result) > 0
             }
-            selected = [result for result in sorted_results if result["priority_score"] > 0]
+            selected = [result for result in sorted_results if safe_result_priority(result) > 0]
             st.markdown('<div class="siq-section">Assigned Turf</div>', unsafe_allow_html=True)
             st.markdown(
                 "All viable stops in the loaded draft are active in Turf Mode. Use the map to focus homes and log outcomes as you move."
@@ -6048,7 +6484,7 @@ if selected_main_view == "Manager Workspace" and manager_workspace_enabled:
         if selected:
             st.success(
                 f"**{len(selected)} stops** selected — "
-                f"**{sum(result['doors_to_knock'] for result in selected)} total doors**"
+                f"**{sum(safe_result_doors(result) for result in selected)} total doors**"
             )
 
             if workspace_mode == "Manager View" and supabase_enabled():
@@ -6097,7 +6533,7 @@ if selected_main_view == "Manager Workspace" and manager_workspace_enabled:
                 optimized_stops = [
                     {
                         "address": result["parking_address"],
-                        "priority": result["priority_score"],
+                        "priority": safe_result_priority(result),
                         "source_result": result,
                     }
                     for result in execution_results

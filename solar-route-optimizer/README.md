@@ -1,5 +1,15 @@
 # ☀️ Do It Right Solar — Route Optimizer
 
+## Deprecated
+
+This legacy prototype is not a supported production deployment path for Lumino.
+
+- It makes browser-side calls to Google APIs
+- It does not use the newer `lumino-web` security controls
+- It is intentionally blocked in production-style environments unless `ALLOW_LEGACY_STACK=1` is set as a deliberate temporary override
+
+For production, use `lumino-web`.
+
 A mobile-first web app for solar door-to-door sales reps. Upload a CSV or Excel lead list and get an optimized driving route with:
 
 - 🗺️ **Optimized route** (nearest-neighbor algorithm)
