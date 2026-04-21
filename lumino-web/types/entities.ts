@@ -17,6 +17,27 @@ export type MapState =
 
 export type FollowUpState = "none" | "due_today" | "scheduled_future" | "overdue";
 export type PropertyPriorityBand = "high" | "medium" | "low";
+export type LeadInterestLevel = "low" | "medium" | "high";
+export type LeadDecisionMakerStatus = "all_present" | "spouse_missing" | "other_missing";
+export type LeadPreferredChannel = "text" | "call" | "door";
+export type LeadObjectionType = "price" | "timing" | "trust" | "roof" | "needs_numbers" | "spouse" | "none";
+export type LeadAppointmentOutcome =
+  | "sat_not_closed"
+  | "moved"
+  | "canceled"
+  | "no_show"
+  | "closed";
+export type LeadCadenceTrack =
+  | "warm_no_contact"
+  | "warm_with_contact"
+  | "appointment_active"
+  | "post_appt_spouse"
+  | "post_appt_numbers"
+  | "post_appt_price"
+  | "post_appt_timing"
+  | "post_appt_trust"
+  | "rebook_recovery"
+  | "customer_onboarding";
 
 export interface OrganizationFeatureAccess {
   mapEnabled: boolean;
@@ -82,15 +103,37 @@ export interface LeadInput {
   email?: string;
   notes?: string;
   leadStatus?: string;
-  interestLevel?: "low" | "medium" | "high" | null;
+  interestLevel?: LeadInterestLevel | null;
   nextFollowUpAt?: string | null;
   appointmentAt?: string | null;
+  decisionMakerStatus?: LeadDecisionMakerStatus | null;
+  preferredChannel?: LeadPreferredChannel | null;
+  bestContactTime?: string | null;
+  textConsent?: boolean | null;
+  objectionType?: LeadObjectionType | null;
+  billReceived?: boolean | null;
+  proposalPresented?: boolean | null;
+  appointmentOutcome?: LeadAppointmentOutcome | null;
+  rescheduleReason?: string | null;
+  cancellationReason?: string | null;
+  engagementScore?: number | null;
+  cadenceTrack?: LeadCadenceTrack | null;
 }
 
 export interface TaskInput {
   propertyId?: string | null;
   leadId?: string | null;
-  type: "call" | "text" | "revisit" | "appointment_confirm" | "manager_review" | "custom";
+  type:
+    | "call"
+    | "text"
+    | "revisit"
+    | "appointment_confirm"
+    | "proposal_follow_up"
+    | "rebook_appointment"
+    | "customer_check_in"
+    | "referral_request"
+    | "manager_review"
+    | "custom";
   dueAt?: string | null;
   notes?: string | null;
 }
@@ -179,6 +222,19 @@ export interface PropertyDetail {
   phone: string | null;
   email: string | null;
   leadNotes: string | null;
+  interestLevel?: LeadInterestLevel | null;
+  decisionMakerStatus?: LeadDecisionMakerStatus | null;
+  preferredChannel?: LeadPreferredChannel | null;
+  bestContactTime?: string | null;
+  textConsent?: boolean | null;
+  objectionType?: LeadObjectionType | null;
+  billReceived?: boolean | null;
+  proposalPresented?: boolean | null;
+  appointmentOutcome?: LeadAppointmentOutcome | null;
+  rescheduleReason?: string | null;
+  cancellationReason?: string | null;
+  engagementScore?: number | null;
+  cadenceTrack?: LeadCadenceTrack | null;
   leadNextFollowUpAt: string | null;
   appointmentAt: string | null;
   priorityScore: number;

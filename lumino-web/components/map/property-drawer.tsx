@@ -1000,6 +1000,10 @@ export function PropertyDrawer({
                 <option value="text">Text</option>
                 <option value="revisit">Revisit</option>
                 <option value="appointment_confirm">Appointment Confirm</option>
+                <option value="proposal_follow_up">Proposal Follow-Up</option>
+                <option value="rebook_appointment">Rebook Appointment</option>
+                <option value="customer_check_in">Customer Check-In</option>
+                <option value="referral_request">Referral Request</option>
                 <option value="manager_review">Manager Review</option>
               </select>
             </label>

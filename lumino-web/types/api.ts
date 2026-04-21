@@ -501,6 +501,18 @@ export interface LeadDetailItem {
   email: string | null;
   leadStatus: string;
   interestLevel: string | null;
+  decisionMakerStatus: string | null;
+  preferredChannel: string | null;
+  bestContactTime: string | null;
+  textConsent: boolean | null;
+  objectionType: string | null;
+  billReceived: boolean | null;
+  proposalPresented: boolean | null;
+  appointmentOutcome: string | null;
+  rescheduleReason: string | null;
+  cancellationReason: string | null;
+  engagementScore: number | null;
+  cadenceTrack: string | null;
   nextFollowUpAt: string | null;
   appointmentAt: string | null;
   lastActivityAt: string | null;

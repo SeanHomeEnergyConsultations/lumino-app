@@ -5,7 +5,14 @@ import type { Route } from "next";
 import { useCallback, useEffect, useState } from "react";
 import type { LeadDetailResponse } from "@/types/api";
 import { GoogleCalendarSyncCard } from "@/components/appointments/google-calendar-sync-card";
-import type { LeadInput, TaskInput } from "@/types/entities";
+import type {
+  LeadAppointmentOutcome,
+  LeadDecisionMakerStatus,
+  LeadInput,
+  LeadObjectionType,
+  LeadPreferredChannel,
+  TaskInput
+} from "@/types/entities";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
 function formatDateTime(value: string | null) {
@@ -16,6 +23,11 @@ function formatDateTime(value: string | null) {
 function formatLabel(value: string | null) {
   if (!value) return "None";
   return value.replaceAll("_", " ");
+}
+
+function formatBoolean(value: boolean | null | undefined) {
+  if (value === null || value === undefined) return "Unknown";
+  return value ? "Yes" : "No";
 }
 
 export function LeadDetailPage({ leadId }: { leadId: string }) {
@@ -29,6 +41,17 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
   const [notes, setNotes] = useState("");
   const [leadStatus, setLeadStatus] = useState("New");
   const [interestLevel, setInterestLevel] = useState<"low" | "medium" | "high">("medium");
+  const [decisionMakerStatus, setDecisionMakerStatus] = useState<LeadDecisionMakerStatus | "">("");
+  const [preferredChannel, setPreferredChannel] = useState<LeadPreferredChannel>("text");
+  const [bestContactTime, setBestContactTime] = useState("");
+  const [textConsent, setTextConsent] = useState(true);
+  const [objectionType, setObjectionType] = useState<LeadObjectionType | "">("");
+  const [billReceived, setBillReceived] = useState(false);
+  const [proposalPresented, setProposalPresented] = useState(false);
+  const [appointmentOutcome, setAppointmentOutcome] = useState<LeadAppointmentOutcome | "">("");
+  const [rescheduleReason, setRescheduleReason] = useState("");
+  const [cancellationReason, setCancellationReason] = useState("");
+  const [engagementScore, setEngagementScore] = useState("3");
   const [nextFollowUpAt, setNextFollowUpAt] = useState("");
   const [appointmentAt, setAppointmentAt] = useState("");
   const [leadSaveState, setLeadSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -71,6 +94,17 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
     setNotes(lead.notes ?? "");
     setLeadStatus(lead.leadStatus ?? "New");
     setInterestLevel((lead.interestLevel as "low" | "medium" | "high" | null) ?? "medium");
+    setDecisionMakerStatus((lead.decisionMakerStatus as LeadDecisionMakerStatus | null) ?? "");
+    setPreferredChannel((lead.preferredChannel as LeadPreferredChannel | null) ?? (lead.phone ? "text" : "door"));
+    setBestContactTime(lead.bestContactTime ?? "");
+    setTextConsent(lead.textConsent ?? Boolean(lead.phone));
+    setObjectionType((lead.objectionType as LeadObjectionType | null) ?? "");
+    setBillReceived(lead.billReceived ?? false);
+    setProposalPresented(lead.proposalPresented ?? false);
+    setAppointmentOutcome((lead.appointmentOutcome as LeadAppointmentOutcome | null) ?? "");
+    setRescheduleReason(lead.rescheduleReason ?? "");
+    setCancellationReason(lead.cancellationReason ?? "");
+    setEngagementScore(String(lead.engagementScore ?? 3));
     setNextFollowUpAt(toLocal(lead.nextFollowUpAt));
     setAppointmentAt(toLocal(lead.appointmentAt));
     setLeadSaveState("idle");
@@ -90,6 +124,17 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
         notes,
         leadStatus,
         interestLevel,
+        decisionMakerStatus: decisionMakerStatus || null,
+        preferredChannel,
+        bestContactTime: bestContactTime || null,
+        textConsent,
+        objectionType: objectionType || null,
+        billReceived,
+        proposalPresented,
+        appointmentOutcome: appointmentOutcome || null,
+        rescheduleReason: rescheduleReason || null,
+        cancellationReason: cancellationReason || null,
+        engagementScore: Number(engagementScore) || null,
         nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt).toISOString() : null,
         appointmentAt: appointmentAt ? new Date(appointmentAt).toISOString() : null
       };
@@ -170,6 +215,8 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
           {[
             { label: "Stage", value: lead?.leadStatus ?? "…" },
             { label: "Interest", value: lead?.interestLevel ?? "None" },
+            { label: "Cadence", value: formatLabel(lead?.cadenceTrack ?? null) },
+            { label: "Channel", value: formatLabel(lead?.preferredChannel ?? null) },
             { label: "Next Follow-Up", value: formatDateTime(lead?.nextFollowUpAt ?? null) },
             { label: "Appointment", value: formatDateTime(lead?.appointmentAt ?? null) },
             { label: "Owner", value: lead?.ownerName ?? "Unassigned" },
@@ -249,6 +296,54 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   </select>
                 </label>
                 <label className="text-xs text-slate-500">
+                  Preferred channel
+                  <select
+                    value={preferredChannel}
+                    onChange={(event) => setPreferredChannel(event.target.value as LeadPreferredChannel)}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  >
+                    <option value="text">Text</option>
+                    <option value="call">Call</option>
+                    <option value="door">Door</option>
+                  </select>
+                </label>
+                <label className="text-xs text-slate-500">
+                  Decision-maker status
+                  <select
+                    value={decisionMakerStatus}
+                    onChange={(event) => setDecisionMakerStatus(event.target.value as LeadDecisionMakerStatus | "")}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  >
+                    <option value="">Unknown</option>
+                    <option value="all_present">All present</option>
+                    <option value="spouse_missing">Spouse missing</option>
+                    <option value="other_missing">Other stakeholder missing</option>
+                  </select>
+                </label>
+                <label className="text-xs text-slate-500">
+                  Best contact time
+                  <input
+                    value={bestContactTime}
+                    onChange={(event) => setBestContactTime(event.target.value)}
+                    placeholder="Evenings, weekends, after Tuesday…"
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  />
+                </label>
+                <label className="text-xs text-slate-500">
+                  Engagement score
+                  <select
+                    value={engagementScore}
+                    onChange={(event) => setEngagementScore(event.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  >
+                    {["1", "2", "3", "4", "5"].map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs text-slate-500">
                   Next follow-up
                   <input
                     type="datetime-local"
@@ -265,6 +360,81 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     onChange={(event) => setAppointmentAt(event.target.value)}
                     className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
                   />
+                </label>
+                <label className="text-xs text-slate-500">
+                  Appointment outcome
+                  <select
+                    value={appointmentOutcome}
+                    onChange={(event) => setAppointmentOutcome(event.target.value as LeadAppointmentOutcome | "")}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  >
+                    <option value="">Active / none</option>
+                    <option value="sat_not_closed">Sat, not closed</option>
+                    <option value="moved">Moved</option>
+                    <option value="canceled">Canceled</option>
+                    <option value="no_show">No show</option>
+                    <option value="closed">Closed</option>
+                  </select>
+                </label>
+                <label className="text-xs text-slate-500">
+                  Objection type
+                  <select
+                    value={objectionType}
+                    onChange={(event) => setObjectionType(event.target.value as LeadObjectionType | "")}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  >
+                    <option value="">None / unknown</option>
+                    <option value="price">Price</option>
+                    <option value="timing">Timing</option>
+                    <option value="trust">Trust</option>
+                    <option value="roof">Roof</option>
+                    <option value="needs_numbers">Needs numbers</option>
+                    <option value="spouse">Spouse / other decision-maker</option>
+                    <option value="none">No objection</option>
+                  </select>
+                </label>
+                <label className="text-xs text-slate-500">
+                  Reschedule reason
+                  <input
+                    value={rescheduleReason}
+                    onChange={(event) => setRescheduleReason(event.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  />
+                </label>
+                <label className="text-xs text-slate-500">
+                  Cancellation reason
+                  <input
+                    value={cancellationReason}
+                    onChange={(event) => setCancellationReason(event.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  />
+                </label>
+                <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-ink">
+                  <input
+                    type="checkbox"
+                    checked={textConsent}
+                    onChange={(event) => setTextConsent(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Text consent captured
+                </label>
+                <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-ink">
+                  <input
+                    type="checkbox"
+                    checked={billReceived}
+                    onChange={(event) => setBillReceived(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Bill received
+                </label>
+                <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-ink">
+                  <input
+                    type="checkbox"
+                    checked={proposalPresented}
+                    onChange={(event) => setProposalPresented(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Proposal presented
                 </label>
                 <div className="md:col-span-2">
                   <GoogleCalendarSyncCard
@@ -311,6 +481,12 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
               <div className="mt-1 text-xs text-slate-500">
                 Visit count: {lead?.propertySummary?.visitCount ?? 0}
               </div>
+              <div className="mt-3 grid gap-2 text-xs text-slate-500 md:grid-cols-2">
+                <div>Text consent: {formatBoolean(lead?.textConsent)}</div>
+                <div>Bill received: {formatBoolean(lead?.billReceived)}</div>
+                <div>Proposal presented: {formatBoolean(lead?.proposalPresented)}</div>
+                <div>Objection: {formatLabel(lead?.objectionType ?? null)}</div>
+              </div>
             </div>
 
             <form className="rounded-3xl border border-slate-200 bg-slate-50 p-4" onSubmit={handleCreateTask}>
@@ -327,6 +503,10 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     <option value="text">Text</option>
                     <option value="revisit">Revisit</option>
                     <option value="appointment_confirm">Appointment Confirm</option>
+                    <option value="proposal_follow_up">Proposal Follow-Up</option>
+                    <option value="rebook_appointment">Rebook Appointment</option>
+                    <option value="customer_check_in">Customer Check-In</option>
+                    <option value="referral_request">Referral Request</option>
                     <option value="manager_review">Manager Review</option>
                     <option value="custom">Custom</option>
                   </select>

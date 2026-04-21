@@ -210,9 +210,14 @@ function taskDurationMinutes(type: string) {
     case "call":
     case "text":
     case "appointment_confirm":
+    case "referral_request":
       return 15;
     case "revisit":
+    case "rebook_appointment":
       return 30;
+    case "proposal_follow_up":
+    case "customer_check_in":
+      return 20;
     default:
       return 30;
   }

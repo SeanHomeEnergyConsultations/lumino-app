@@ -46,6 +46,55 @@ async function insertTask(
   return data.id as string;
 }
 
+export async function createTaskIfMissing(input: TaskInput, context: AuthSessionContext) {
+  if (!context.organizationId) {
+    throw new Error("No active organization found for this user.");
+  }
+
+  const supabase = createServerSupabaseClient();
+  const notes = input.notes?.trim() || null;
+  const dueAt = input.dueAt ?? null;
+
+  let query = supabase
+    .from("tasks")
+    .select("id")
+    .eq("organization_id", context.organizationId)
+    .eq("type", input.type)
+    .in("status", ["open", "overdue", "blocked"])
+    .limit(1);
+
+  if (input.leadId) {
+    query = query.eq("lead_id", input.leadId);
+  }
+
+  if (input.propertyId) {
+    query = query.eq("property_id", input.propertyId);
+  }
+
+  if (dueAt) {
+    query = query.eq("due_at", dueAt);
+  } else {
+    query = query.is("due_at", null);
+  }
+
+  const { data: existing, error: existingError } = await query.maybeSingle();
+  if (existingError) throw existingError;
+
+  if (existing?.id) {
+    return { taskId: existing.id as string, created: false };
+  }
+
+  const taskId = await insertTask(input, context, notes, dueAt);
+  const appBaseUrl = getAppBaseUrl() ?? "http://localhost:3000";
+  await syncTaskToGoogleCalendar({
+    context,
+    taskId,
+    appUrl: appBaseUrl
+  }).catch(() => null);
+
+  return { taskId, created: true };
+}
+
 export async function createTask(input: TaskInput, context: AuthSessionContext) {
   if (!context.organizationId) {
     throw new Error("No active organization found for this user.");
