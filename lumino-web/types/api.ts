@@ -303,6 +303,60 @@ export interface ManagerCoachingFlag {
   href: string;
 }
 
+export type PerformanceCompetitionMetric = "knocks" | "opportunities" | "appointments" | "doorhangers";
+export type PerformanceCompetitionStatus = "scheduled" | "active" | "completed" | "cancelled";
+
+export interface PerformanceLeaderboardEntry {
+  userId: string;
+  fullName: string | null;
+  email: string | null;
+  role: string;
+  rank: number;
+  metricValue: number;
+  knocks: number;
+  opportunities: number;
+  appointments: number;
+  doorhangers: number;
+  isCurrentUser: boolean;
+}
+
+export interface PerformanceCompetitionItem {
+  id: string;
+  title: string;
+  description: string | null;
+  metric: PerformanceCompetitionMetric;
+  periodType: "day" | "week" | "custom";
+  startAt: string;
+  endAt: string;
+  status: PerformanceCompetitionStatus;
+  leaders: PerformanceLeaderboardEntry[];
+  myStanding: PerformanceLeaderboardEntry | null;
+}
+
+export interface PerformanceBadgeItem {
+  id: string;
+  label: string;
+  detail: string;
+  tone: "gold" | "silver" | "bronze" | "emerald" | "electric";
+}
+
+export interface PerformanceHubResponse {
+  canManageCompetitions: boolean;
+  dailyLeaderboard: PerformanceLeaderboardEntry[];
+  weeklyLeaderboard: PerformanceLeaderboardEntry[];
+  activeCompetitions: PerformanceCompetitionItem[];
+  upcomingCompetitions: PerformanceCompetitionItem[];
+  completedCompetitions: PerformanceCompetitionItem[];
+  badges: PerformanceBadgeItem[];
+  mySummary: {
+    dailyRank: number | null;
+    weeklyRank: number | null;
+    dailyKnocks: number;
+    weeklyAppointments: number;
+    activeCompetitionCount: number;
+  };
+}
+
 export interface TerritoryListItem {
   territoryId: string;
   name: string;
