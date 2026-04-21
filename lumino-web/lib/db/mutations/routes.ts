@@ -364,7 +364,7 @@ export async function optimizeRemainingRouteRunStops(input: {
 
   const { error: routeEventError } = await supabase.from("route_run_events").insert({
     route_run_id: input.routeRunId,
-    event_type: "remaining_stops_optimized",
+    event_type: "route_reoptimized",
     created_by: input.context.appUser.id,
     event_payload: {
       pendingStopCount: reorderedStops.length,

@@ -342,12 +342,21 @@ export function LiveFieldMap({
     }
 
     return new Promise<GeolocationPosition>((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
+      navigator.geolocation.getCurrentPosition(resolve, (error) => {
+        reject(new Error(error.message || "Location access was blocked for route planning."));
+      }, {
         enableHighAccuracy: true,
         timeout: 12000,
         maximumAge: 15000
       });
     });
+  }
+
+  function getMapCenterOrigin() {
+    return {
+      latitude: viewState.latitude,
+      longitude: viewState.longitude
+    };
   }
 
   function toggleSelectedRouteLead(leadId: string) {
@@ -665,14 +674,30 @@ export function LiveFieldMap({
     try {
       setRouteActionState("building");
       setRouteBuilderError(null);
-      const position = await getCurrentPosition();
+      const position = await getCurrentPosition().catch(() => null);
+      const origin = position
+        ? {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            label: "Current Location"
+          }
+        : userLocation
+          ? {
+              latitude: userLocation.latitude,
+              longitude: userLocation.longitude,
+              label: "Current Location"
+            }
+          : {
+              ...getMapCenterOrigin(),
+              label: "Map Center"
+            };
       const response = await authFetch(session.access_token, "/api/routes/run", {
         method: "POST",
         body: JSON.stringify({
           leadIds: selectedRouteLeadIds,
-          startedFromLat: position.coords.latitude,
-          startedFromLng: position.coords.longitude,
-          startedFromLabel: "Current Location",
+          startedFromLat: origin.latitude,
+          startedFromLng: origin.longitude,
+          startedFromLabel: origin.label,
           optimizationMode: "drive_time"
         })
       });
@@ -684,7 +709,11 @@ export function LiveFieldMap({
 
       setRouteSelectionMode(false);
       setSelectedRouteLeadIds([]);
-      setRouteBuilderError(null);
+      setRouteBuilderError(
+        origin.label === "Map Center"
+          ? "Route built from the current map view because browser location was unavailable."
+          : null
+      );
       await loadActiveRoute();
 
       if (json.firstPropertyId) {
