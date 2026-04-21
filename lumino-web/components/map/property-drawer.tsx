@@ -15,8 +15,13 @@ import {
   XCircle
 } from "lucide-react";
 import { GoogleCalendarSyncCard } from "@/components/appointments/google-calendar-sync-card";
+import { DEFAULT_APPOINTMENT_DURATION_MINUTES } from "@/lib/appointments/calendar";
 import { authFetch, useAuth } from "@/lib/auth/client";
-import type { AppointmentsResponse } from "@/types/api";
+import type {
+  AppointmentsResponse,
+  GoogleCalendarConflictCheckResponse,
+  GoogleCalendarConnectionStatusResponse
+} from "@/types/api";
 import type { LeadInput, PropertyDetail, TaskInput } from "@/types/entities";
 
 const quickOutcomes = [
@@ -81,6 +86,14 @@ function formatAppointmentTime(value: string) {
   });
 }
 
+function endOfMonthGrid(value: Date) {
+  return addDays(startOfMonthGrid(new Date(value.getFullYear(), value.getMonth() + 1, 1)), -1);
+}
+
+function rangesOverlap(startA: Date, endA: Date, startB: Date, endB: Date) {
+  return startA < endB && startB < endA;
+}
+
 function EmptyPropertyState() {
   return (
     <div className="app-panel-soft rounded-3xl border border-dashed p-6 text-sm text-slate-500">
@@ -136,6 +149,11 @@ export function PropertyDrawer({
   const [appointmentSchedule, setAppointmentSchedule] = useState<AppointmentsResponse | null>(null);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [appointmentCalendarMonth, setAppointmentCalendarMonth] = useState<Date>(() => startOfDay(new Date()));
+  const [googleCalendarStatus, setGoogleCalendarStatus] =
+    useState<GoogleCalendarConnectionStatusResponse["item"] | null>(null);
+  const [googleMonthBusy, setGoogleMonthBusy] = useState<GoogleCalendarConflictCheckResponse["busy"]>([]);
+  const [loadingGoogleMonthBusy, setLoadingGoogleMonthBusy] = useState(false);
+  const [googleBusyError, setGoogleBusyError] = useState<string | null>(null);
 
   function toDateTimeLocal(value: string | null | undefined) {
     if (!value) return "";
@@ -165,6 +183,7 @@ export function PropertyDrawer({
     if (property?.isPreview) {
       setMobileExpanded(true);
     }
+    setGoogleBusyError(null);
   }, [property]);
 
   useEffect(() => {
@@ -204,6 +223,79 @@ export function PropertyDrawer({
     };
   }, [postAction, session?.access_token]);
 
+  useEffect(() => {
+    if (postAction !== "appointment_set" || !session?.access_token) return;
+
+    let cancelled = false;
+
+    authFetch(session.access_token, "/api/integrations/google-calendar")
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as GoogleCalendarConnectionStatusResponse;
+      })
+      .then((json) => {
+        if (cancelled) return;
+        setGoogleCalendarStatus(json?.item ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGoogleCalendarStatus(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [postAction, session?.access_token]);
+
+  useEffect(() => {
+    if (postAction !== "appointment_set" || !session?.access_token || !googleCalendarStatus?.connected) {
+      setGoogleMonthBusy([]);
+      setLoadingGoogleMonthBusy(false);
+      return;
+    }
+
+    let cancelled = false;
+    const visibleStart = startOfMonthGrid(appointmentCalendarMonth);
+    const visibleEnd = addDays(endOfMonthGrid(appointmentCalendarMonth), 1);
+
+    setLoadingGoogleMonthBusy(true);
+    setGoogleBusyError(null);
+
+    authFetch(session.access_token, "/api/integrations/google-calendar/freebusy", {
+      method: "POST",
+      body: JSON.stringify({
+        startAt: visibleStart.toISOString(),
+        endAt: visibleEnd.toISOString()
+      })
+    })
+      .then(async (response) => {
+        const json = (await response.json()) as GoogleCalendarConflictCheckResponse | { error?: string };
+        if (!response.ok || !("busy" in json)) {
+          throw new Error(("error" in json && json.error) || "Could not load Google Calendar availability.");
+        }
+        return json;
+      })
+      .then((json) => {
+        if (cancelled) return;
+        setGoogleMonthBusy(json.busy);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setGoogleMonthBusy([]);
+        setGoogleBusyError(error instanceof Error ? error.message : "Could not load Google Calendar availability.");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingGoogleMonthBusy(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appointmentCalendarMonth, googleCalendarStatus?.connected, postAction, session?.access_token]);
+
   const showActions = mobileSection === "actions";
   const showLead = mobileSection === "lead";
   const showHistory = mobileSection === "history";
@@ -231,6 +323,38 @@ export function PropertyDrawer({
   const selectedDayScheduleItems = selectedAppointmentDateKey
     ? appointmentScheduleItemsByDay.get(selectedAppointmentDateKey) ?? []
     : [];
+  const googleBusyItemsByDay = useMemo(() => {
+    const next = new Map<string, GoogleCalendarConflictCheckResponse["busy"]>();
+
+    for (const item of googleMonthBusy) {
+      const start = new Date(item.start);
+      const end = new Date(item.end);
+      for (let cursor = startOfDay(start); cursor < end; cursor = addDays(cursor, 1)) {
+        const key = isoDateKey(cursor);
+        const current = next.get(key) ?? [];
+        current.push(item);
+        next.set(key, current);
+      }
+    }
+
+    return next;
+  }, [googleMonthBusy]);
+  const selectedDayGoogleBusy = selectedAppointmentDateKey ? googleBusyItemsByDay.get(selectedAppointmentDateKey) ?? [] : [];
+  const quickTimeConflictMap = useMemo(() => {
+    if (!selectedAppointmentDate) return new Map<string, boolean>();
+
+    return new Map(
+      APPOINTMENT_TIME_SLOTS.map((slot) => {
+        const start = new Date(selectedAppointmentDate);
+        start.setHours(slot.hour, slot.minute, 0, 0);
+        const end = new Date(start.getTime() + DEFAULT_APPOINTMENT_DURATION_MINUTES * 60_000);
+        const hasConflict = selectedDayGoogleBusy.some((busySlot) =>
+          rangesOverlap(start, end, new Date(busySlot.start), new Date(busySlot.end))
+        );
+        return [slot.label, hasConflict];
+      })
+    );
+  }, [selectedAppointmentDate, selectedDayGoogleBusy]);
   const appointmentCalendarDays = useMemo(() => {
     const gridStart = startOfMonthGrid(appointmentCalendarMonth);
     const month = appointmentCalendarMonth.getMonth();
@@ -245,10 +369,11 @@ export function PropertyDrawer({
         isToday: key === todayKey,
         isCurrentMonth: date.getMonth() === month,
         isSelected: key === selectedAppointmentDateKey,
-        items: appointmentScheduleItemsByDay.get(key) ?? []
+        items: appointmentScheduleItemsByDay.get(key) ?? [],
+        googleBusy: googleBusyItemsByDay.get(key) ?? []
       };
     });
-  }, [appointmentCalendarMonth, appointmentScheduleItemsByDay, selectedAppointmentDateKey]);
+  }, [appointmentCalendarMonth, appointmentScheduleItemsByDay, googleBusyItemsByDay, selectedAppointmentDateKey]);
 
   function applyAppointmentDate(date: Date) {
     const next = new Date(date);
@@ -466,16 +591,34 @@ export function PropertyDrawer({
                     className={`rounded-xl border px-1 py-2 text-center text-xs transition ${
                       day.isSelected
                         ? "border-slate-900 bg-slate-900 text-white"
-                        : day.items.length
-                          ? "border-amber-200 bg-amber-50 text-slate-700"
-                          : "border-slate-200 bg-slate-50 text-slate-700"
+                        : day.googleBusy.length >= 3
+                          ? "border-rose-200 bg-rose-50 text-rose-800"
+                          : day.googleBusy.length
+                            ? "border-amber-200 bg-amber-50 text-slate-700"
+                            : day.items.length
+                              ? "border-sky-200 bg-sky-50 text-slate-700"
+                              : "border-slate-200 bg-slate-50 text-slate-700"
                     } ${day.isCurrentMonth ? "" : "opacity-45"} ${day.isToday ? "ring-1 ring-sky-400" : ""}`}
                   >
                     <div className="font-semibold">{day.date.getDate()}</div>
-                    <div className="mt-1 text-[10px]">{day.items.length ? `${day.items.length} appt` : "Open"}</div>
+                    <div className="mt-1 text-[10px]">
+                      {day.googleBusy.length
+                        ? `${day.googleBusy.length} busy`
+                        : day.items.length
+                          ? `${day.items.length} appt`
+                          : "Open"}
+                    </div>
                   </button>
                 ))}
               </div>
+              {googleCalendarStatus?.connected ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                  <span className="rounded-full bg-slate-100 px-2 py-1">Gray: open</span>
+                  <span className="rounded-full bg-sky-100 px-2 py-1">Blue: Lumino appts</span>
+                  <span className="rounded-full bg-amber-100 px-2 py-1">Amber: some Google busy</span>
+                  <span className="rounded-full bg-rose-100 px-2 py-1">Rose: packed day</span>
+                </div>
+              ) : null}
               <div className="mt-3">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mist">Quick Times</div>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -483,6 +626,7 @@ export function PropertyDrawer({
                     const isSelected =
                       selectedAppointmentDate?.getHours() === slot.hour &&
                       selectedAppointmentDate?.getMinutes() === slot.minute;
+                    const hasGoogleConflict = quickTimeConflictMap.get(slot.label) ?? false;
                     return (
                       <button
                         key={slot.label}
@@ -491,10 +635,13 @@ export function PropertyDrawer({
                         className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                           isSelected
                             ? "border-slate-900 bg-slate-900 text-white"
+                            : hasGoogleConflict
+                              ? "border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300"
                             : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300"
                         }`}
                       >
                         {slot.label}
+                        {hasGoogleConflict ? " • Busy" : ""}
                       </button>
                     );
                   })}
@@ -528,9 +675,13 @@ export function PropertyDrawer({
                   </Link>
                 </div>
                 <div className="mt-3 space-y-2">
-                  {loadingSchedule ? (
+                  {loadingSchedule || loadingGoogleMonthBusy ? (
                     <div className="rounded-2xl border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-500">
-                      Loading your current appointments…
+                      Loading your current appointments and Google availability…
+                    </div>
+                  ) : googleBusyError ? (
+                    <div className="rounded-2xl border border-dashed border-rose-200 bg-rose-50 px-3 py-3 text-xs text-rose-700">
+                      {googleBusyError}
                     </div>
                   ) : selectedDayScheduleItems.length ? (
                     selectedDayScheduleItems.map((item) => (
@@ -545,6 +696,26 @@ export function PropertyDrawer({
                           <div className="shrink-0 text-right text-xs font-semibold text-slate-600">
                             {formatAppointmentTime(item.scheduledAt)}
                           </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : selectedDayGoogleBusy.length ? (
+                    selectedDayGoogleBusy.map((item) => (
+                      <div
+                        key={`${item.start}-${item.end}`}
+                        className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900"
+                      >
+                        <div className="font-semibold">Google calendar busy</div>
+                        <div className="mt-1 text-xs">
+                          {new Date(item.start).toLocaleTimeString([], {
+                            hour: "numeric",
+                            minute: "2-digit"
+                          })}{" "}
+                          -{" "}
+                          {new Date(item.end).toLocaleTimeString([], {
+                            hour: "numeric",
+                            minute: "2-digit"
+                          })}
                         </div>
                       </div>
                     ))
