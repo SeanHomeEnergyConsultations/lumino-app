@@ -67,6 +67,9 @@ export function TerritoryAdminPage() {
   const [organizationName, setOrganizationName] = useState("");
   const [organizationSlug, setOrganizationSlug] = useState("");
   const [organizationAppName, setOrganizationAppName] = useState("");
+  const [selectedThemePresetId, setSelectedThemePresetId] = useState<
+    "" | (typeof ORGANIZATION_THEME_PRESETS)[number]["id"]
+  >("");
 
   const assignedPropertyIds = useMemo(
     () => new Set((selectedTerritory?.properties ?? []).map((item) => item.propertyId)),
@@ -472,6 +475,7 @@ export function TerritoryAdminPage() {
     const preset = ORGANIZATION_THEME_PRESETS.find((item) => item.id === presetId);
     if (!preset) return;
 
+    setSelectedThemePresetId(preset.id);
     setPrimaryColor(preset.theme.primaryColor);
     setAccentColor(preset.theme.accentColor);
     setBackgroundColor(preset.theme.backgroundColor);
@@ -615,35 +619,34 @@ export function TerritoryAdminPage() {
           <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_0.9fr]">
             <div className="space-y-3">
               <div className="space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Presets</div>
-                <div className="grid gap-2">
-                  {ORGANIZATION_THEME_PRESETS.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => applyThemePreset(preset.id)}
-                      className="app-chip flex items-center justify-between gap-3 rounded-2xl px-3 py-3 text-left transition hover:translate-y-[-1px]"
-                    >
-                      <div>
-                        <div className="text-sm font-semibold text-ink">{preset.label}</div>
-                        <div className="mt-1 text-xs text-slate-500">{preset.description}</div>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        {[
-                          preset.theme.primaryColor,
-                          preset.theme.accentColor,
-                          preset.theme.backgroundColor,
-                          preset.theme.sidebarColor
-                        ].map((color) => (
-                          <span
-                            key={`${preset.id}-${color}`}
-                            className="h-4 w-4 rounded-full border border-white/70 shadow-sm"
-                            style={{ backgroundColor: color }}
-                          />
-                        ))}
-                      </div>
-                    </button>
-                  ))}
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Theme Presets</div>
+                  <div className="mt-1 text-xs text-slate-500">Apply a metallic base, then fine-tune the shell colors below.</div>
+                </div>
+                <div className="app-chip rounded-2xl px-3 py-3">
+                  <select
+                    value={selectedThemePresetId}
+                    onChange={(event) => {
+                      const nextPresetId = event.target.value as "" | (typeof ORGANIZATION_THEME_PRESETS)[number]["id"];
+                      setSelectedThemePresetId(nextPresetId);
+                      if (nextPresetId) {
+                        applyThemePreset(nextPresetId);
+                      }
+                    }}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  >
+                    <option value="">Choose a preset theme</option>
+                    {ORGANIZATION_THEME_PRESETS.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-2 text-xs text-slate-500">
+                    {selectedThemePresetId
+                      ? ORGANIZATION_THEME_PRESETS.find((preset) => preset.id === selectedThemePresetId)?.description
+                      : "Preset themes give you a fast metallic starting point before you fine-tune colors."}
+                  </div>
                 </div>
               </div>
               <input
