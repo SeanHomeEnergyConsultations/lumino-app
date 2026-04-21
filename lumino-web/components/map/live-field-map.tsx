@@ -166,7 +166,8 @@ export function LiveFieldMap({
   initialFilters = ["all"],
   ownerIdFilter = null,
   cityFilter = null,
-  stateFilter = null
+  stateFilter = null,
+  initialAddressSearch = null
 }: {
   initialItems: MapProperty[];
   initialSelectedPropertyId?: string | null;
@@ -174,6 +175,7 @@ export function LiveFieldMap({
   ownerIdFilter?: string | null;
   cityFilter?: string | null;
   stateFilter?: string | null;
+  initialAddressSearch?: string | null;
 }) {
   const { session, appContext } = useAuth();
   const isManager = useMemo(
@@ -182,6 +184,7 @@ export function LiveFieldMap({
   );
   const mapRef = useRef<MapRef | null>(null);
   const hasAutoCenteredOnUserRef = useRef(false);
+  const hasHandledInitialAddressSearchRef = useRef(false);
   const [items, setItems] = useState(initialItems);
   const [activeFilters, setActiveFilters] = useState<MapFilterKey[]>(initialFilters);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(initialSelectedPropertyId);
@@ -566,6 +569,53 @@ export function LiveFieldMap({
       setIsResolvingTap(false);
     }
   }
+
+  async function handleAddressSearch(address: string) {
+    if (!session?.access_token || isResolvingTap) return;
+
+    try {
+      setIsResolvingTap(true);
+      const response = await authFetch(session.access_token, "/api/properties/resolve", {
+        method: "POST",
+        body: JSON.stringify({
+          address
+        })
+      });
+
+      if (!response.ok) return;
+      const json = (await response.json()) as ResolvePropertyResponse;
+      if (json.propertyId) {
+        openSelectedProperty(json.propertyId);
+        await refreshSelectedProperty(json.propertyId);
+        return;
+      }
+
+      if (!json.preview) return;
+
+      setViewState((current) => ({
+        ...current,
+        latitude: json.preview?.lat ?? current.latitude,
+        longitude: json.preview?.lng ?? current.longitude,
+        zoom: Math.max(current.zoom, 16)
+      }));
+      openSelectedProperty(previewSelectionKey(json.preview.lat, json.preview.lng));
+      setSelectedProperty(
+        buildPreviewPropertyDetail({
+          ...json.preview,
+          featureAccess
+        })
+      );
+    } finally {
+      setIsResolvingTap(false);
+    }
+  }
+
+  useEffect(() => {
+    const trimmed = initialAddressSearch?.trim();
+    if (!session?.access_token || !trimmed || hasHandledInitialAddressSearchRef.current) return;
+    hasHandledInitialAddressSearchRef.current = true;
+    void handleAddressSearch(trimmed);
+  }, [initialAddressSearch, session?.access_token]);
 
   async function handleLogOutcome(outcome: string) {
     if (!selectedProperty || !session?.access_token) return;

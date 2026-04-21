@@ -86,10 +86,6 @@ function formatAppointmentTime(value: string) {
   });
 }
 
-function endOfMonthGrid(value: Date) {
-  return addDays(startOfMonthGrid(new Date(value.getFullYear(), value.getMonth() + 1, 1)), -1);
-}
-
 function rangesOverlap(startA: Date, endA: Date, startB: Date, endB: Date) {
   return startA < endB && startB < endA;
 }
@@ -257,7 +253,7 @@ export function PropertyDrawer({
 
     let cancelled = false;
     const visibleStart = startOfMonthGrid(appointmentCalendarMonth);
-    const visibleEnd = addDays(endOfMonthGrid(appointmentCalendarMonth), 1);
+    const visibleEnd = addDays(visibleStart, 35);
 
     setLoadingGoogleMonthBusy(true);
     setGoogleBusyError(null);

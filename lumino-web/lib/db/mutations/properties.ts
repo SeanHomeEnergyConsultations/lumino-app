@@ -1,5 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
-import { reverseGeocodeWithGoogle } from "@/lib/geocoding/google";
+import { geocodeAddressWithGoogle, reverseGeocodeWithGoogle } from "@/lib/geocoding/google";
 import { getGoogleMapsApiKey } from "@/lib/utils/env";
 import type { AuthSessionContext } from "@/types/auth";
 
@@ -18,19 +18,40 @@ function droppedPinKey(lat: number, lng: number) {
 }
 
 export async function resolveOrCreateProperty(
-  input: { lat: number; lng: number; persist?: boolean },
+  input: { lat?: number; lng?: number; address?: string; persist?: boolean },
   context: AuthSessionContext
 ) {
   const supabase = createServerSupabaseClient();
   const googleMapsApiKey = getGoogleMapsApiKey();
+  let lat = input.lat;
+  let lng = input.lng;
+  let geocoded = null;
+
+  if ((lat === undefined || lng === undefined) && input.address) {
+    if (!googleMapsApiKey) {
+      throw new Error("Address search is unavailable because Google Maps is not configured.");
+    }
+
+    geocoded = await geocodeAddressWithGoogle(input.address, googleMapsApiKey);
+    if (!geocoded) {
+      throw new Error("Could not locate that address.");
+    }
+
+    lat = geocoded.lat;
+    lng = geocoded.lng;
+  }
+
+  if (typeof lat !== "number" || typeof lng !== "number") {
+    throw new Error("Property resolution requires a valid address or coordinates.");
+  }
 
   const { data: nearbyRows, error: nearbyError } = await supabase
     .from("properties")
     .select("id,raw_address,address_line_1,city,state,postal_code,zipcode,lat,lng")
-    .gte("lat", input.lat - NEARBY_THRESHOLD)
-    .lte("lat", input.lat + NEARBY_THRESHOLD)
-    .gte("lng", input.lng - NEARBY_THRESHOLD)
-    .lte("lng", input.lng + NEARBY_THRESHOLD)
+    .gte("lat", lat - NEARBY_THRESHOLD)
+    .lte("lat", lat + NEARBY_THRESHOLD)
+    .gte("lng", lng - NEARBY_THRESHOLD)
+    .lte("lng", lng + NEARBY_THRESHOLD)
     .limit(20);
 
   if (nearbyError) throw nearbyError;
@@ -39,7 +60,7 @@ export async function resolveOrCreateProperty(
     nearbyRows
       ?.map((row) => ({
         ...row,
-        distance: Math.abs((row.lat ?? 0) - input.lat) + Math.abs((row.lng ?? 0) - input.lng)
+        distance: Math.abs((row.lat ?? 0) - lat) + Math.abs((row.lng ?? 0) - lng)
       }))
       .sort((a, b) => a.distance - b.distance)[0] ?? null;
 
@@ -50,10 +71,9 @@ export async function resolveOrCreateProperty(
     };
   }
 
-  let geocoded = null;
-  if (googleMapsApiKey) {
+  if (!geocoded && googleMapsApiKey) {
     try {
-      geocoded = await reverseGeocodeWithGoogle(input.lat, input.lng, googleMapsApiKey);
+      geocoded = await reverseGeocodeWithGoogle(lat, lng, googleMapsApiKey);
     } catch (error) {
       console.error("[properties] reverse geocode failed", error);
     }
@@ -61,7 +81,7 @@ export async function resolveOrCreateProperty(
 
   const normalizedAddress = geocoded
     ? normalizeAddress(geocoded.formattedAddress)
-    : normalizeAddress(droppedPinKey(input.lat, input.lng));
+    : normalizeAddress(droppedPinKey(lat, lng));
 
   if (geocoded) {
     const { data: exactMatch, error: exactMatchError } = await supabase
@@ -79,7 +99,7 @@ export async function resolveOrCreateProperty(
     }
   }
 
-  const address = geocoded?.formattedAddress ?? droppedPinAddress(input.lat, input.lng);
+  const address = geocoded?.formattedAddress ?? droppedPinAddress(lat, lng);
   const now = new Date().toISOString();
 
   if (!input.persist) {
@@ -91,8 +111,8 @@ export async function resolveOrCreateProperty(
         city: geocoded?.city ?? null,
         state: geocoded?.state ?? null,
         postalCode: geocoded?.postalCode ?? null,
-        lat: input.lat,
-        lng: input.lng
+        lat,
+        lng
       }
     };
   }
@@ -105,8 +125,8 @@ export async function resolveOrCreateProperty(
     state: geocoded?.state ?? null,
     postal_code: geocoded?.postalCode ?? null,
     zipcode: geocoded?.postalCode ?? null,
-    lat: input.lat,
-    lng: input.lng,
+    lat,
+    lng,
     created_at: now,
     updated_at: now
   };
@@ -129,9 +149,9 @@ export async function resolveOrCreateProperty(
       data: {
         address: address,
         geocoded: Boolean(geocoded),
-        source: "map_tap",
-        lat: input.lat,
-        lng: input.lng
+        source: input.address ? "address_search" : "map_tap",
+        lat,
+        lng
       }
     });
   }

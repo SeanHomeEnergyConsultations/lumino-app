@@ -11,6 +11,7 @@ export default async function MapPage({
     ownerId?: string;
     city?: string;
     state?: string;
+    address?: string;
   }>;
 }) {
   const resolvedSearchParams = (await searchParams) ?? {};
@@ -25,6 +26,7 @@ export default async function MapPage({
         ownerIdFilter={resolvedSearchParams.ownerId ?? null}
         cityFilter={resolvedSearchParams.city ?? null}
         stateFilter={resolvedSearchParams.state ?? null}
+        initialAddressSearch={resolvedSearchParams.address ?? null}
       />
     </ProtectedAppShell>
   );

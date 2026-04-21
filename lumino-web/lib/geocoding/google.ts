@@ -6,6 +6,12 @@ interface GoogleAddressComponent {
 
 interface GoogleReverseGeocodeResult {
   formatted_address: string;
+  geometry?: {
+    location?: {
+      lat?: number;
+      lng?: number;
+    };
+  };
   address_components: GoogleAddressComponent[];
   types: string[];
 }
@@ -21,6 +27,11 @@ export interface ReverseGeocodeResult {
   city: string | null;
   state: string | null;
   postalCode: string | null;
+}
+
+export interface GeocodeAddressResult extends ReverseGeocodeResult {
+  lat: number;
+  lng: number;
 }
 
 function componentValue(components: GoogleAddressComponent[], type: string, useShort = false) {
@@ -43,6 +54,25 @@ function selectBestResult(results: GoogleReverseGeocodeResult[]) {
     results[0] ||
     null
   );
+}
+
+function toAddressResult(result: GoogleReverseGeocodeResult): ReverseGeocodeResult {
+  const addressLine1 = buildAddressLine1(result.address_components);
+  const city =
+    componentValue(result.address_components, "locality") ||
+    componentValue(result.address_components, "postal_town") ||
+    componentValue(result.address_components, "sublocality") ||
+    null;
+  const state = componentValue(result.address_components, "administrative_area_level_1", true);
+  const postalCode = componentValue(result.address_components, "postal_code");
+
+  return {
+    formattedAddress: result.formatted_address,
+    addressLine1: addressLine1 || result.formatted_address,
+    city,
+    state,
+    postalCode
+  };
 }
 
 export async function reverseGeocodeWithGoogle(
@@ -77,20 +107,44 @@ export async function reverseGeocodeWithGoogle(
   const result = selectBestResult(json.results);
   if (!result) return null;
 
-  const addressLine1 = buildAddressLine1(result.address_components);
-  const city =
-    componentValue(result.address_components, "locality") ||
-    componentValue(result.address_components, "postal_town") ||
-    componentValue(result.address_components, "sublocality") ||
-    null;
-  const state = componentValue(result.address_components, "administrative_area_level_1", true);
-  const postalCode = componentValue(result.address_components, "postal_code");
+  return toAddressResult(result);
+}
+
+export async function geocodeAddressWithGoogle(
+  address: string,
+  apiKey: string
+): Promise<GeocodeAddressResult | null> {
+  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+  url.searchParams.set("address", address);
+  url.searchParams.set("key", apiKey);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Accept: "application/json"
+    },
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google geocode failed with status ${response.status}`);
+  }
+
+  const json = (await response.json()) as GoogleReverseGeocodeResponse;
+  if (json.status === "ZERO_RESULTS") return null;
+  if (json.status !== "OK") {
+    throw new Error(`Google geocode failed with status ${json.status}`);
+  }
+
+  const result = selectBestResult(json.results);
+  const location = result?.geometry?.location;
+  if (!result || typeof location?.lat !== "number" || typeof location?.lng !== "number") {
+    return null;
+  }
 
   return {
-    formattedAddress: result.formatted_address,
-    addressLine1: addressLine1 || result.formatted_address,
-    city,
-    state,
-    postalCode
+    ...toAddressResult(result),
+    lat: location.lat,
+    lng: location.lng
   };
 }

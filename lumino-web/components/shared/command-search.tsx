@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -8,16 +9,16 @@ import type { SearchResponse } from "@/types/api";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
 export function CommandSearch() {
+  const router = useRouter();
   const { session } = useAuth();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResponse["items"]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const trimmedQuery = query.trim();
 
   useEffect(() => {
-    const trimmed = query.trim();
-
-    if (!session?.access_token || trimmed.length < 2) {
+    if (!session?.access_token || trimmedQuery.length < 2) {
       setResults([]);
       setLoading(false);
       return;
@@ -28,7 +29,7 @@ export function CommandSearch() {
       try {
         const response = await authFetch(
           session.access_token,
-          `/api/search?q=${encodeURIComponent(trimmed)}`
+          `/api/search?q=${encodeURIComponent(trimmedQuery)}`
         );
         if (!response.ok) {
           setResults([]);
@@ -42,7 +43,14 @@ export function CommandSearch() {
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [query, session?.access_token]);
+  }, [trimmedQuery, session?.access_token]);
+
+  function handleOpenAddressOnMap() {
+    if (!trimmedQuery) return;
+    setOpen(false);
+    setQuery("");
+    router.push(`/map?address=${encodeURIComponent(trimmedQuery)}` as Route);
+  }
 
   return (
     <div className="relative w-full max-w-md">
@@ -60,34 +68,53 @@ export function CommandSearch() {
         />
       </div>
 
-      {open && (query.trim().length >= 2 || loading) ? (
+      {open && (trimmedQuery.length >= 2 || loading) ? (
         <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-40 rounded-3xl border border-slate-200 bg-white p-2 shadow-2xl">
           {loading ? (
             <div className="px-3 py-4 text-sm text-slate-500">Searching…</div>
           ) : results.length ? (
-            results.map((item) => (
-              <Link
-                key={item.id}
-                href={item.href as Route}
-                className="block rounded-2xl px-3 py-3 transition hover:bg-slate-50"
-                onClick={() => {
-                  setOpen(false);
-                  setQuery("");
-                }}
+            <>
+              {results.map((item) => (
+                <Link
+                  key={item.id}
+                  href={item.href as Route}
+                  className="block rounded-2xl px-3 py-3 transition hover:bg-slate-50"
+                  onClick={() => {
+                    setOpen(false);
+                    setQuery("");
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-ink">{item.title}</div>
+                      <div className="mt-1 text-xs text-slate-500">{item.subtitle}</div>
+                    </div>
+                    <div className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+                      {item.kind}
+                    </div>
+                  </div>
+                </Link>
+              ))}
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={handleOpenAddressOnMap}
+                className="mt-1 block w-full rounded-2xl border border-dashed border-[rgba(var(--app-primary-rgb),0.16)] px-3 py-3 text-left transition hover:bg-slate-50"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-ink">{item.title}</div>
-                    <div className="mt-1 text-xs text-slate-500">{item.subtitle}</div>
-                  </div>
-                  <div className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
-                    {item.kind}
-                  </div>
-                </div>
-              </Link>
-            ))
+                <div className="text-sm font-semibold text-ink">Open &quot;{trimmedQuery}&quot; on the map</div>
+                <div className="mt-1 text-xs text-slate-500">Use this when the address is not already in Lumino.</div>
+              </button>
+            </>
           ) : (
-            <div className="px-3 py-4 text-sm text-slate-500">No matches found.</div>
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={handleOpenAddressOnMap}
+              className="block w-full rounded-2xl px-3 py-4 text-left transition hover:bg-slate-50"
+            >
+              <div className="text-sm font-semibold text-ink">Open &quot;{trimmedQuery}&quot; on the map</div>
+              <div className="mt-1 text-xs text-slate-500">No saved match found. Search and preview this address instead.</div>
+            </button>
           )}
         </div>
       ) : null}
