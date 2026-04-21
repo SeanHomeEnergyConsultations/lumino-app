@@ -1,5 +1,4 @@
 import type { CSSProperties } from "react";
-import type { OrganizationBranding } from "@/types/api";
 
 export const DEFAULT_ORGANIZATION_THEME = {
   appName: "Lumino",
@@ -85,7 +84,18 @@ function hexToRgbString(input: string) {
   return `${red} ${green} ${blue}`;
 }
 
-export function getResolvedOrganizationTheme(branding?: OrganizationBranding | null) {
+type BrandingThemeInput = {
+  appName?: string | null;
+  logoUrl?: string | null;
+  primaryColor?: string | null;
+  accentColor?: string | null;
+  backgroundColor?: string | null;
+  backgroundAccentColor?: string | null;
+  surfaceColor?: string | null;
+  sidebarColor?: string | null;
+} | null | undefined;
+
+export function getResolvedOrganizationTheme(branding?: BrandingThemeInput) {
   return {
     appName: branding?.appName ?? DEFAULT_ORGANIZATION_THEME.appName,
     logoUrl: branding?.logoUrl ?? null,
@@ -99,9 +109,7 @@ export function getResolvedOrganizationTheme(branding?: OrganizationBranding | n
   };
 }
 
-export function getOrganizationThemeStyle(
-  branding?: OrganizationBranding | null
-): CSSProperties & Record<string, string> {
+export function getOrganizationThemeVariables(branding?: BrandingThemeInput): Record<string, string> {
   const theme = getResolvedOrganizationTheme(branding);
 
   return {
@@ -118,4 +126,10 @@ export function getOrganizationThemeStyle(
     "--app-sidebar": theme.sidebarColor,
     "--app-sidebar-rgb": hexToRgbString(theme.sidebarColor)
   };
+}
+
+export function getOrganizationThemeStyle(
+  branding?: BrandingThemeInput
+): CSSProperties & Record<string, string> {
+  return getOrganizationThemeVariables(branding);
 }

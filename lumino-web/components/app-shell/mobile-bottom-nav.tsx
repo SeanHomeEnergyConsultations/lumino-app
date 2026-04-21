@@ -8,8 +8,8 @@ import { useAuth } from "@/lib/auth/client";
 
 export function MobileBottomNav({ onOpenMenu }: { onOpenMenu: () => void }) {
   const pathname = usePathname();
-  const { organizationBranding, appContext } = useAuth();
-  const primaryColor = organizationBranding?.primaryColor ?? "#0b1220";
+  const { appBranding, appContext } = useAuth();
+  const primaryColor = appBranding?.primaryColor ?? "#0b1220";
   const visibleNav = getVisibleAppNav({ appContext });
   const primaryItems = visibleNav.slice(0, 4);
 

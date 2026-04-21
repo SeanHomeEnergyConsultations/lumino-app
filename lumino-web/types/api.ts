@@ -549,6 +549,22 @@ export interface OrganizationBrandingResponse {
   item: OrganizationBranding;
 }
 
+export interface AppBranding {
+  brandingId: string;
+  appName: string;
+  logoUrl: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+  backgroundColor: string | null;
+  backgroundAccentColor: string | null;
+  surfaceColor: string | null;
+  sidebarColor: string | null;
+}
+
+export interface AppBrandingResponse {
+  item: AppBranding;
+}
+
 export interface OrganizationListItem {
   organizationId: string;
   name: string;

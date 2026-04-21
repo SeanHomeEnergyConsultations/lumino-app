@@ -11,16 +11,23 @@ import {
 import type { Session, User } from "@supabase/supabase-js";
 import { createBrowserSupabaseClient } from "@/lib/db/supabase-browser";
 import type { AuthSessionContext } from "@/types/auth";
-import type { OrganizationBranding, OrganizationBrandingResponse } from "@/types/api";
+import type {
+  AppBranding,
+  AppBrandingResponse,
+  OrganizationBranding,
+  OrganizationBrandingResponse
+} from "@/types/api";
 
 interface AuthContextValue {
   supabase: ReturnType<typeof createBrowserSupabaseClient>;
   session: Session | null;
   user: User | null;
   appContext: AuthSessionContext | null;
+  appBranding: AppBranding | null;
   organizationBranding: OrganizationBranding | null;
   loading: boolean;
   envReady: boolean;
+  refreshAppBranding: () => Promise<void>;
   refreshOrganizationBranding: () => Promise<void>;
 }
 
@@ -31,8 +38,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [appContext, setAppContext] = useState<AuthSessionContext | null>(null);
+  const [appBranding, setAppBranding] = useState<AppBranding | null>(null);
   const [organizationBranding, setOrganizationBranding] = useState<OrganizationBranding | null>(null);
   const [loading, setLoading] = useState(true);
+
+  async function loadAppBranding(accessToken: string | null) {
+    if (!accessToken) {
+      setAppBranding(null);
+      return;
+    }
+    try {
+      const response = await fetch("/api/app/branding", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+      if (!response.ok) {
+        setAppBranding(null);
+        return;
+      }
+      const json = (await response.json()) as AppBrandingResponse;
+      setAppBranding(json.item);
+    } catch {
+      setAppBranding(null);
+    }
+  }
 
   async function loadOrganizationBranding(accessToken: string | null) {
     if (!accessToken) {
@@ -74,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!nextSession?.access_token) {
         setAppContext(null);
+        setAppBranding(null);
         setOrganizationBranding(null);
         setLoading(false);
         return;
@@ -93,10 +124,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         const json = (await response.json()) as AuthSessionContext;
         setAppContext(json);
-        await loadOrganizationBranding(nextSession.access_token);
+        await Promise.all([
+          loadAppBranding(nextSession.access_token),
+          loadOrganizationBranding(nextSession.access_token)
+        ]);
       } catch {
         if (mounted) {
           setAppContext(null);
+          setAppBranding(null);
           setOrganizationBranding(null);
         }
       } finally {
@@ -126,9 +161,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         user,
         appContext,
+        appBranding,
         organizationBranding,
         loading,
         envReady: Boolean(supabase),
+        refreshAppBranding: async () => {
+          await loadAppBranding(session?.access_token ?? null);
+        },
         refreshOrganizationBranding: async () => {
           await loadOrganizationBranding(session?.access_token ?? null);
         }

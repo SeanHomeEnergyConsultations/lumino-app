@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Building2, CheckCircle2, ExternalLink, RefreshCw, ShieldAlert, ShieldCheck, Sparkles } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
+import { AppBrandingEditor } from "@/components/platform/app-branding-editor";
 import { parseDatasetEntitlementInput } from "@/lib/platform/dataset-entitlements";
 import { ORGANIZATION_BILLING_PLANS } from "@/lib/platform/features";
 import type {
@@ -406,6 +407,8 @@ export function PlatformControlCenterPage() {
           </div>
         ) : null}
       </section>
+
+      {canMutate ? <AppBrandingEditor /> : null}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
