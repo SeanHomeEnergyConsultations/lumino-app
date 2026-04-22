@@ -36,6 +36,7 @@ function normalizePayload(payload: Record<string, unknown> | null | undefined): 
     firstName: typeof payload?.firstName === "string" ? payload.firstName : null,
     lastName: typeof payload?.lastName === "string" ? payload.lastName : null,
     title: typeof payload?.title === "string" ? payload.title : null,
+    photoUrl: typeof payload?.photoUrl === "string" ? payload.photoUrl : null,
     phone: typeof payload?.phone === "string" ? payload.phone : null,
     email: typeof payload?.email === "string" ? payload.email : null,
     website: typeof payload?.website === "string" ? payload.website : null,

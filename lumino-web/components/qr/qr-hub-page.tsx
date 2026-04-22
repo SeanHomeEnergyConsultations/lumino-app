@@ -1,10 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, ExternalLink, MapPinned, Phone, QrCode, Save, Sparkles } from "lucide-react";
+import { Copy, ExternalLink, ImagePlus, MapPinned, Phone, QrCode, Save, Sparkles, X } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { DEFAULT_QR_AVAILABILITY_SETTINGS } from "@/lib/qr/availability";
-import type { QRCodeHubResponse, QRCodeListItem, QRCodeType, TerritoriesResponse } from "@/types/api";
+import type {
+  QRCodeHubResponse,
+  QRCodeListItem,
+  QRCodeType,
+  QRPhotoUploadTargetResponse,
+  TerritoriesResponse
+} from "@/types/api";
 
 const WEEKDAY_CHOICES = [
   { value: 1, label: "Mon" },
@@ -37,7 +43,7 @@ function normalizeUrlInput(value: string) {
 }
 
 export function QrHubPage() {
-  const { session, appContext } = useAuth();
+  const { session, appContext, supabase } = useAuth();
   const [hub, setHub] = useState<QRCodeHubResponse | null>(null);
   const [territories, setTerritories] = useState<TerritoriesResponse["items"]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,6 +53,11 @@ export function QrHubPage() {
   const [label, setLabel] = useState("");
   const [territoryId, setTerritoryId] = useState("");
   const [title, setTitle] = useState("");
+  const [photoUrl, setPhotoUrl] = useState("");
+  const [photoUploadState, setPhotoUploadState] = useState<"idle" | "uploading" | "uploaded" | "error">("idle");
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+  const [photoFileName, setPhotoFileName] = useState<string | null>(null);
+  const [photoInputKey, setPhotoInputKey] = useState(0);
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState(appContext?.appUser.email ?? "");
   const [website, setWebsite] = useState("");
@@ -142,6 +153,58 @@ export function QrHubPage() {
     Boolean(appContext?.isPlatformOwner) ||
     Boolean(appContext?.memberships.some((membership) => ["owner", "admin", "manager"].includes(membership.role)));
 
+  async function uploadPhoto(file: File) {
+    if (!session?.access_token || !supabase) return;
+
+    setPhotoUploadState("uploading");
+    setPhotoUploadError(null);
+    setPhotoFileName(file.name);
+    try {
+      const uploadTargetResponse = await authFetch(session.access_token, "/api/qr/photo-upload-url", {
+        method: "POST",
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type,
+          fileSizeBytes: file.size
+        })
+      });
+
+      const uploadTargetJson = (await uploadTargetResponse.json()) as Partial<QRPhotoUploadTargetResponse> & {
+        error?: string;
+      };
+      if (
+        !uploadTargetResponse.ok ||
+        !uploadTargetJson.bucket ||
+        !uploadTargetJson.path ||
+        !uploadTargetJson.token ||
+        !uploadTargetJson.publicUrl
+      ) {
+        throw new Error(uploadTargetJson.error || "Could not prepare rep photo upload.");
+      }
+
+      const storageUpload = await supabase.storage
+        .from(uploadTargetJson.bucket)
+        .uploadToSignedUrl(uploadTargetJson.path, uploadTargetJson.token, file);
+      if (storageUpload.error) {
+        throw storageUpload.error;
+      }
+
+      setPhotoUrl(uploadTargetJson.publicUrl);
+      setPhotoUploadState("uploaded");
+    } catch (uploadError) {
+      setPhotoUploadState("error");
+      setPhotoUploadError(uploadError instanceof Error ? uploadError.message : "Could not upload rep photo.");
+    }
+  }
+
+  function clearPhoto() {
+    setPhotoUrl("");
+    setPhotoUploadState("idle");
+    setPhotoUploadError(null);
+    setPhotoFileName(null);
+    setPhotoInputKey((current) => current + 1);
+  }
+
   async function createCode() {
     if (!session?.access_token) return;
     setSaveState("saving");
@@ -154,6 +217,7 @@ export function QrHubPage() {
           label,
           territoryId: territoryId || null,
           title: title || null,
+          photoUrl: photoUrl || null,
           phone: phone || null,
           email: email || null,
           website: normalizeUrlInput(website),
@@ -190,6 +254,7 @@ export function QrHubPage() {
       setLabel("");
       setTerritoryId("");
       setTitle("");
+      clearPhoto();
       setPhone("");
       setWebsite("");
       setBookingEnabled(true);
@@ -304,6 +369,73 @@ export function QrHubPage() {
                     placeholder="Solar Advisor"
                     className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
                   />
+                </label>
+
+                <label className="block space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Rep Photo</div>
+                  <div className="rounded-[1.6rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.5)] p-4">
+                    <div className="flex items-center gap-4">
+                      {photoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={photoUrl}
+                          alt="Rep preview"
+                          className="h-20 w-20 rounded-[1.4rem] border border-[rgba(var(--app-primary-rgb),0.08)] object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-20 w-20 items-center justify-center rounded-[1.4rem] border border-dashed border-[rgba(var(--app-primary-rgb),0.14)] bg-white text-[rgba(var(--app-primary-rgb),0.4)]">
+                          <ImagePlus className="h-5 w-5" />
+                        </div>
+                      )}
+
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-ink">
+                          {photoFileName ?? "Upload a photo from your phone or computer"}
+                        </div>
+                        <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">
+                          JPG, PNG, or other image formats up to 10 MB.
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-2xl bg-[rgba(var(--app-primary-rgb),0.96)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-92">
+                            <ImagePlus className="h-4 w-4" />
+                            {photoUrl ? "Replace Photo" : "Upload Photo"}
+                            <input
+                              key={photoInputKey}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                if (!file) return;
+                                void uploadPhoto(file);
+                              }}
+                            />
+                          </label>
+                          {photoUrl ? (
+                            <button
+                              type="button"
+                              onClick={clearPhoto}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-[rgba(var(--app-primary-rgb),0.12)] px-4 py-2 text-sm font-semibold text-[rgba(var(--app-primary-rgb),0.72)] transition hover:border-[rgba(var(--app-primary-rgb),0.2)]"
+                            >
+                              <X className="h-4 w-4" />
+                              Remove
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+
+                    {photoUploadState === "uploading" ? (
+                      <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-[rgba(var(--app-accent-rgb),0.8)]">
+                        Uploading photo...
+                      </div>
+                    ) : null}
+                    {photoUploadError ? (
+                      <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                        {photoUploadError}
+                      </div>
+                    ) : null}
+                  </div>
                 </label>
 
                 <label className="block space-y-2">
@@ -460,7 +592,7 @@ export function QrHubPage() {
                   </div>
 
                   <div className="mt-4 rounded-[1.2rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/80 px-4 py-3 text-xs text-[rgba(var(--app-primary-rgb),0.62)]">
-                    Homeowners will choose between two booking types: a 15 minute phone call or a 60 minute in-person consult with a 1 hour buffer before and after.
+                    Homeowners will choose between two booking types: a 15 minute phone call or a 60 minute in-person consult. Buffer rules still apply behind the scenes when Lumino checks open time.
                   </div>
                 </div>
               </>
@@ -491,7 +623,7 @@ export function QrHubPage() {
             <button
               type="button"
               onClick={() => void createCode()}
-              disabled={saveState === "saving" || !label.trim()}
+              disabled={saveState === "saving" || photoUploadState === "uploading" || !label.trim()}
               className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[rgba(var(--app-primary-rgb),0.96)] px-5 py-3 text-sm font-semibold text-white transition hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Sparkles className="h-4 w-4" />

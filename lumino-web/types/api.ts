@@ -844,6 +844,7 @@ export interface QRCodeContactCardPayload {
   firstName: string | null;
   lastName: string | null;
   title: string | null;
+  photoUrl: string | null;
   phone: string | null;
   email: string | null;
   website: string | null;
@@ -960,4 +961,11 @@ export interface ResourceUploadTargetResponse {
   bucket: string;
   path: string;
   token: string;
+}
+
+export interface QRPhotoUploadTargetResponse {
+  bucket: string;
+  path: string;
+  token: string;
+  publicUrl: string;
 }

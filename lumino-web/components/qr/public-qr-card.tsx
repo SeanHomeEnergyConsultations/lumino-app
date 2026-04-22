@@ -13,7 +13,7 @@ const APPOINTMENT_TYPES: Array<{ value: QRAppointmentType; label: string; detail
   {
     value: "in_person_consult",
     label: "In-Person Consult",
-    detail: "60 minutes with travel buffer"
+    detail: "60 minutes"
   }
 ];
 
@@ -64,12 +64,13 @@ export function PublicQrCard({ item }: { item: NonNullable<PublicQRCodeResponse[
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string>("");
+  const [bookingOpen, setBookingOpen] = useState(false);
   const [bookingState, setBookingState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [bookingError, setBookingError] = useState<string | null>(null);
   const vcard = useMemo(() => buildVCard(item), [item]);
 
   useEffect(() => {
-    if (!item.payload.bookingEnabled) return;
+    if (!item.payload.bookingEnabled || !bookingOpen) return;
 
     let cancelled = false;
 
@@ -113,7 +114,7 @@ export function PublicQrCard({ item }: { item: NonNullable<PublicQRCodeResponse[
     return () => {
       cancelled = true;
     };
-  }, [appointmentType, item.payload.bookingEnabled, item.slug]);
+  }, [appointmentType, bookingOpen, item.payload.bookingEnabled, item.slug]);
 
   const selectedDay = useMemo(
     () => availability?.days.find((day) => day.dateKey === selectedDayKey) ?? availability?.days[0] ?? null,
@@ -179,24 +180,42 @@ export function PublicQrCard({ item }: { item: NonNullable<PublicQRCodeResponse[
     >
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:flex-row">
         <section className="w-full rounded-[2rem] border border-white/10 bg-black/20 p-6 shadow-2xl backdrop-blur md:p-8 lg:max-w-md">
-          <div className="flex items-center gap-3">
-            {item.payload.logoUrl ? (
+          <div className="text-center">
+            {item.payload.photoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={item.payload.logoUrl} alt={item.payload.organizationName ?? "Logo"} className="h-12 w-12 rounded-2xl bg-white object-contain p-2" />
+              <img
+                src={item.payload.photoUrl}
+                alt={[item.payload.firstName, item.payload.lastName].filter(Boolean).join(" ") || "Rep photo"}
+                className="mx-auto h-28 w-28 rounded-[2rem] border border-white/10 object-cover shadow-xl"
+              />
             ) : (
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-sm font-semibold">
+              <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-[2rem] border border-white/10 bg-white/10 text-3xl font-semibold shadow-xl">
                 {initials(item.payload.firstName, item.payload.lastName)}
               </div>
             )}
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/55">
+
+            {item.payload.logoUrl ? (
+              <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/8 px-3 py-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={item.payload.logoUrl}
+                  alt={item.payload.organizationName ?? "Logo"}
+                  className="h-6 w-6 rounded-full bg-white object-contain p-1"
+                />
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-white/65">
+                  {item.payload.organizationName ?? item.payload.appName ?? "Lumino"}
+                </span>
+              </div>
+            ) : (
+              <div className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-white/55">
                 {item.payload.organizationName ?? item.payload.appName ?? "Lumino"}
               </div>
-              <div className="mt-1 text-2xl font-semibold">
-                {[item.payload.firstName, item.payload.lastName].filter(Boolean).join(" ") || "Lumino Rep"}
-              </div>
-              {item.payload.title ? <div className="text-sm text-white/70">{item.payload.title}</div> : null}
+            )}
+
+            <div className="mt-4 text-2xl font-semibold">
+              {[item.payload.firstName, item.payload.lastName].filter(Boolean).join(" ") || "Lumino Rep"}
             </div>
+            {item.payload.title ? <div className="mt-1 text-sm text-white/70">{item.payload.title}</div> : null}
           </div>
 
           <div className="mt-6 rounded-[1.6rem] border border-white/10 bg-white/8 p-4">
@@ -276,28 +295,93 @@ export function PublicQrCard({ item }: { item: NonNullable<PublicQRCodeResponse[
               </span>
               <span className="text-white/55">VCF</span>
             </button>
+
+            {item.payload.bookingEnabled ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setBookingOpen(true);
+                  void trackEvent(item.slug, "book_click");
+                }}
+                className="flex items-center justify-between rounded-2xl border border-white/10 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-900 transition hover:bg-white/90"
+              >
+                <span className="flex items-center gap-3">
+                  <CalendarCheck2 className="h-4 w-4" />
+                  Set Appointment
+                </span>
+                <span className="text-slate-500">Book now</span>
+              </button>
+            ) : null}
           </div>
         </section>
 
         <section className="flex-1 rounded-[2rem] border border-white/10 bg-white/95 p-6 text-slate-900 shadow-2xl md:p-8">
-          <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-slate-900 p-3 text-white">
-              <CalendarCheck2 className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Book an Appointment</div>
-              <h1 className="mt-1 text-2xl font-semibold text-slate-950">Choose a real open slot</h1>
-            </div>
-          </div>
+          {item.payload.bookingEnabled && !bookingOpen ? (
+            <div className="flex h-full flex-col justify-center">
+              <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-8">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-2xl bg-slate-900 p-3 text-white">
+                    <CalendarCheck2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Appointments</div>
+                    <h1 className="mt-1 text-2xl font-semibold text-slate-950">Book when you’re ready</h1>
+                  </div>
+                </div>
 
-          <p className="mt-4 max-w-2xl text-sm text-slate-600">
-            {item.payload.bookingEnabled
-              ? item.payload.bookingBlurb ?? "Enter your information and this will create a lead and appointment for the rep whose code you scanned."
-              : "This card is live for contact and follow-up, but direct booking is turned off right now."}
-          </p>
+                <p className="mt-4 max-w-2xl text-sm text-slate-600">
+                  {item.payload.bookingBlurb ??
+                    "When you tap below, you’ll see the real open times on this rep’s calendar and can choose what works best."}
+                </p>
 
-          {item.payload.bookingEnabled ? (
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBookingOpen(true);
+                      void trackEvent(item.slug, "book_click");
+                    }}
+                    className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Set Appointment
+                  </button>
+                  {item.payload.phone ? (
+                    <a
+                      href={`tel:${item.payload.phone}`}
+                      onClick={() => void trackEvent(item.slug, "call_click")}
+                      className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      Call Instead
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : item.payload.bookingEnabled ? (
             <>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-2xl bg-slate-900 p-3 text-white">
+                    <CalendarCheck2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Book an Appointment</div>
+                    <h1 className="mt-1 text-2xl font-semibold text-slate-950">Choose a real open slot</h1>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBookingOpen(false)}
+                  className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
+                >
+                  Back
+                </button>
+              </div>
+
+              <p className="mt-4 max-w-2xl text-sm text-slate-600">
+                Enter your information and choose an available time. This creates the lead and appointment for the rep whose card you scanned.
+              </p>
+
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <label className="space-y-2">
                   <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">First Name</div>
@@ -345,10 +429,10 @@ export function PublicQrCard({ item }: { item: NonNullable<PublicQRCodeResponse[
                       }`}
                     >
                       <div className="text-sm font-semibold">{type.label}</div>
-                      <div className={`mt-1 text-xs ${appointmentType === type.value ? "text-white/70" : "text-slate-500"}`}>{type.detail}</div>
-                    </button>
-                  ))}
-                </div>
+                        <div className={`mt-1 text-xs ${appointmentType === type.value ? "text-white/70" : "text-slate-500"}`}>{type.detail}</div>
+                      </button>
+                    ))}
+                  </div>
               </div>
 
               <div className="mt-4 grid gap-4 xl:grid-cols-[220px_1fr]">
@@ -464,7 +548,6 @@ export function PublicQrCard({ item }: { item: NonNullable<PublicQRCodeResponse[
                 <button
                   type="button"
                   onClick={() => {
-                    void trackEvent(item.slug, "book_click");
                     void submitBooking();
                   }}
                   disabled={

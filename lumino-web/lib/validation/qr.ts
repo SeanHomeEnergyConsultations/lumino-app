@@ -26,6 +26,7 @@ export const qrCodeCreateSchema = z.object({
   title: optionalTrimmedString(120),
   phone: optionalTrimmedString(40),
   email: optionalEmail,
+  photoUrl: optionalUrl,
   website: optionalUrl,
   bookingEnabled: z.boolean().optional(),
   bookingBlurb: optionalTrimmedString(240),
@@ -101,4 +102,18 @@ export const qrBookingSchema = z
 
 export const qrAvailabilityQuerySchema = z.object({
   appointmentType: z.enum(["phone_call", "in_person_consult"]).default("in_person_consult")
+});
+
+export const qrPhotoUploadTargetSchema = z.object({
+  fileName: z.string().trim().min(1).max(240),
+  mimeType: z.string().trim().min(1).max(120),
+  fileSizeBytes: z.number().int().min(1).max(10 * 1024 * 1024)
+}).superRefine((value, ctx) => {
+  if (!value.mimeType.startsWith("image/")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["mimeType"],
+      message: "Rep photo must be an image file."
+    });
+  }
 });

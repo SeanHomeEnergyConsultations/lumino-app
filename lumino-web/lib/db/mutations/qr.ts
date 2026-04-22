@@ -17,6 +17,8 @@ import { detectBrowser, detectDevice, getRequestGeo } from "@/lib/qr/tracking";
 import type { AuthSessionContext } from "@/types/auth";
 import type { PublicQrAvailabilityResponse } from "@/types/api";
 
+export const QR_PUBLIC_ASSETS_BUCKET = "qr-public-assets";
+
 function randomSlug(length = 7) {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   const bytes = crypto.getRandomValues(new Uint8Array(length));
@@ -319,12 +321,50 @@ async function generateUniqueSlug() {
   throw new Error("Could not create a unique QR code slug.");
 }
 
+function sanitizeQrAssetName(value: string) {
+  const cleaned = value
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return cleaned || "photo";
+}
+
+export async function createQrPhotoUploadTarget(
+  input: {
+    fileName: string;
+    mimeType: string;
+    fileSizeBytes: number;
+  },
+  context: AuthSessionContext
+) {
+  if (!context.organizationId) {
+    throw new Error("No active organization found for this user.");
+  }
+
+  const supabase = createServerSupabaseClient();
+  const safeName = sanitizeQrAssetName(input.fileName);
+  const path = `${context.organizationId}/${context.appUser.id}/photo-${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+  const { data, error } = await supabase.storage.from(QR_PUBLIC_ASSETS_BUCKET).createSignedUploadUrl(path);
+  if (error) throw error;
+
+  const { data: publicData } = supabase.storage.from(QR_PUBLIC_ASSETS_BUCKET).getPublicUrl(path);
+
+  return {
+    bucket: QR_PUBLIC_ASSETS_BUCKET,
+    path,
+    token: data.token,
+    publicUrl: publicData.publicUrl
+  };
+}
+
 export async function createQrCode(
   input: {
     codeType?: "contact_card" | "campaign_tracker";
     label: string;
     territoryId?: string | null;
     title?: string | null;
+    photoUrl?: string | null;
     phone?: string | null;
     email?: string | null;
     website?: string | null;
@@ -375,6 +415,7 @@ export async function createQrCode(
           firstName,
           lastName: rest.join(" ") || null,
           title: input.title?.trim() || null,
+          photoUrl: input.photoUrl?.trim() || null,
           phone: input.phone?.trim() || null,
           email: input.email?.trim() || context.appUser.email || null,
           website: input.website?.trim() || null,
