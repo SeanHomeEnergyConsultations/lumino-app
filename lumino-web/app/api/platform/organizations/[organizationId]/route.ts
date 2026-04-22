@@ -47,6 +47,8 @@ export async function PATCH(
     severity: "medium",
     metadata: {
       organizationId,
+      name: parsed.data.name?.trim() || null,
+      slug: typeof parsed.data.slug !== "undefined" ? parsed.data.slug?.trim() || null : null,
       billingPlan: parsed.data.billingPlan ?? null,
       status: parsed.data.status ?? null
     }

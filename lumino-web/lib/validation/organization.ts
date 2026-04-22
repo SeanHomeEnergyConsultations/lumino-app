@@ -38,6 +38,8 @@ export const organizationCreateSchema = z.object({
 });
 
 export const organizationPlatformUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(120).nullable().optional().or(z.literal("")),
+  slug: z.string().trim().min(2).max(80).regex(/^[a-z0-9-]+$/).nullable().optional().or(z.literal("")),
   billingPlan: z.enum(ORGANIZATION_BILLING_PLANS).nullable().optional(),
   status: z.enum(["active", "disabled"]).nullable().optional()
 });

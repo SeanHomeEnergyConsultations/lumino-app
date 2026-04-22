@@ -25,7 +25,7 @@ async function getPlatformOrganizationRecord(organizationId: string) {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
     .from("organizations")
-    .select("id,billing_plan,status,is_platform_source")
+    .select("id,name,slug,brand_name,billing_plan,status,is_platform_source")
     .eq("id", organizationId)
     .maybeSingle();
 
@@ -37,11 +37,13 @@ async function getPlatformOrganizationRecord(organizationId: string) {
 export async function updatePlatformOrganization(
   organizationId: string,
   input: {
+    name?: string | null;
+    slug?: string | null;
     billingPlan?: string | null;
     status?: string | null;
   },
   context: AuthSessionContext
-): Promise<Pick<PlatformOrganizationOverviewItem, "organizationId" | "billingPlan" | "status">> {
+): Promise<Pick<PlatformOrganizationOverviewItem, "organizationId" | "name" | "slug" | "appName" | "billingPlan" | "status">> {
   assertPlatformAccess(context);
   const supabase = createServerSupabaseClient();
   const organization = await getPlatformOrganizationRecord(organizationId);
@@ -54,6 +56,8 @@ export async function updatePlatformOrganization(
     updated_at: new Date().toISOString()
   };
 
+  if (input.name?.trim()) payload.name = input.name.trim();
+  if (typeof input.slug !== "undefined") payload.slug = input.slug?.trim() || null;
   if (input.billingPlan) payload.billing_plan = input.billingPlan;
   if (input.status) payload.status = input.status;
 
@@ -61,7 +65,7 @@ export async function updatePlatformOrganization(
     .from("organizations")
     .update(payload)
     .eq("id", organizationId)
-    .select("id,billing_plan,status,is_platform_source")
+    .select("id,name,slug,brand_name,billing_plan,status,is_platform_source")
     .maybeSingle();
 
   if (error) throw error;
@@ -83,6 +87,14 @@ export async function updatePlatformOrganization(
 
   return {
     organizationId: data.id as string,
+    name: (data.name as string | null | undefined) ?? organization.name ?? "",
+    slug: (data.slug as string | null | undefined) ?? null,
+    appName:
+      (data.brand_name as string | null | undefined) ??
+      (organization.brand_name as string | null | undefined) ??
+      (data.name as string | null | undefined) ??
+      organization.name ??
+      "",
     billingPlan: resolved.billingPlan,
     status: (data.status as string | null) ?? "active"
   };

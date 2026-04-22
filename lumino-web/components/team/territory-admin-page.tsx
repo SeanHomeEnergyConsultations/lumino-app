@@ -76,6 +76,10 @@ export function TerritoryAdminPage() {
   const [organizationName, setOrganizationName] = useState("");
   const [organizationSlug, setOrganizationSlug] = useState("");
   const [organizationAppName, setOrganizationAppName] = useState("");
+  const [editingOrganizationId, setEditingOrganizationId] = useState<string | null>(null);
+  const [editingOrganizationName, setEditingOrganizationName] = useState("");
+  const [editingOrganizationSlug, setEditingOrganizationSlug] = useState("");
+  const [organizationUpdateState, setOrganizationUpdateState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [selectedThemePresetId, setSelectedThemePresetId] = useState<
     "" | (typeof ORGANIZATION_THEME_PRESETS)[number]["id"]
   >("");
@@ -583,6 +587,66 @@ export function TerritoryAdminPage() {
     }
   }
 
+  function startEditingOrganization(organization: OrganizationsResponse["items"][number]) {
+    setEditingOrganizationId(organization.organizationId);
+    setEditingOrganizationName(organization.name);
+    setEditingOrganizationSlug(organization.slug ?? "");
+    setOrganizationUpdateState("idle");
+  }
+
+  function cancelEditingOrganization() {
+    setEditingOrganizationId(null);
+    setEditingOrganizationName("");
+    setEditingOrganizationSlug("");
+    setOrganizationUpdateState("idle");
+  }
+
+  async function handleUpdateOrganization(organizationId: string) {
+    if (!accessToken || !editingOrganizationName.trim()) return;
+
+    setOrganizationUpdateState("saving");
+    try {
+      const response = await authFetch(accessToken, `/api/platform/organizations/${organizationId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: editingOrganizationName.trim(),
+          slug: editingOrganizationSlug.trim() || null
+        })
+      });
+
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update organization"));
+      const json = (await response.json()) as {
+        item: {
+          organizationId: string;
+          name: string;
+          slug: string | null;
+          appName?: string | null;
+          billingPlan: string;
+          status: string;
+        };
+      };
+
+      setOrganizations((current) =>
+        current.map((organization) =>
+          organization.organizationId === organizationId
+            ? {
+                ...organization,
+                name: json.item.name,
+                slug: json.item.slug
+              }
+            : organization
+        )
+      );
+      setOrganizationUpdateState("saved");
+      setEditingOrganizationId(null);
+      setEditingOrganizationName("");
+      setEditingOrganizationSlug("");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to update organization.");
+      setOrganizationUpdateState("error");
+    }
+  }
+
   return (
     <div className="p-4 md:p-6">
       <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
@@ -640,9 +704,13 @@ export function TerritoryAdminPage() {
           </div>
 
           <div className="mt-3 text-sm text-slate-500">
-            {organizationState === "saved"
+            {organizationUpdateState === "saved"
+              ? "Organization updated."
+              : organizationState === "saved"
               ? "Organization created."
-              : organizationState === "error"
+              : organizationUpdateState === "error"
+                ? "Could not update organization."
+                : organizationState === "error"
                 ? "Could not create organization."
                 : "New organizations start active on the starter plan. You can invite their first admin afterward."}
           </div>
@@ -651,15 +719,67 @@ export function TerritoryAdminPage() {
             {organizations.length ? (
               organizations.slice(0, 8).map((organization) => (
                 <div key={organization.organizationId} className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-ink">{organization.appName || organization.name}</div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {organization.slug ? `${organization.slug} · ` : ""}
-                      {organization.status} · {organization.billingPlan}
-                    </div>
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    Created {new Date(organization.createdAt).toLocaleDateString()}
+                  <div className="min-w-0 flex-1">
+                    {editingOrganizationId === organization.organizationId ? (
+                      <div className="grid gap-2 sm:grid-cols-[1.3fr_1fr_auto]">
+                        <input
+                          type="text"
+                          value={editingOrganizationName}
+                          onChange={(event) => setEditingOrganizationName(event.target.value)}
+                          placeholder="Organization name"
+                          className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                        />
+                        <input
+                          type="text"
+                          value={editingOrganizationSlug}
+                          onChange={(event) =>
+                            setEditingOrganizationSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))
+                          }
+                          placeholder="slug"
+                          className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleUpdateOrganization(organization.organizationId)}
+                            disabled={organizationUpdateState === "saving" || !editingOrganizationName.trim()}
+                            className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {organizationUpdateState === "saving" ? "Saving..." : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelEditingOrganization}
+                            disabled={organizationUpdateState === "saving"}
+                            className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-ink">{organization.appName || organization.name}</div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {organization.slug ? `${organization.slug} · ` : ""}
+                            {organization.status} · {organization.billingPlan}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-xs text-slate-500">
+                            Created {new Date(organization.createdAt).toLocaleDateString()}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => startEditingOrganization(organization)}
+                            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700 transition hover:border-slate-300 hover:bg-slate-100"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
