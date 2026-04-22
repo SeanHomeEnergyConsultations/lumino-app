@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { hasManagerAccess } from "@/lib/auth/permissions";
+import { normalizeQrAvailabilitySettings } from "@/lib/qr/availability";
 import { getAppBaseUrl } from "@/lib/utils/env";
 import type { AuthSessionContext } from "@/types/auth";
 import type {
@@ -44,7 +45,10 @@ function normalizePayload(payload: Record<string, unknown> | null | undefined): 
     appName: typeof payload?.appName === "string" ? payload.appName : null,
     logoUrl: typeof payload?.logoUrl === "string" ? payload.logoUrl : null,
     primaryColor: typeof payload?.primaryColor === "string" ? payload.primaryColor : null,
-    accentColor: typeof payload?.accentColor === "string" ? payload.accentColor : null
+    accentColor: typeof payload?.accentColor === "string" ? payload.accentColor : null,
+    availability: normalizeQrAvailabilitySettings(
+      typeof payload?.availability === "object" && payload?.availability ? (payload.availability as Record<string, unknown>) : null
+    )
   };
 }
 

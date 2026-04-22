@@ -838,6 +838,7 @@ export type QRCodeEventType =
   | "appointment_booked";
 
 export type QRCodeType = "contact_card" | "campaign_tracker";
+export type QRAppointmentType = "phone_call" | "in_person_consult";
 
 export interface QRCodeContactCardPayload {
   firstName: string | null;
@@ -853,6 +854,14 @@ export interface QRCodeContactCardPayload {
   logoUrl: string | null;
   primaryColor: string | null;
   accentColor: string | null;
+  availability: {
+    timezone: string;
+    workingDays: number[];
+    startTime: string;
+    endTime: string;
+    minNoticeHours: number;
+    maxDaysOut: number;
+  };
 }
 
 export interface QRCodeCampaignTrackerPayload {
@@ -904,4 +913,22 @@ export interface PublicQRCodeResponse {
     ownerName: string | null;
     payload: QRCodeContactCardPayload;
   } | null;
+}
+
+export interface QrAvailabilitySlot {
+  startAt: string;
+  label: string;
+}
+
+export interface QrAvailabilityDay {
+  dateKey: string;
+  dateLabel: string;
+  slots: QrAvailabilitySlot[];
+}
+
+export interface PublicQrAvailabilityResponse {
+  timezone: string;
+  appointmentType: QRAppointmentType;
+  appointmentTypeLabel: string;
+  days: QrAvailabilityDay[];
 }

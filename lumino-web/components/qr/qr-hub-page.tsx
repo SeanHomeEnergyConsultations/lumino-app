@@ -3,10 +3,30 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Copy, ExternalLink, MapPinned, Phone, QrCode, Save, Sparkles } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
+import { DEFAULT_QR_AVAILABILITY_SETTINGS } from "@/lib/qr/availability";
 import type { QRCodeHubResponse, QRCodeListItem, QRCodeType, TerritoriesResponse } from "@/types/api";
 
-function qrImageUrl(value: string) {
-  return `https://quickchart.io/qr?text=${encodeURIComponent(value)}&size=220&margin=1`;
+const WEEKDAY_CHOICES = [
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+  { value: 0, label: "Sun" }
+];
+
+function qrImageUrl(value: string, logoUrl?: string | null) {
+  const params = new URLSearchParams({
+    text: value,
+    size: "220",
+    margin: "1"
+  });
+  if (logoUrl) {
+    params.set("centerImageUrl", logoUrl);
+    params.set("centerImageSizeRatio", "0.22");
+  }
+  return `https://quickchart.io/qr?${params.toString()}`;
 }
 
 function normalizeUrlInput(value: string) {
@@ -34,6 +54,16 @@ export function QrHubPage() {
   const [bookingBlurb, setBookingBlurb] = useState(
     "Pick a time that works for you and I’ll get it on my calendar."
   );
+  const [availabilityTimezone, setAvailabilityTimezone] = useState(DEFAULT_QR_AVAILABILITY_SETTINGS.timezone);
+  const [availabilityWorkingDays, setAvailabilityWorkingDays] = useState<number[]>(
+    DEFAULT_QR_AVAILABILITY_SETTINGS.workingDays
+  );
+  const [availabilityStartTime, setAvailabilityStartTime] = useState(DEFAULT_QR_AVAILABILITY_SETTINGS.startTime);
+  const [availabilityEndTime, setAvailabilityEndTime] = useState(DEFAULT_QR_AVAILABILITY_SETTINGS.endTime);
+  const [availabilityMinNoticeHours, setAvailabilityMinNoticeHours] = useState(
+    DEFAULT_QR_AVAILABILITY_SETTINGS.minNoticeHours
+  );
+  const [availabilityMaxDaysOut, setAvailabilityMaxDaysOut] = useState(DEFAULT_QR_AVAILABILITY_SETTINGS.maxDaysOut);
   const [destinationUrl, setDestinationUrl] = useState("");
   const [description, setDescription] = useState("");
   const [expandedEngagementCodeId, setExpandedEngagementCodeId] = useState<string | null>(null);
@@ -90,6 +120,13 @@ export function QrHubPage() {
     }
   }, [appContext?.appUser.email]);
 
+  useEffect(() => {
+    const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (browserTimeZone) {
+      setAvailabilityTimezone(browserTimeZone);
+    }
+  }, []);
+
   const totalStats = useMemo(() => {
     return (hub?.items ?? []).reduce(
       (accumulator, item) => {
@@ -122,6 +159,12 @@ export function QrHubPage() {
           website: normalizeUrlInput(website),
           bookingEnabled,
           bookingBlurb: bookingBlurb || null,
+          availabilityTimezone,
+          availabilityWorkingDays,
+          availabilityStartTime,
+          availabilityEndTime,
+          availabilityMinNoticeHours,
+          availabilityMaxDaysOut,
           destinationUrl: normalizeUrlInput(destinationUrl),
           description: description || null
         })
@@ -151,6 +194,12 @@ export function QrHubPage() {
       setWebsite("");
       setBookingEnabled(true);
       setBookingBlurb("Pick a time that works for you and I’ll get it on my calendar.");
+      setAvailabilityTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_QR_AVAILABILITY_SETTINGS.timezone);
+      setAvailabilityWorkingDays(DEFAULT_QR_AVAILABILITY_SETTINGS.workingDays);
+      setAvailabilityStartTime(DEFAULT_QR_AVAILABILITY_SETTINGS.startTime);
+      setAvailabilityEndTime(DEFAULT_QR_AVAILABILITY_SETTINGS.endTime);
+      setAvailabilityMinNoticeHours(DEFAULT_QR_AVAILABILITY_SETTINGS.minNoticeHours);
+      setAvailabilityMaxDaysOut(DEFAULT_QR_AVAILABILITY_SETTINGS.maxDaysOut);
       setDestinationUrl("");
       setDescription("");
       await loadHub();
@@ -310,6 +359,110 @@ export function QrHubPage() {
                     className="min-h-24 w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
                   />
                 </label>
+
+                <div className="rounded-[1.6rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.5)] p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Booking Availability</div>
+                  <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
+                    Homeowners will only see open slots inside these days and hours.
+                  </div>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <label className="block space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Timezone</div>
+                      <input
+                        value={availabilityTimezone}
+                        onChange={(event) => setAvailabilityTimezone(event.target.value)}
+                        placeholder="America/New_York"
+                        className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                      />
+                    </label>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <label className="block space-y-2">
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Start</div>
+                        <input
+                          type="time"
+                          value={availabilityStartTime}
+                          onChange={(event) => setAvailabilityStartTime(event.target.value)}
+                          className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                        />
+                      </label>
+                      <label className="block space-y-2">
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">End</div>
+                        <input
+                          type="time"
+                          value={availabilityEndTime}
+                          onChange={(event) => setAvailabilityEndTime(event.target.value)}
+                          className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                        />
+                      </label>
+                    </div>
+
+                    <label className="block space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Minimum notice</div>
+                      <select
+                        value={availabilityMinNoticeHours}
+                        onChange={(event) => setAvailabilityMinNoticeHours(Number(event.target.value))}
+                        className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                      >
+                        {[0, 1, 2, 4, 8, 12, 24].map((hours) => (
+                          <option key={hours} value={hours}>
+                            {hours === 0 ? "No minimum" : `${hours} hour${hours === 1 ? "" : "s"}`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">How far out</div>
+                      <select
+                        value={availabilityMaxDaysOut}
+                        onChange={(event) => setAvailabilityMaxDaysOut(Number(event.target.value))}
+                        className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                      >
+                        {[7, 10, 14, 21, 30].map((days) => (
+                          <option key={days} value={days}>
+                            {days} days
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Working days</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {WEEKDAY_CHOICES.map((day) => {
+                        const active = availabilityWorkingDays.includes(day.value);
+                        return (
+                          <button
+                            key={day.value}
+                            type="button"
+                            onClick={() =>
+                              setAvailabilityWorkingDays((current) => {
+                                if (active) {
+                                  return current.filter((value) => value !== day.value);
+                                }
+                                return [...current, day.value].sort((left, right) => left - right);
+                              })
+                            }
+                            className={`rounded-full border px-3 py-2 text-sm font-semibold transition ${
+                              active
+                                ? "border-[rgba(var(--app-primary-rgb),0.96)] bg-[rgba(var(--app-primary-rgb),0.96)] text-white"
+                                : "border-[rgba(var(--app-primary-rgb),0.08)] bg-white text-[rgba(var(--app-primary-rgb),0.72)] hover:border-[rgba(var(--app-primary-rgb),0.2)]"
+                            }`}
+                          >
+                            {day.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-[1.2rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/80 px-4 py-3 text-xs text-[rgba(var(--app-primary-rgb),0.62)]">
+                    Homeowners will choose between two booking types: a 15 minute phone call or a 60 minute in-person consult with a 1 hour buffer before and after.
+                  </div>
+                </div>
               </>
             ) : (
               <>
@@ -400,10 +553,14 @@ function QrCodeCard({
 
   return (
     <article className="app-panel rounded-[2rem] border p-5">
-      <div className="grid gap-5 lg:grid-cols-[200px_1fr]">
+          <div className="grid gap-5 lg:grid-cols-[200px_1fr]">
         <div className="rounded-[1.8rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white p-4 shadow-panel">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qrImageUrl(item.publicUrl)} alt={`${item.label} QR code`} className="mx-auto h-40 w-40 rounded-xl" />
+          <img
+            src={qrImageUrl(item.publicUrl, isContactCard && "logoUrl" in item.payload ? item.payload.logoUrl : null)}
+            alt={`${item.label} QR code`}
+            className="mx-auto h-40 w-40 rounded-xl"
+          />
           <div className="mt-4 text-center text-xs font-semibold uppercase tracking-[0.16em] text-[rgba(var(--app-primary-rgb),0.58)]">
             {item.status}
           </div>

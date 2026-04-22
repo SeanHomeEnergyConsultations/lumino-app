@@ -375,6 +375,27 @@ export async function checkGoogleCalendarConflicts(input: {
   const start = new Date(input.startAt);
   const end = input.endAt ? new Date(input.endAt) : addMinutes(start, DEFAULT_APPOINTMENT_DURATION_MINUTES);
 
+  const busy = await getGoogleCalendarBusyWindows({
+    context: input.context,
+    startAt: start.toISOString(),
+    endAt: end.toISOString()
+  });
+
+  return {
+    connected: true,
+    hasConflict: busy.length > 0,
+    busy
+  };
+}
+
+export async function getGoogleCalendarBusyWindows(input: {
+  context: AuthSessionContext;
+  startAt: string;
+  endAt: string;
+}) {
+  const start = new Date(input.startAt);
+  const end = new Date(input.endAt);
+
   const result = await googleApiRequest<{
     calendars?: Record<string, { busy?: Array<{ start: string; end: string }> }>;
   }>({
@@ -389,12 +410,7 @@ export async function checkGoogleCalendarConflicts(input: {
     }
   });
 
-  const busy = result?.calendars?.primary?.busy ?? [];
-  return {
-    connected: true,
-    hasConflict: busy.length > 0,
-    busy
-  };
+  return result?.calendars?.primary?.busy ?? [];
 }
 
 function buildGoogleCalendarEventPayload(input: {

@@ -53,5 +53,9 @@ create index if not exists qr_code_events_code_created_idx
 create index if not exists qr_code_events_org_type_created_idx
   on public.qr_code_events (organization_id, event_type, created_at desc);
 
+alter table if exists public.appointments
+  add column if not exists appointment_type text
+    check (appointment_type in ('phone_call', 'in_person_consult'));
+
 alter table if exists public.qr_codes enable row level security;
 alter table if exists public.qr_code_events enable row level security;

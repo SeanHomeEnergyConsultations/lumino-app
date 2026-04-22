@@ -30,7 +30,13 @@ export const qrCodeCreateSchema = z.object({
   bookingEnabled: z.boolean().optional(),
   bookingBlurb: optionalTrimmedString(240),
   destinationUrl: optionalUrl,
-  description: optionalTrimmedString(240)
+  description: optionalTrimmedString(240),
+  availabilityTimezone: optionalTrimmedString(80),
+  availabilityWorkingDays: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
+  availabilityStartTime: optionalTrimmedString(5),
+  availabilityEndTime: optionalTrimmedString(5),
+  availabilityMinNoticeHours: z.number().int().min(0).max(72).nullable().optional(),
+  availabilityMaxDaysOut: z.number().int().min(1).max(60).nullable().optional()
 }).superRefine((value, ctx) => {
   if ((value.codeType ?? "contact_card") === "campaign_tracker" && !value.destinationUrl) {
     ctx.addIssue({
@@ -38,6 +44,25 @@ export const qrCodeCreateSchema = z.object({
       path: ["destinationUrl"],
       message: "Campaign trackers need a destination URL."
     });
+  }
+
+  if ((value.codeType ?? "contact_card") === "contact_card") {
+    const startTime = value.availabilityStartTime;
+    const endTime = value.availabilityEndTime;
+    if (startTime && !/^\d{2}:\d{2}$/.test(startTime)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["availabilityStartTime"],
+        message: "Start time must use HH:MM format."
+      });
+    }
+    if (endTime && !/^\d{2}:\d{2}$/.test(endTime)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["availabilityEndTime"],
+        message: "End time must use HH:MM format."
+      });
+    }
   }
 });
 
@@ -60,6 +85,7 @@ export const qrBookingSchema = z
     email: z.string().trim().email().max(320).nullable().optional(),
     address: z.string().trim().min(6).max(240),
     appointmentAt: z.string().datetime(),
+    appointmentType: z.enum(["phone_call", "in_person_consult"]).default("in_person_consult"),
     notes: z.string().trim().max(2000).nullable().optional()
   })
   .superRefine((value, ctx) => {
@@ -72,3 +98,7 @@ export const qrBookingSchema = z
       });
     }
   });
+
+export const qrAvailabilityQuerySchema = z.object({
+  appointmentType: z.enum(["phone_call", "in_person_consult"]).default("in_person_consult")
+});
