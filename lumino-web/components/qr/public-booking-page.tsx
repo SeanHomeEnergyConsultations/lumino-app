@@ -112,9 +112,18 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
           notes: notes || null
         })
       });
-      const json = (await response.json()) as { error?: string };
+      const json = (await response.json()) as {
+        error?: string;
+        issues?: {
+          formErrors?: string[];
+          fieldErrors?: Record<string, string[] | undefined>;
+        };
+      };
       if (!response.ok) {
-        throw new Error(json.error || "Could not book that appointment.");
+        const firstFieldIssue = Object.values(json.issues?.fieldErrors ?? {})
+          .flat()
+          .find(Boolean);
+        throw new Error(firstFieldIssue || json.issues?.formErrors?.[0] || json.error || "Could not book that appointment.");
       }
       setBookingState("saved");
       void trackEvent(item.slug, "book_click");

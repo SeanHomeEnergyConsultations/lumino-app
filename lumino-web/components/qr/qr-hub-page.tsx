@@ -356,9 +356,18 @@ export function QrHubPage() {
         })
       });
 
-      const json = (await response.json()) as { error?: string; issues?: { formErrors?: string[] } };
+      const json = (await response.json()) as {
+        error?: string;
+        issues?: {
+          formErrors?: string[];
+          fieldErrors?: Record<string, string[] | undefined>;
+        };
+      };
       if (!response.ok) {
-        throw new Error(json.error || json.issues?.formErrors?.[0] || "Could not save booking setup.");
+        const firstFieldIssue = Object.values(json.issues?.fieldErrors ?? {})
+          .flat()
+          .find(Boolean);
+        throw new Error(firstFieldIssue || json.issues?.formErrors?.[0] || json.error || "Could not save booking setup.");
       }
       setBookingProfileState("saved");
       setBookingProfileMessage("Saved your booking setup. New booking links will start with these settings.");

@@ -198,21 +198,19 @@ export function PublicQrCard({ item }: { item: NonNullable<PublicQRCodeResponse[
             </p>
 
             {enabledTypes.length ? (
-              <div className="mt-6 grid gap-3 md:grid-cols-2">
-                {enabledTypes.map((type) => (
-                  <div key={type.id} className="rounded-[1.4rem] border border-slate-200 bg-white p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-lg font-semibold text-slate-950">{type.label}</div>
-                        <div className="mt-1 text-sm text-slate-500">{type.durationMinutes} minutes</div>
-                      </div>
-                    </div>
-                    {type.shortDescription ? (
-                      <div className="mt-3 text-sm text-slate-600">{type.shortDescription}</div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
+              <Link
+                href={`/book/${item.slug}`}
+                onClick={() => void trackEvent(item.slug, "book_click")}
+                className="mt-6 flex items-center justify-between rounded-[1.6rem] border border-slate-900 bg-slate-900 px-5 py-4 text-white transition hover:bg-slate-800"
+              >
+                <div>
+                  <div className="text-sm font-semibold uppercase tracking-[0.16em] text-white/70">Set Appointment</div>
+                  <div className="mt-1 text-lg font-semibold">See live openings and pick a time</div>
+                </div>
+                <div className="rounded-full bg-white/10 px-3 py-1 text-sm font-semibold text-white/85">
+                  Open
+                </div>
+              </Link>
             ) : (
               <div className="mt-6 rounded-[1.4rem] border border-slate-200 bg-white px-4 py-4 text-sm text-slate-600">
                 Booking is not available on this card right now.
@@ -220,15 +218,6 @@ export function PublicQrCard({ item }: { item: NonNullable<PublicQRCodeResponse[
             )}
 
             <div className="mt-6 flex flex-wrap gap-3">
-              {item.payload.bookingEnabled && enabledTypes.length ? (
-                <Link
-                  href={`/book/${item.slug}`}
-                  onClick={() => void trackEvent(item.slug, "book_click")}
-                  className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-                >
-                  Set Appointment
-                </Link>
-              ) : null}
               {item.payload.phone ? (
                 <a
                   href={`tel:${item.payload.phone}`}
