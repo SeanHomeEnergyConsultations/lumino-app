@@ -40,7 +40,8 @@ export async function PATCH(
       metadata: {
         memberId,
         role: parsed.data.role ?? null,
-        isActive: parsed.data.isActive ?? null
+        isActive: parsed.data.isActive ?? null,
+        teamId: typeof parsed.data.teamId !== "undefined" ? parsed.data.teamId : null
       }
     });
     return NextResponse.json(result);

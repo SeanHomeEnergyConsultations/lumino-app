@@ -83,6 +83,7 @@ export async function POST(request: Request) {
     severity: "medium",
     metadata: {
       metric: parsed.data.metric,
+      scope: parsed.data.scope,
       periodType: parsed.data.periodType,
       startAt: parsed.data.startAt,
       endAt: parsed.data.endAt

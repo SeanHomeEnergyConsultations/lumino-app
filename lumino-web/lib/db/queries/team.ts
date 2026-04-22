@@ -1,6 +1,52 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
-import type { TeamCleanupIssue, TeamMembersResponse, TeamMemberItem } from "@/types/api";
+import type { TeamCleanupIssue, TeamListItem, TeamListResponse, TeamMembersResponse, TeamMemberItem } from "@/types/api";
 import type { AuthSessionContext } from "@/types/auth";
+
+export async function getTeams(context: AuthSessionContext): Promise<TeamListResponse> {
+  const supabase = createServerSupabaseClient();
+  if (!context.organizationId) throw new Error("No active organization found for this user.");
+
+  const [{ data: teams, error: teamsError }, { data: memberships, error: membershipsError }] = await Promise.all([
+    supabase
+      .from("teams")
+      .select("id,name,manager_id,created_at")
+      .eq("organization_id", context.organizationId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("team_memberships")
+      .select("team_id,user_id")
+      .eq("organization_id", context.organizationId)
+  ]);
+
+  if (teamsError) throw teamsError;
+  if (membershipsError) throw membershipsError;
+
+  const managerIds = [...new Set((teams ?? []).map((item) => item.manager_id as string | null).filter(Boolean))] as string[];
+  const { data: managers, error: managersError } = managerIds.length
+    ? await supabase.from("app_users").select("id,full_name").in("id", managerIds)
+    : { data: [], error: null };
+
+  if (managersError) throw managersError;
+
+  const managerMap = new Map((managers ?? []).map((item) => [item.id as string, item.full_name as string | null]));
+  const memberCounts = new Map<string, number>();
+  for (const membership of memberships ?? []) {
+    const teamId = membership.team_id as string | null;
+    if (!teamId) continue;
+    memberCounts.set(teamId, (memberCounts.get(teamId) ?? 0) + 1);
+  }
+
+  const items: TeamListItem[] = (teams ?? []).map((team) => ({
+    teamId: team.id as string,
+    name: team.name as string,
+    managerUserId: (team.manager_id as string | null | undefined) ?? null,
+    managerName: team.manager_id ? managerMap.get(team.manager_id as string) ?? null : null,
+    memberCount: memberCounts.get(team.id as string) ?? 0,
+    createdAt: team.created_at as string
+  }));
+
+  return { items };
+}
 
 export async function getTeamMembers(context: AuthSessionContext): Promise<TeamMembersResponse> {
   const supabase = createServerSupabaseClient();
@@ -24,12 +70,40 @@ export async function getTeamMembers(context: AuthSessionContext): Promise<TeamM
 
   if (usersError) throw usersError;
 
+  const { data: teamMemberships, error: teamMembershipsError } = await supabase
+    .from("team_memberships")
+    .select("user_id,team_id")
+    .eq("organization_id", context.organizationId);
+
+  if (teamMembershipsError) throw teamMembershipsError;
+
+  const teamIds = [...new Set((teamMemberships ?? []).map((item) => item.team_id as string | null).filter(Boolean))] as string[];
+  const { data: teams, error: teamsError } = teamIds.length
+    ? await supabase
+        .from("teams")
+        .select("id,name,manager_id")
+        .in("id", teamIds)
+    : { data: [], error: null };
+
+  if (teamsError) throw teamsError;
+
   const { data: defaultOrgUsers, error: defaultOrgUsersError } = await supabase
     .from("app_users")
     .select("id,email,full_name,is_active,created_at,external_auth_id,default_organization_id,platform_role")
     .eq("default_organization_id", context.organizationId);
 
   if (defaultOrgUsersError) throw defaultOrgUsersError;
+
+  const teamManagerIds = [...new Set((teams ?? []).map((team) => team.manager_id as string | null).filter(Boolean))] as string[];
+  const allManagerIds = [...new Set(teamManagerIds)];
+  const { data: teamManagers, error: teamManagersError } = allManagerIds.length
+    ? await supabase
+        .from("app_users")
+        .select("id,full_name")
+        .in("id", allManagerIds)
+    : { data: [], error: null };
+
+  if (teamManagersError) throw teamManagersError;
 
   const visibleUsers = (users ?? []).filter((item) => !item.platform_role);
   const visibleDefaultOrgUsers = (defaultOrgUsers ?? []).filter((item) => !item.platform_role);
@@ -53,6 +127,30 @@ export async function getTeamMembers(context: AuthSessionContext): Promise<TeamM
       .map((user) => [user.id, user])
   );
 
+  const teamById = new Map(
+    (teams ?? []).map((team) => [
+      team.id as string,
+      {
+        name: team.name as string,
+        managerId: (team.manager_id as string | null | undefined) ?? null
+      }
+    ])
+  );
+  const teamManagerMap = new Map((teamManagers ?? []).map((item) => [item.id as string, item.full_name as string | null]));
+  const teamMembershipByUser = new Map<string, { teamId: string | null; teamName: string | null; teamManagerId: string | null; teamManagerName: string | null }>();
+  for (const membership of teamMemberships ?? []) {
+    const userId = membership.user_id as string | null;
+    if (!userId || teamMembershipByUser.has(userId)) continue;
+    const teamId = (membership.team_id as string | null | undefined) ?? null;
+    const team = teamId ? teamById.get(teamId) : null;
+    teamMembershipByUser.set(userId, {
+      teamId,
+      teamName: team?.name ?? null,
+      teamManagerId: team?.managerId ?? null,
+      teamManagerName: team?.managerId ? teamManagerMap.get(team.managerId) ?? null : null
+    });
+  }
+
   const items: TeamMemberItem[] = (memberships ?? []).flatMap((membership) => {
     const user = userMap.get(membership.user_id as string);
     if (!user) return [];
@@ -73,6 +171,10 @@ export async function getTeamMembers(context: AuthSessionContext): Promise<TeamM
       fullName: (user?.full_name as string | null | undefined) ?? null,
       email: (user?.email as string | null | undefined) ?? null,
       role: membership.role as string,
+      teamId: teamMembershipByUser.get(membership.user_id as string)?.teamId ?? null,
+      teamName: teamMembershipByUser.get(membership.user_id as string)?.teamName ?? null,
+      teamManagerId: teamMembershipByUser.get(membership.user_id as string)?.teamManagerId ?? null,
+      teamManagerName: teamMembershipByUser.get(membership.user_id as string)?.teamManagerName ?? null,
       isActive: Boolean(membership.is_active),
       onboardingStatus,
       invitedAt: (authUser?.invited_at as string | undefined) ?? null,

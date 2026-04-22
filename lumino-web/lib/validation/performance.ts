@@ -5,6 +5,7 @@ export const performanceCompetitionInputSchema = z
     title: z.string().trim().min(3).max(160),
     description: z.string().trim().max(1000).nullable().optional(),
     metric: z.enum(["knocks", "opportunities", "appointments", "doorhangers"]),
+    scope: z.enum(["individual", "team"]).default("individual"),
     periodType: z.enum(["day", "week", "custom"]),
     startAt: z.string().datetime(),
     endAt: z.string().datetime()

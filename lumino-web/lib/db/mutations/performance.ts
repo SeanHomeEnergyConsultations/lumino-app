@@ -1,12 +1,13 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import type { AuthSessionContext } from "@/types/auth";
-import type { PerformanceCompetitionMetric } from "@/types/api";
+import type { PerformanceCompetitionMetric, PerformanceCompetitionScope } from "@/types/api";
 
 export async function createPerformanceCompetition(
   input: {
     title: string;
     description?: string | null;
     metric: PerformanceCompetitionMetric;
+    scope: PerformanceCompetitionScope;
     periodType: "day" | "week" | "custom";
     startAt: string;
     endAt: string;
@@ -31,6 +32,7 @@ export async function createPerformanceCompetition(
       title: input.title.trim(),
       description: input.description?.trim() || null,
       metric: input.metric,
+      scope: input.scope,
       period_type: input.periodType,
       start_at: input.startAt,
       end_at: input.endAt,

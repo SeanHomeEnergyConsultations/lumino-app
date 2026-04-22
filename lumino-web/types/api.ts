@@ -305,6 +305,7 @@ export interface ManagerCoachingFlag {
 
 export type PerformanceCompetitionMetric = "knocks" | "opportunities" | "appointments" | "doorhangers";
 export type PerformanceCompetitionStatus = "scheduled" | "active" | "completed" | "cancelled";
+export type PerformanceCompetitionScope = "individual" | "team";
 
 export interface PerformanceLeaderboardEntry {
   userId: string;
@@ -325,12 +326,28 @@ export interface PerformanceCompetitionItem {
   title: string;
   description: string | null;
   metric: PerformanceCompetitionMetric;
+  scope: PerformanceCompetitionScope;
   periodType: "day" | "week" | "custom";
   startAt: string;
   endAt: string;
   status: PerformanceCompetitionStatus;
   leaders: PerformanceLeaderboardEntry[];
   myStanding: PerformanceLeaderboardEntry | null;
+  teamLeaders: PerformanceTeamLeaderboardEntry[];
+  myTeamStanding: PerformanceTeamLeaderboardEntry | null;
+}
+
+export interface PerformanceTeamLeaderboardEntry {
+  teamId: string;
+  name: string;
+  managerName: string | null;
+  rank: number;
+  metricValue: number;
+  knocks: number;
+  opportunities: number;
+  appointments: number;
+  doorhangers: number;
+  isCurrentUsersTeam: boolean;
 }
 
 export interface PerformanceBadgeItem {
@@ -344,6 +361,8 @@ export interface PerformanceHubResponse {
   canManageCompetitions: boolean;
   dailyLeaderboard: PerformanceLeaderboardEntry[];
   weeklyLeaderboard: PerformanceLeaderboardEntry[];
+  teamDailyLeaderboard: PerformanceTeamLeaderboardEntry[];
+  teamWeeklyLeaderboard: PerformanceTeamLeaderboardEntry[];
   activeCompetitions: PerformanceCompetitionItem[];
   upcomingCompetitions: PerformanceCompetitionItem[];
   completedCompetitions: PerformanceCompetitionItem[];
@@ -592,6 +611,10 @@ export interface TeamMemberItem {
   fullName: string | null;
   email: string | null;
   role: string;
+  teamId: string | null;
+  teamName: string | null;
+  teamManagerId: string | null;
+  teamManagerName: string | null;
   isActive: boolean;
   onboardingStatus: "active" | "pending" | "inactive";
   invitedAt: string | null;
@@ -599,9 +622,26 @@ export interface TeamMemberItem {
   joinedAt: string | null;
 }
 
+export interface TeamListItem {
+  teamId: string;
+  name: string;
+  managerUserId: string | null;
+  managerName: string | null;
+  memberCount: number;
+  createdAt: string;
+}
+
 export interface TeamMembersResponse {
   items: TeamMemberItem[];
   issues: TeamCleanupIssue[];
+}
+
+export interface TeamListResponse {
+  items: TeamListItem[];
+}
+
+export interface TeamMutationResponse {
+  teamId: string;
 }
 
 export interface TeamMemberActionResponse {

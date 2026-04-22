@@ -8,7 +8,8 @@ export const teamInviteSchema = z.object({
 
 export const teamMemberUpdateSchema = z.object({
   role: z.enum(["owner", "admin", "manager", "rep", "setter"]).optional(),
-  isActive: z.boolean().optional()
+  isActive: z.boolean().optional(),
+  teamId: z.string().uuid().nullable().optional()
 });
 
 export const teamMemberActionSchema = z.object({
@@ -18,4 +19,14 @@ export const teamMemberActionSchema = z.object({
 export const teamCleanupSchema = z.object({
   action: z.enum(["delete_orphan_app_user"]),
   userId: z.string().uuid()
+});
+
+export const teamCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  managerUserId: z.string().uuid().nullable().optional()
+});
+
+export const teamUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  managerUserId: z.string().uuid().nullable().optional()
 });

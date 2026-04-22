@@ -333,7 +333,7 @@ export async function triggerTeamMemberAccessEmail(
 
 export async function updateTeamMember(
   memberId: string,
-  input: { role?: "owner" | "admin" | "manager" | "rep" | "setter"; isActive?: boolean },
+  input: { role?: "owner" | "admin" | "manager" | "rep" | "setter"; isActive?: boolean; teamId?: string | null },
   context: AuthSessionContext
 ) {
   const supabase = createServerSupabaseClient();
@@ -341,7 +341,7 @@ export async function updateTeamMember(
 
   const { data: membership, error: membershipError } = await supabase
     .from("organization_members")
-    .select("id,role")
+    .select("id,user_id,role")
     .eq("organization_id", context.organizationId)
     .eq("id", memberId)
     .maybeSingle();
@@ -354,10 +354,15 @@ export async function updateTeamMember(
   if (!hasAdminAccess(context) && input.role && !MANAGER_MUTABLE_ROLES.has(input.role)) {
     throw new Error("Only admins can assign manager, admin, or owner roles.");
   }
+  if (!hasAdminAccess(context) && typeof input.teamId !== "undefined") {
+    throw new Error("Only admins can reassign team ownership.");
+  }
 
   const payload: Record<string, unknown> = {
     updated_at: new Date().toISOString()
   };
+  const nextRole = input.role ?? (membership.role as "owner" | "admin" | "manager" | "rep" | "setter");
+  const nextTeamId = ["rep", "setter"].includes(nextRole) ? input.teamId : null;
 
   if (input.role !== undefined) payload.role = input.role;
   if (input.isActive !== undefined) payload.is_active = input.isActive;
@@ -369,7 +374,115 @@ export async function updateTeamMember(
     .eq("id", memberId);
 
   if (error) throw error;
+
+  if (typeof input.teamId !== "undefined" || !["rep", "setter"].includes(nextRole)) {
+    const { error: deleteTeamMembershipError } = await supabase
+      .from("team_memberships")
+      .delete()
+      .eq("organization_id", context.organizationId)
+      .eq("user_id", membership.user_id);
+
+    if (deleteTeamMembershipError) throw deleteTeamMembershipError;
+
+    if (nextTeamId) {
+      const { data: team, error: teamError } = await supabase
+        .from("teams")
+        .select("id")
+        .eq("organization_id", context.organizationId)
+        .eq("id", nextTeamId)
+        .maybeSingle();
+
+      if (teamError) throw teamError;
+      if (!team) throw new Error("Team not found.");
+
+      const { error: insertTeamMembershipError } = await supabase
+        .from("team_memberships")
+        .insert({
+          organization_id: context.organizationId,
+          team_id: nextTeamId,
+          user_id: membership.user_id
+        });
+
+      if (insertTeamMembershipError) throw insertTeamMembershipError;
+    }
+  }
+
   return { memberId };
+}
+
+export async function createTeam(
+  input: { name: string; managerUserId?: string | null },
+  context: AuthSessionContext
+) {
+  const supabase = createServerSupabaseClient();
+  if (!context.organizationId) throw new Error("No active organization found for this user.");
+
+  if (input.managerUserId) {
+    const { data: managerMembership, error: managerMembershipError } = await supabase
+      .from("organization_members")
+      .select("id")
+      .eq("organization_id", context.organizationId)
+      .eq("user_id", input.managerUserId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (managerMembershipError) throw managerMembershipError;
+    if (!managerMembership) throw new Error("Manager must be an active member of this organization.");
+  }
+
+  const { data, error } = await supabase
+    .from("teams")
+    .insert({
+      organization_id: context.organizationId,
+      name: input.name.trim(),
+      manager_id: input.managerUserId ?? null
+    })
+    .select("id")
+    .single();
+
+  if (error) throw error;
+  return { teamId: data.id as string };
+}
+
+export async function updateTeam(
+  teamId: string,
+  input: { name?: string; managerUserId?: string | null },
+  context: AuthSessionContext
+) {
+  const supabase = createServerSupabaseClient();
+  if (!context.organizationId) throw new Error("No active organization found for this user.");
+
+  if (typeof input.managerUserId !== "undefined" && input.managerUserId) {
+    const { data: managerMembership, error: managerMembershipError } = await supabase
+      .from("organization_members")
+      .select("id")
+      .eq("organization_id", context.organizationId)
+      .eq("user_id", input.managerUserId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (managerMembershipError) throw managerMembershipError;
+    if (!managerMembership) throw new Error("Manager must be an active member of this organization.");
+  }
+
+  const payload: Record<string, unknown> = {
+    updated_at: new Date().toISOString()
+  };
+
+  if (typeof input.name !== "undefined") payload.name = input.name.trim();
+  if (typeof input.managerUserId !== "undefined") payload.manager_id = input.managerUserId ?? null;
+
+  const { data, error } = await supabase
+    .from("teams")
+    .update(payload)
+    .eq("organization_id", context.organizationId)
+    .eq("id", teamId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw new Error("Team not found.");
+  return { teamId: data.id as string };
 }
 
 export async function removeTeamMember(memberId: string, context: AuthSessionContext) {
@@ -388,6 +501,14 @@ export async function removeTeamMember(memberId: string, context: AuthSessionCon
   if (!["rep", "setter"].includes(membership.role as string)) {
     throw new Error("Only reps and setters can be deleted.");
   }
+
+  const { error: deleteTeamMembershipError } = await supabase
+    .from("team_memberships")
+    .delete()
+    .eq("organization_id", context.organizationId)
+    .eq("user_id", membership.user_id);
+
+  if (deleteTeamMembershipError) throw deleteTeamMembershipError;
 
   const { error } = await supabase
     .from("organization_members")
@@ -433,6 +554,14 @@ export async function deleteTeamMemberAccount(memberId: string, context: AuthSes
     .maybeSingle();
 
   if (userError) throw userError;
+
+  const { error: deleteTeamMembershipError } = await supabase
+    .from("team_memberships")
+    .delete()
+    .eq("organization_id", context.organizationId)
+    .eq("user_id", membership.user_id);
+
+  if (deleteTeamMembershipError) throw deleteTeamMembershipError;
 
   const { error: deleteMembershipError } = await supabase
     .from("organization_members")
@@ -488,6 +617,12 @@ export async function deleteOrphanAppUser(userId: string, context: AuthSessionCo
   if (user.external_auth_id) {
     await supabase.auth.admin.deleteUser(user.external_auth_id as string).catch(() => null);
   }
+
+  await supabase
+    .from("team_memberships")
+    .delete()
+    .eq("organization_id", context.organizationId)
+    .eq("user_id", userId);
 
   const { error: deleteAppUserError } = await supabase
     .from("app_users")

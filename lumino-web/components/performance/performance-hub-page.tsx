@@ -16,8 +16,10 @@ import type {
   PerformanceBadgeItem,
   PerformanceCompetitionItem,
   PerformanceCompetitionMetric,
+  PerformanceCompetitionScope,
   PerformanceHubResponse,
-  PerformanceLeaderboardEntry
+  PerformanceLeaderboardEntry,
+  PerformanceTeamLeaderboardEntry
 } from "@/types/api";
 
 function toDateTimeLocal(value: Date) {
@@ -66,6 +68,10 @@ function toneClasses(tone: PerformanceBadgeItem["tone"]) {
   }
 }
 
+function scopeLabel(scope: PerformanceCompetitionScope) {
+  return scope === "team" ? "Team Race" : "Individual Race";
+}
+
 function PodiumCard({
   entry,
   place
@@ -101,11 +107,15 @@ function PodiumCard({
 }
 
 function CompetitionCard({ item }: { item: PerformanceCompetitionItem }) {
+  const rows = item.scope === "team" ? item.teamLeaders : item.leaders;
+
   return (
     <div className="app-panel-soft rounded-[1.8rem] border p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">{metricLabel(item.metric)}</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">
+            {scopeLabel(item.scope)} • {metricLabel(item.metric)}
+          </div>
           <div className="mt-2 text-xl font-semibold text-ink">{item.title}</div>
           {item.description ? (
             <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">{item.description}</div>
@@ -121,18 +131,23 @@ function CompetitionCard({ item }: { item: PerformanceCompetitionItem }) {
       </div>
 
       <div className="mt-4 space-y-2">
-        {item.leaders.length ? (
-          item.leaders.map((entry) => (
+        {rows.length ? (
+          rows.map((entry) => (
             <div
-              key={entry.userId}
+              key={item.scope === "team" ? (entry as PerformanceTeamLeaderboardEntry).teamId : (entry as PerformanceLeaderboardEntry).userId}
               className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-sm ${
-                entry.isCurrentUser
+                (item.scope === "team"
+                  ? (entry as PerformanceTeamLeaderboardEntry).isCurrentUsersTeam
+                  : (entry as PerformanceLeaderboardEntry).isCurrentUser)
                   ? "border-[rgba(var(--app-accent-rgb),0.28)] bg-[rgba(var(--app-accent-rgb),0.14)]"
                   : "border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.48)]"
               }`}
             >
               <div className="font-semibold text-ink">
-                #{entry.rank} {entry.fullName ?? entry.email ?? "Rep"}
+                #{entry.rank}{" "}
+                {item.scope === "team"
+                  ? (entry as PerformanceTeamLeaderboardEntry).name
+                  : (entry as PerformanceLeaderboardEntry).fullName ?? (entry as PerformanceLeaderboardEntry).email ?? "Rep"}
               </div>
               <div className="text-[rgba(var(--app-primary-rgb),0.72)]">{entry.metricValue}</div>
             </div>
@@ -144,11 +159,38 @@ function CompetitionCard({ item }: { item: PerformanceCompetitionItem }) {
         )}
       </div>
 
-      {item.myStanding ? (
+      {item.scope === "team" ? item.myTeamStanding ? (
+        <div className="mt-4 rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/70 px-3 py-3 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
+          Your team is currently #{item.myTeamStanding.rank} with {item.myTeamStanding.metricValue}{" "}
+          {metricLabel(item.metric).toLowerCase()}.
+        </div>
+      ) : null : item.myStanding ? (
         <div className="mt-4 rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/70 px-3 py-3 text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
           You’re currently #{item.myStanding.rank} with {item.myStanding.metricValue} {metricLabel(item.metric).toLowerCase()}.
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function TeamLeaderboardRow({ entry }: { entry: PerformanceTeamLeaderboardEntry }) {
+  return (
+    <div
+      className={`flex items-center justify-between rounded-3xl border px-4 py-3 text-sm ${
+        entry.isCurrentUsersTeam
+          ? "border-[rgba(var(--app-accent-rgb),0.28)] bg-[rgba(var(--app-accent-rgb),0.16)]"
+          : "app-panel-soft"
+      }`}
+    >
+      <div>
+        <div className="font-semibold text-ink">
+          #{entry.rank} {entry.name}
+        </div>
+        <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">
+          {entry.managerName ? `Manager: ${entry.managerName}` : "No manager assigned yet"}
+        </div>
+      </div>
+      <div className="text-lg font-semibold text-ink">{entry.metricValue}</div>
     </div>
   );
 }
@@ -162,6 +204,7 @@ export function PerformanceHubPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [metric, setMetric] = useState<PerformanceCompetitionMetric>("knocks");
+  const [scope, setScope] = useState<PerformanceCompetitionScope>("individual");
   const [periodType, setPeriodType] = useState<"day" | "week" | "custom">("day");
   const [startAt, setStartAt] = useState(() => toDateTimeLocal(new Date()));
   const [endAt, setEndAt] = useState(() => defaultEndFor("day", toDateTimeLocal(new Date())));
@@ -313,6 +356,23 @@ export function PerformanceHubPage() {
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1fr]">
         <section className="app-panel rounded-[2rem] border p-5">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Daily Team Race</div>
+          <p className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">
+            See which manager-led team is stacking the most doors today.
+          </p>
+
+          <div className="mt-5 space-y-3">
+            {(hub?.teamDailyLeaderboard ?? []).length ? (
+              hub?.teamDailyLeaderboard.map((entry) => <TeamLeaderboardRow key={entry.teamId} entry={entry} />)
+            ) : (
+              <div className="app-panel-soft rounded-3xl border border-dashed p-4 text-sm text-[rgba(var(--app-primary-rgb),0.6)]">
+                Create teams in Team Management to unlock the team raceboard.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="app-panel rounded-[2rem] border p-5">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Weekly Appointment Race</div>
           <p className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">
             The cleanest signal for who is turning energy into real booked meetings.
@@ -339,6 +399,23 @@ export function PerformanceHubPage() {
                 <div className="text-lg font-semibold text-ink">{entry.metricValue}</div>
               </div>
             ))}
+          </div>
+        </section>
+
+        <section className="app-panel rounded-[2rem] border p-5">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Weekly Team Appointment Race</div>
+          <p className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">
+            Track which team is converting effort into booked meetings this week.
+          </p>
+
+          <div className="mt-5 space-y-3">
+            {(hub?.teamWeeklyLeaderboard ?? []).length ? (
+              hub?.teamWeeklyLeaderboard.map((entry) => <TeamLeaderboardRow key={entry.teamId} entry={entry} />)
+            ) : (
+              <div className="app-panel-soft rounded-3xl border border-dashed p-4 text-sm text-[rgba(var(--app-primary-rgb),0.6)]">
+                Team standings will show up as soon as reps are assigned under managers.
+              </div>
+            )}
           </div>
         </section>
 
@@ -416,6 +493,7 @@ export function PerformanceHubPage() {
                     title,
                     description: description || null,
                     metric,
+                    scope,
                     periodType,
                     startAt: new Date(startAt).toISOString(),
                     endAt: new Date(endAt).toISOString()
@@ -457,6 +535,17 @@ export function PerformanceHubPage() {
                 <option value="opportunities">Opportunities</option>
                 <option value="appointments">Appointments</option>
                 <option value="doorhangers">Doorhangers</option>
+              </select>
+            </label>
+            <label className="text-sm text-[rgba(var(--app-primary-rgb),0.68)]">
+              Scope
+              <select
+                value={scope}
+                onChange={(event) => setScope(event.target.value as PerformanceCompetitionScope)}
+                className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              >
+                <option value="individual">Rep vs Rep</option>
+                <option value="team">Team vs Team</option>
               </select>
             </label>
             <label className="text-sm text-[rgba(var(--app-primary-rgb),0.68)]">

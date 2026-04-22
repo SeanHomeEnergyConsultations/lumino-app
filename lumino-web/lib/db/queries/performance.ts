@@ -6,7 +6,8 @@ import type {
   PerformanceCompetitionMetric,
   PerformanceCompetitionStatus,
   PerformanceHubResponse,
-  PerformanceLeaderboardEntry
+  PerformanceLeaderboardEntry,
+  PerformanceTeamLeaderboardEntry
 } from "@/types/api";
 import type { AuthSessionContext } from "@/types/auth";
 
@@ -32,10 +33,22 @@ type CompetitionRow = {
   title: string;
   description: string | null;
   metric: PerformanceCompetitionMetric;
+  scope: "individual" | "team";
   period_type: "day" | "week" | "custom";
   start_at: string;
   end_at: string;
   status: PerformanceCompetitionStatus;
+};
+
+type TeamRow = {
+  id: string;
+  name: string;
+  manager_id: string | null;
+};
+
+type TeamMembershipRow = {
+  user_id: string | null;
+  team_id: string | null;
 };
 
 type ScoreSeed = {
@@ -43,6 +56,16 @@ type ScoreSeed = {
   fullName: string | null;
   email: string | null;
   role: string;
+  knocks: number;
+  opportunities: number;
+  appointments: number;
+  doorhangers: number;
+};
+
+type TeamScoreSeed = {
+  teamId: string;
+  name: string;
+  managerName: string | null;
   knocks: number;
   opportunities: number;
   appointments: number;
@@ -63,7 +86,10 @@ function startOfWeek() {
   return next;
 }
 
-function computeMetricValue(seed: ScoreSeed, metric: PerformanceCompetitionMetric) {
+function computeMetricValue(
+  seed: Pick<ScoreSeed, "knocks" | "opportunities" | "appointments" | "doorhangers">,
+  metric: PerformanceCompetitionMetric
+) {
   switch (metric) {
     case "appointments":
       return seed.appointments;
@@ -132,6 +158,71 @@ function buildLeaderboard(params: {
         appointments: seed.appointments,
         doorhangers: seed.doorhangers,
         isCurrentUser: seed.userId === params.currentUserId
+      })
+    );
+}
+
+function buildTeamLeaderboard(params: {
+  teams: TeamRow[];
+  users: Map<string, AppUserRow>;
+  teamMemberships: TeamMembershipRow[];
+  visits: VisitRow[];
+  metric: PerformanceCompetitionMetric;
+  currentUserTeamId: string | null;
+}) {
+  const membershipByUser = new Map<string, string>();
+  for (const membership of params.teamMemberships) {
+    if (!membership.user_id || !membership.team_id || membershipByUser.has(membership.user_id)) continue;
+    membershipByUser.set(membership.user_id, membership.team_id);
+  }
+
+  const seeds = new Map<string, TeamScoreSeed>();
+  for (const team of params.teams) {
+    seeds.set(team.id, {
+      teamId: team.id,
+      name: team.name,
+      managerName: team.manager_id ? params.users.get(team.manager_id)?.full_name ?? null : null,
+      knocks: 0,
+      opportunities: 0,
+      appointments: 0,
+      doorhangers: 0
+    });
+  }
+
+  for (const visit of params.visits) {
+    if (!visit.user_id) continue;
+    const teamId = membershipByUser.get(visit.user_id);
+    if (!teamId || !seeds.has(teamId)) continue;
+    const current = seeds.get(teamId)!;
+    current.knocks += 1;
+    if (visit.outcome === "opportunity") current.opportunities += 1;
+    if (visit.outcome === "appointment_set") current.appointments += 1;
+    if (visit.outcome === "left_doorhanger") current.doorhangers += 1;
+  }
+
+  return [...seeds.values()]
+    .map((seed) => ({
+      ...seed,
+      metricValue: computeMetricValue(seed, params.metric)
+    }))
+    .sort((a, b) => {
+      if (b.metricValue !== a.metricValue) return b.metricValue - a.metricValue;
+      if (b.appointments !== a.appointments) return b.appointments - a.appointments;
+      if (b.opportunities !== a.opportunities) return b.opportunities - a.opportunities;
+      return b.knocks - a.knocks;
+    })
+    .map(
+      (seed, index): PerformanceTeamLeaderboardEntry => ({
+        teamId: seed.teamId,
+        name: seed.name,
+        managerName: seed.managerName,
+        rank: index + 1,
+        metricValue: seed.metricValue,
+        knocks: seed.knocks,
+        opportunities: seed.opportunities,
+        appointments: seed.appointments,
+        doorhangers: seed.doorhangers,
+        isCurrentUsersTeam: seed.teamId === params.currentUserTeamId
       })
     );
 }
@@ -217,7 +308,9 @@ export async function getPerformanceHub(context: AuthSessionContext): Promise<Pe
     { data: membershipRows, error: membershipsError },
     { data: dailyVisits, error: dailyError },
     { data: weeklyVisits, error: weeklyError },
-    { data: competitionRows, error: competitionsError }
+    { data: competitionRows, error: competitionsError },
+    { data: teamRows, error: teamsError },
+    { data: teamMembershipRows, error: teamMembershipsError }
   ] = await Promise.all([
     supabase
       .from("organization_members")
@@ -236,16 +329,27 @@ export async function getPerformanceHub(context: AuthSessionContext): Promise<Pe
       .gte("captured_at", weekStart.toISOString()),
     supabase
       .from("performance_competitions")
-      .select("id,title,description,metric,period_type,start_at,end_at,status")
+      .select("id,title,description,metric,scope,period_type,start_at,end_at,status")
       .eq("organization_id", context.organizationId)
       .order("start_at", { ascending: false })
-      .limit(18)
+      .limit(18),
+    supabase
+      .from("teams")
+      .select("id,name,manager_id")
+      .eq("organization_id", context.organizationId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("team_memberships")
+      .select("user_id,team_id")
+      .eq("organization_id", context.organizationId)
   ]);
 
   if (membershipsError) throw membershipsError;
   if (dailyError) throw dailyError;
   if (weeklyError) throw weeklyError;
   if (competitionsError) throw competitionsError;
+  if (teamsError) throw teamsError;
+  if (teamMembershipsError) throw teamMembershipsError;
 
   const fieldMembers = (membershipRows ?? []).filter((row) =>
     ["owner", "admin", "manager", "rep", "setter"].includes((row.role as string) ?? "")
@@ -275,6 +379,27 @@ export async function getPerformanceHub(context: AuthSessionContext): Promise<Pe
     currentUserId: context.appUser.id
   });
 
+  const currentUserTeamId =
+    ((teamMembershipRows ?? []) as TeamMembershipRow[]).find((row) => row.user_id === context.appUser.id)?.team_id ?? null;
+
+  const teamDailyLeaderboard = buildTeamLeaderboard({
+    teams: (teamRows ?? []) as TeamRow[],
+    users: userMap,
+    teamMemberships: (teamMembershipRows ?? []) as TeamMembershipRow[],
+    visits: (dailyVisits ?? []) as VisitRow[],
+    metric: "knocks",
+    currentUserTeamId
+  });
+
+  const teamWeeklyLeaderboard = buildTeamLeaderboard({
+    teams: (teamRows ?? []) as TeamRow[],
+    users: userMap,
+    teamMemberships: (teamMembershipRows ?? []) as TeamMembershipRow[],
+    visits: (weeklyVisits ?? []) as VisitRow[],
+    metric: "appointments",
+    currentUserTeamId
+  });
+
   const competitionItems: PerformanceCompetitionItem[] = [];
   for (const row of (competitionRows ?? []) as CompetitionRow[]) {
     const { data: competitionVisits, error: competitionVisitsError } = await supabase
@@ -286,25 +411,42 @@ export async function getPerformanceHub(context: AuthSessionContext): Promise<Pe
 
     if (competitionVisitsError) throw competitionVisitsError;
 
-    const leaders = buildLeaderboard({
-      members: fieldMembers,
-      users: userMap,
-      visits: (competitionVisits ?? []) as VisitRow[],
-      metric: row.metric,
-      currentUserId: context.appUser.id
-    });
+    const leaders =
+      row.scope === "team"
+        ? []
+        : buildLeaderboard({
+            members: fieldMembers,
+            users: userMap,
+            visits: (competitionVisits ?? []) as VisitRow[],
+            metric: row.metric,
+            currentUserId: context.appUser.id
+          });
+    const teamLeaders =
+      row.scope === "team"
+        ? buildTeamLeaderboard({
+            teams: (teamRows ?? []) as TeamRow[],
+            users: userMap,
+            teamMemberships: (teamMembershipRows ?? []) as TeamMembershipRow[],
+            visits: (competitionVisits ?? []) as VisitRow[],
+            metric: row.metric,
+            currentUserTeamId
+          })
+        : [];
 
     competitionItems.push({
       id: row.id,
       title: row.title,
       description: row.description,
       metric: row.metric,
+      scope: row.scope,
       periodType: row.period_type,
       startAt: row.start_at,
       endAt: row.end_at,
       status: normalizeCompetitionStatus(row),
       leaders: leaders.slice(0, 5),
-      myStanding: leaders.find((entry) => entry.userId === context.appUser.id) ?? null
+      myStanding: leaders.find((entry) => entry.userId === context.appUser.id) ?? null,
+      teamLeaders: teamLeaders.slice(0, 5),
+      myTeamStanding: teamLeaders.find((entry) => entry.teamId === currentUserTeamId) ?? null
     });
   }
 
@@ -323,6 +465,8 @@ export async function getPerformanceHub(context: AuthSessionContext): Promise<Pe
     canManageCompetitions: hasManagerAccess(context),
     dailyLeaderboard,
     weeklyLeaderboard,
+    teamDailyLeaderboard,
+    teamWeeklyLeaderboard,
     activeCompetitions,
     upcomingCompetitions,
     completedCompetitions,
