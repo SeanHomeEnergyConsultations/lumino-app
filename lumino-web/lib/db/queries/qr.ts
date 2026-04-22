@@ -1,5 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
-import { hasManagerAccess } from "@/lib/auth/permissions";
+import { MANAGER_ROLES, hasManagerAccess } from "@/lib/auth/permissions";
 import { normalizeQrAvailabilitySettings, normalizeQrBookingTypeConfigs } from "@/lib/qr/availability";
 import { getAppBaseUrl } from "@/lib/utils/env";
 import type { AuthSessionContext } from "@/types/auth";
@@ -30,6 +30,10 @@ type QRCodeEventRow = {
   city: string | null;
   created_at: string;
 };
+
+function isManagerRole(role: string | null | undefined): role is (typeof MANAGER_ROLES)[number] {
+  return Boolean(role && MANAGER_ROLES.includes(role as (typeof MANAGER_ROLES)[number]));
+}
 
 function normalizePayload(payload: Record<string, unknown> | null | undefined): QRCodeContactCardPayload {
   return {
@@ -80,8 +84,11 @@ export function buildQrBookingUrl(slug: string) {
 function mapQrItems(input: {
   rows: QRCodeRow[];
   ownerMap: Map<string, { full_name: string | null; email: string | null }>;
+  ownerMembershipMap: Map<string, { role: string | null }>;
   territoryMap: Map<string, { name: string | null }>;
   eventsByCode: Map<string, QRCodeEventRow[]>;
+  currentUserId: string;
+  currentUserCanManage: boolean;
 }): QRCodeListItem[] {
   return input.rows.map((row) => {
     const payload =
@@ -89,6 +96,15 @@ function mapQrItems(input: {
         ? normalizeCampaignPayload(row.payload)
         : normalizePayload(row.payload);
     const owner = input.ownerMap.get(row.owner_user_id);
+    const ownerMembership = input.ownerMembershipMap.get(row.owner_user_id);
+    const ownerRole =
+      ownerMembership?.role === "owner" ||
+      ownerMembership?.role === "admin" ||
+      ownerMembership?.role === "manager" ||
+      ownerMembership?.role === "rep" ||
+      ownerMembership?.role === "setter"
+        ? ownerMembership.role
+        : null;
     const territory = row.territory_id ? input.territoryMap.get(row.territory_id) : null;
     const events = input.eventsByCode.get(row.id) ?? [];
     const cityCounts = new Map<string, number>();
@@ -146,12 +162,15 @@ function mapQrItems(input: {
       qrCodeId: row.id,
       ownerUserId: row.owner_user_id,
       ownerName: owner?.full_name ?? owner?.email ?? null,
+      ownerRole,
       territoryId: row.territory_id,
       territoryName: territory?.name ?? null,
       label: row.label,
       slug: row.slug,
       codeType: row.code_type,
       status: row.status,
+      isShared: row.owner_user_id !== input.currentUserId && isManagerRole(ownerRole),
+      canDelete: input.currentUserCanManage || row.owner_user_id === input.currentUserId,
       publicUrl: buildQrPublicUrl(row.slug, row.code_type),
       publicBookingUrl: row.code_type === "contact_card" ? buildQrBookingUrl(row.slug) : buildQrPublicUrl(row.slug, row.code_type),
       createdAt: row.created_at,
@@ -181,18 +200,42 @@ export async function getQrHub(context: AuthSessionContext): Promise<QRCodeHubRe
     .from("qr_codes")
     .select("id,owner_user_id,territory_id,label,slug,code_type,status,payload,created_at")
     .eq("organization_id", context.organizationId)
+    .neq("status", "archived")
     .order("created_at", { ascending: false })
     .limit(200);
-
-  if (!hasManagerAccess(context)) {
-    qrQuery = qrQuery.eq("owner_user_id", context.appUser.id);
-  }
 
   const { data: qrRows, error: qrError } = await qrQuery;
   if (qrError) throw qrError;
 
-  const rows = (qrRows ?? []) as QRCodeRow[];
-  const ownerIds = [...new Set(rows.map((row) => row.owner_user_id))];
+  const currentUserCanManage = hasManagerAccess(context);
+  const allRows = (qrRows ?? []) as QRCodeRow[];
+  const ownerIds = [...new Set(allRows.map((row) => row.owner_user_id))];
+  const [{ data: ownerMembershipRows, error: ownerMembershipError }] = await Promise.all([
+    ownerIds.length
+      ? supabase
+          .from("organization_members")
+          .select("user_id,role")
+          .eq("organization_id", context.organizationId)
+          .in("user_id", ownerIds)
+      : Promise.resolve({ data: [], error: null })
+  ]);
+
+  if (ownerMembershipError) throw ownerMembershipError;
+
+  const ownerMembershipMap = new Map(
+    ((ownerMembershipRows ?? []) as Array<{ user_id: string; role: string | null }>).map((row) => [
+      row.user_id,
+      { role: row.role }
+    ])
+  );
+  const rows = currentUserCanManage
+    ? allRows
+    : allRows.filter((row) => {
+        if (row.owner_user_id === context.appUser.id) return true;
+        const ownerRole = ownerMembershipMap.get(row.owner_user_id)?.role;
+        return isManagerRole(ownerRole);
+      });
+  const visibleOwnerIds = [...new Set(rows.map((row) => row.owner_user_id))];
   const territoryIds = [...new Set(rows.map((row) => row.territory_id).filter(Boolean))] as string[];
   const codeIds = rows.map((row) => row.id);
 
@@ -201,8 +244,8 @@ export async function getQrHub(context: AuthSessionContext): Promise<QRCodeHubRe
     { data: territoryRows, error: territoryError },
     { data: eventRows, error: eventError }
   ] = await Promise.all([
-    ownerIds.length
-      ? supabase.from("app_users").select("id,full_name,email").in("id", ownerIds)
+    visibleOwnerIds.length
+      ? supabase.from("app_users").select("id,full_name,email").in("id", visibleOwnerIds)
       : Promise.resolve({ data: [], error: null }),
     territoryIds.length
       ? supabase.from("territories").select("id,name").in("id", territoryIds)
@@ -236,8 +279,11 @@ export async function getQrHub(context: AuthSessionContext): Promise<QRCodeHubRe
     items: mapQrItems({
       rows,
       ownerMap,
+      ownerMembershipMap,
       territoryMap,
-      eventsByCode
+      eventsByCode,
+      currentUserId: context.appUser.id,
+      currentUserCanManage
     })
   };
 }

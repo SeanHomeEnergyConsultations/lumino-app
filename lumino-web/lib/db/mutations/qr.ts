@@ -595,6 +595,59 @@ export async function createQrCode(
   return { item };
 }
 
+export async function archiveQrCode(qrCodeId: string, context: AuthSessionContext) {
+  const supabase = createServerSupabaseClient();
+  if (!context.organizationId) {
+    throw new Error("No active organization found for this user.");
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("qr_codes")
+    .select("id,owner_user_id,label,status")
+    .eq("organization_id", context.organizationId)
+    .eq("id", qrCodeId)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+  if (!existing) {
+    throw new Error("QR code not found.");
+  }
+
+  const canArchive = hasManagerAccess(context) || existing.owner_user_id === context.appUser.id;
+  if (!canArchive) {
+    throw new Error("You do not have permission to delete this QR code.");
+  }
+
+  if (existing.status === "archived") {
+    return { archived: true as const };
+  }
+
+  const { error: archiveError } = await supabase
+    .from("qr_codes")
+    .update({
+      status: "archived",
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", qrCodeId)
+    .eq("organization_id", context.organizationId);
+
+  if (archiveError) throw archiveError;
+
+  await supabase.from("activities").insert({
+    organization_id: context.organizationId,
+    entity_type: "user",
+    entity_id: context.appUser.id,
+    actor_user_id: context.appUser.id,
+    type: "qr_code_archived",
+    data: {
+      qr_code_id: existing.id,
+      label: existing.label
+    }
+  });
+
+  return { archived: true as const };
+}
+
 export async function recordQrEvent(input: {
   qrCodeId: string;
   organizationId: string;

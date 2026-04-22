@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, ExternalLink, ImagePlus, MapPinned, Phone, QrCode, Save, Sparkles, X } from "lucide-react";
+import { Copy, ExternalLink, ImagePlus, MapPinned, Phone, QrCode, Save, Sparkles, Trash2, X } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { DEFAULT_QR_AVAILABILITY_SETTINGS, QR_APPOINTMENT_TYPE_CONFIG } from "@/lib/qr/availability";
 import type {
@@ -94,6 +94,7 @@ export function QrHubPage() {
   const [destinationUrl, setDestinationUrl] = useState("");
   const [description, setDescription] = useState("");
   const [expandedEngagementCodeId, setExpandedEngagementCodeId] = useState<string | null>(null);
+  const [archivingQrCodeId, setArchivingQrCodeId] = useState<string | null>(null);
 
   const loadHub = useCallback(async () => {
     if (!session?.access_token) return;
@@ -398,6 +399,29 @@ export function QrHubPage() {
     }
   }
 
+  async function archiveCode(qrCodeId: string) {
+    if (!session?.access_token) return;
+    const confirmed = window.confirm("Archive this QR code? It will be removed from your active list.");
+    if (!confirmed) return;
+
+    setArchivingQrCodeId(qrCodeId);
+    setError(null);
+    try {
+      const response = await authFetch(session.access_token, `/api/qr/${qrCodeId}`, {
+        method: "DELETE"
+      });
+      const json = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(json.error || "Could not archive QR code.");
+      }
+      await loadHub();
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : "Could not archive QR code.");
+    } finally {
+      setArchivingQrCodeId(null);
+    }
+  }
+
   return (
     <div className="p-4 md:p-6">
       <div className="app-panel rounded-[2rem] border p-6">
@@ -421,6 +445,306 @@ export function QrHubPage() {
           ))}
         </div>
       </div>
+
+      <section className="mt-6 app-panel rounded-[2rem] border p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Booking Setup</div>
+            <div className="mt-1 text-xl font-semibold text-ink">Create your reusable appointment options once</div>
+            <div className="mt-2 max-w-3xl text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
+              This is where reps define their working hours and appointment types. Then every QR card just picks which saved options to offer to the homeowner.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void saveBookingProfile()}
+            disabled={bookingProfileState === "saving"}
+            className="rounded-2xl bg-[rgba(var(--app-primary-rgb),0.96)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {bookingProfileState === "saving" ? "Saving..." : "Save Booking Setup"}
+          </button>
+        </div>
+
+        {bookingProfileMessage ? (
+          <div
+            className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
+              bookingProfileState === "error"
+                ? "border-rose-200 bg-rose-50 text-rose-900"
+                : "border-emerald-200 bg-emerald-50 text-emerald-900"
+            }`}
+          >
+            {bookingProfileMessage}
+          </div>
+        ) : null}
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-[320px_1fr]">
+          <div className="rounded-[1.6rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.5)] p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Working Hours</div>
+            <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
+              Homeowners will only see open slots inside these days and hours.
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <label className="block space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Timezone</div>
+                <input
+                  value={availabilityTimezone}
+                  onChange={(event) => setAvailabilityTimezone(event.target.value)}
+                  placeholder="America/New_York"
+                  className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                />
+              </label>
+
+              <div className="grid grid-cols-2 gap-4">
+                <label className="block space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Start</div>
+                  <input
+                    type="time"
+                    value={availabilityStartTime}
+                    onChange={(event) => setAvailabilityStartTime(event.target.value)}
+                    className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                  />
+                </label>
+                <label className="block space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">End</div>
+                  <input
+                    type="time"
+                    value={availabilityEndTime}
+                    onChange={(event) => setAvailabilityEndTime(event.target.value)}
+                    className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                  />
+                </label>
+              </div>
+
+              <label className="block space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Minimum notice</div>
+                <select
+                  value={availabilityMinNoticeHours}
+                  onChange={(event) => setAvailabilityMinNoticeHours(Number(event.target.value))}
+                  className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                >
+                  {[0, 1, 2, 4, 8, 12, 24].map((hours) => (
+                    <option key={hours} value={hours}>
+                      {hours === 0 ? "No minimum" : `${hours} hour${hours === 1 ? "" : "s"}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">How far out</div>
+                <select
+                  value={availabilityMaxDaysOut}
+                  onChange={(event) => setAvailabilityMaxDaysOut(Number(event.target.value))}
+                  className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                >
+                  {[7, 10, 14, 21, 30].map((days) => (
+                    <option key={days} value={days}>
+                      {days} days
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Working days</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {WEEKDAY_CHOICES.map((day) => {
+                    const active = availabilityWorkingDays.includes(day.value);
+                    return (
+                      <button
+                        key={day.value}
+                        type="button"
+                        onClick={() =>
+                          setAvailabilityWorkingDays((current) => {
+                            if (active) {
+                              return current.filter((value) => value !== day.value);
+                            }
+                            return [...current, day.value].sort((left, right) => left - right);
+                          })
+                        }
+                        className={`rounded-full border px-3 py-2 text-sm font-semibold transition ${
+                          active
+                            ? "border-[rgba(var(--app-primary-rgb),0.96)] bg-[rgba(var(--app-primary-rgb),0.96)] text-white"
+                            : "border-[rgba(var(--app-primary-rgb),0.08)] bg-white text-[rgba(var(--app-primary-rgb),0.72)] hover:border-[rgba(var(--app-primary-rgb),0.2)]"
+                        }`}
+                      >
+                        {day.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[1.6rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.5)] p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Appointment Library</div>
+            <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
+              Customize the appointment names, descriptions, lengths, and buffers here. QR cards will simply choose from this saved list.
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {(["phone_call", "in_person_consult"] as const).map((typeKey) => {
+                const bookingType = bookingTypes[typeKey];
+                return (
+                  <div
+                    key={typeKey}
+                    className="rounded-[1.4rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/80 p-4"
+                  >
+                    <label className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-semibold text-ink">
+                          {typeKey === "phone_call" ? "Phone-Style Slot" : "In-Person Slot"}
+                        </div>
+                        <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">
+                          Internal slot: {typeKey === "phone_call" ? "Phone Call" : "In-Person Consult"}
+                        </div>
+                      </div>
+                      <span className="inline-flex items-center gap-2 text-sm font-medium text-ink">
+                        Enabled
+                        <input
+                          type="checkbox"
+                          checked={bookingType.enabled}
+                          onChange={(event) =>
+                            setBookingTypes((current) => ({
+                              ...current,
+                              [typeKey]: {
+                                ...current[typeKey],
+                                enabled: event.target.checked
+                              }
+                            }))
+                          }
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                      </span>
+                    </label>
+
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      <label className="block space-y-2">
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Public Name</div>
+                        <input
+                          value={bookingType.label}
+                          onChange={(event) =>
+                            setBookingTypes((current) => ({
+                              ...current,
+                              [typeKey]: {
+                                ...current[typeKey],
+                                label: event.target.value
+                              }
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                        />
+                      </label>
+
+                      <label className="block space-y-2">
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Length (minutes)</div>
+                        <input
+                          type="number"
+                          min={10}
+                          max={180}
+                          value={bookingType.durationMinutes}
+                          onChange={(event) =>
+                            setBookingTypes((current) => ({
+                              ...current,
+                              [typeKey]: {
+                                ...current[typeKey],
+                                durationMinutes: Number(event.target.value || 0)
+                              }
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                        />
+                      </label>
+
+                      <label className="block space-y-2 md:col-span-2">
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Brief Description</div>
+                        <input
+                          value={bookingType.shortDescription ?? ""}
+                          onChange={(event) =>
+                            setBookingTypes((current) => ({
+                              ...current,
+                              [typeKey]: {
+                                ...current[typeKey],
+                                shortDescription: event.target.value
+                              }
+                            }))
+                          }
+                          placeholder="A short summary shown on the booking page."
+                          className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                        />
+                      </label>
+
+                      <label className="block space-y-2 md:col-span-2">
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Full Description</div>
+                        <textarea
+                          value={bookingType.fullDescription ?? ""}
+                          onChange={(event) =>
+                            setBookingTypes((current) => ({
+                              ...current,
+                              [typeKey]: {
+                                ...current[typeKey],
+                                fullDescription: event.target.value
+                              }
+                            }))
+                          }
+                          placeholder="Shown after the homeowner clicks into this appointment type."
+                          className="min-h-24 w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                        />
+                      </label>
+
+                      <label className="block space-y-2">
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Pre Buffer</div>
+                        <input
+                          type="number"
+                          min={0}
+                          max={240}
+                          value={bookingType.preBufferMinutes}
+                          onChange={(event) =>
+                            setBookingTypes((current) => ({
+                              ...current,
+                              [typeKey]: {
+                                ...current[typeKey],
+                                preBufferMinutes: Number(event.target.value || 0)
+                              }
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                        />
+                      </label>
+
+                      <label className="block space-y-2">
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Post Buffer</div>
+                        <input
+                          type="number"
+                          min={0}
+                          max={240}
+                          value={bookingType.postBufferMinutes}
+                          onChange={(event) =>
+                            setBookingTypes((current) => ({
+                              ...current,
+                              [typeKey]: {
+                                ...current[typeKey],
+                                postBufferMinutes: Number(event.target.value || 0)
+                              }
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 rounded-[1.2rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/80 px-4 py-3 text-xs text-[rgba(var(--app-primary-rgb),0.62)]">
+              QR cards won’t need to recreate any of this. They’ll just choose which saved appointment options to include for that homeowner.
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
         <section className="app-panel rounded-[2rem] border p-5">
@@ -652,294 +976,8 @@ export function QrHubPage() {
                   />
                 </label>
 
-                <div className="rounded-[1.6rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.5)] p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Saved Booking Setup</div>
-                      <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
-                        Save your working hours and appointment types once, then reuse them every time you create a new code.
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void saveBookingProfile()}
-                      disabled={bookingProfileState === "saving"}
-                      className="rounded-2xl bg-[rgba(var(--app-primary-rgb),0.96)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {bookingProfileState === "saving" ? "Saving..." : "Save Setup"}
-                    </button>
-                  </div>
-
-                  {bookingProfileMessage ? (
-                    <div
-                      className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
-                        bookingProfileState === "error"
-                          ? "border-rose-200 bg-rose-50 text-rose-900"
-                          : "border-emerald-200 bg-emerald-50 text-emerald-900"
-                      }`}
-                    >
-                      {bookingProfileMessage}
-                    </div>
-                  ) : null}
-
-                  <div className="mt-4 text-xs font-semibold uppercase tracking-[0.18em] text-mist">Working Hours</div>
-                  <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
-                    Homeowners will only see open slots inside these days and hours.
-                  </div>
-
-                  <div className="mt-4 grid gap-4 md:grid-cols-2">
-                    <label className="block space-y-2">
-                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Timezone</div>
-                      <input
-                        value={availabilityTimezone}
-                        onChange={(event) => setAvailabilityTimezone(event.target.value)}
-                        placeholder="America/New_York"
-                        className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
-                      />
-                    </label>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <label className="block space-y-2">
-                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Start</div>
-                        <input
-                          type="time"
-                          value={availabilityStartTime}
-                          onChange={(event) => setAvailabilityStartTime(event.target.value)}
-                          className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
-                        />
-                      </label>
-                      <label className="block space-y-2">
-                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">End</div>
-                        <input
-                          type="time"
-                          value={availabilityEndTime}
-                          onChange={(event) => setAvailabilityEndTime(event.target.value)}
-                          className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
-                        />
-                      </label>
-                    </div>
-
-                    <label className="block space-y-2">
-                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Minimum notice</div>
-                      <select
-                        value={availabilityMinNoticeHours}
-                        onChange={(event) => setAvailabilityMinNoticeHours(Number(event.target.value))}
-                        className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
-                      >
-                        {[0, 1, 2, 4, 8, 12, 24].map((hours) => (
-                          <option key={hours} value={hours}>
-                            {hours === 0 ? "No minimum" : `${hours} hour${hours === 1 ? "" : "s"}`}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="block space-y-2">
-                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">How far out</div>
-                      <select
-                        value={availabilityMaxDaysOut}
-                        onChange={(event) => setAvailabilityMaxDaysOut(Number(event.target.value))}
-                        className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
-                      >
-                        {[7, 10, 14, 21, 30].map((days) => (
-                          <option key={days} value={days}>
-                            {days} days
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-
-                  <div className="mt-4">
-                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Working days</div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {WEEKDAY_CHOICES.map((day) => {
-                        const active = availabilityWorkingDays.includes(day.value);
-                        return (
-                          <button
-                            key={day.value}
-                            type="button"
-                            onClick={() =>
-                              setAvailabilityWorkingDays((current) => {
-                                if (active) {
-                                  return current.filter((value) => value !== day.value);
-                                }
-                                return [...current, day.value].sort((left, right) => left - right);
-                              })
-                            }
-                            className={`rounded-full border px-3 py-2 text-sm font-semibold transition ${
-                              active
-                                ? "border-[rgba(var(--app-primary-rgb),0.96)] bg-[rgba(var(--app-primary-rgb),0.96)] text-white"
-                                : "border-[rgba(var(--app-primary-rgb),0.08)] bg-white text-[rgba(var(--app-primary-rgb),0.72)] hover:border-[rgba(var(--app-primary-rgb),0.2)]"
-                            }`}
-                          >
-                            {day.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-[1.2rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/80 px-4 py-3 text-xs text-[rgba(var(--app-primary-rgb),0.62)]">
-                    Homeowners will only see the appointment types you enable here. Public names and descriptions can be customized while Lumino still handles the behind-the-scenes timing and buffer rules.
-                  </div>
-                </div>
-
-                <div className="rounded-[1.6rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.5)] p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Appointment Types</div>
-                  <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
-                    Customize the names, descriptions, and timing rules homeowners will see on the booking page.
-                  </div>
-
-                  <div className="mt-4 space-y-4">
-                    {(["phone_call", "in_person_consult"] as const).map((typeKey) => {
-                      const bookingType = bookingTypes[typeKey];
-                      return (
-                        <div key={typeKey} className="rounded-[1.4rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/80 p-4">
-                          <label className="flex items-center justify-between gap-4">
-                            <div>
-                              <div className="text-sm font-semibold text-ink">{typeKey === "phone_call" ? "Phone-Style Slot" : "In-Person Slot"}</div>
-                              <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">
-                                Internal slot: {typeKey === "phone_call" ? "Phone Call" : "In-Person Consult"}
-                              </div>
-                            </div>
-                            <span className="inline-flex items-center gap-2 text-sm font-medium text-ink">
-                              Enabled
-                              <input
-                                type="checkbox"
-                                checked={bookingType.enabled}
-                                onChange={(event) =>
-                                  setBookingTypes((current) => ({
-                                    ...current,
-                                    [typeKey]: {
-                                      ...current[typeKey],
-                                      enabled: event.target.checked
-                                    }
-                                  }))
-                                }
-                                className="h-4 w-4 rounded border-slate-300"
-                              />
-                            </span>
-                          </label>
-
-                          <div className="mt-4 grid gap-4 md:grid-cols-2">
-                            <label className="block space-y-2">
-                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Public Name</div>
-                              <input
-                                value={bookingType.label}
-                                onChange={(event) =>
-                                  setBookingTypes((current) => ({
-                                    ...current,
-                                    [typeKey]: {
-                                      ...current[typeKey],
-                                      label: event.target.value
-                                    }
-                                  }))
-                                }
-                                className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
-                              />
-                            </label>
-
-                            <label className="block space-y-2">
-                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Length (minutes)</div>
-                              <input
-                                type="number"
-                                min={10}
-                                max={180}
-                                value={bookingType.durationMinutes}
-                                onChange={(event) =>
-                                  setBookingTypes((current) => ({
-                                    ...current,
-                                    [typeKey]: {
-                                      ...current[typeKey],
-                                      durationMinutes: Number(event.target.value || 0)
-                                    }
-                                  }))
-                                }
-                                className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
-                              />
-                            </label>
-
-                            <label className="block space-y-2 md:col-span-2">
-                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Brief Description</div>
-                              <input
-                                value={bookingType.shortDescription ?? ""}
-                                onChange={(event) =>
-                                  setBookingTypes((current) => ({
-                                    ...current,
-                                    [typeKey]: {
-                                      ...current[typeKey],
-                                      shortDescription: event.target.value
-                                    }
-                                  }))
-                                }
-                                placeholder="A short summary shown on the booking page."
-                                className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
-                              />
-                            </label>
-
-                            <label className="block space-y-2 md:col-span-2">
-                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Full Description</div>
-                              <textarea
-                                value={bookingType.fullDescription ?? ""}
-                                onChange={(event) =>
-                                  setBookingTypes((current) => ({
-                                    ...current,
-                                    [typeKey]: {
-                                      ...current[typeKey],
-                                      fullDescription: event.target.value
-                                    }
-                                  }))
-                                }
-                                placeholder="Shown after the homeowner clicks into this appointment type."
-                                className="min-h-24 w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
-                              />
-                            </label>
-
-                            <label className="block space-y-2">
-                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Pre Buffer</div>
-                              <input
-                                type="number"
-                                min={0}
-                                max={240}
-                                value={bookingType.preBufferMinutes}
-                                onChange={(event) =>
-                                  setBookingTypes((current) => ({
-                                    ...current,
-                                    [typeKey]: {
-                                      ...current[typeKey],
-                                      preBufferMinutes: Number(event.target.value || 0)
-                                    }
-                                  }))
-                                }
-                                className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
-                              />
-                            </label>
-
-                            <label className="block space-y-2">
-                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Post Buffer</div>
-                              <input
-                                type="number"
-                                min={0}
-                                max={240}
-                                value={bookingType.postBufferMinutes}
-                                onChange={(event) =>
-                                  setBookingTypes((current) => ({
-                                    ...current,
-                                    [typeKey]: {
-                                      ...current[typeKey],
-                                      postBufferMinutes: Number(event.target.value || 0)
-                                    }
-                                  }))
-                                }
-                                className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
-                              />
-                            </label>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                <div className="rounded-[1.6rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.5)] px-4 py-3 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">
+                  Booking rules now live in the dedicated <span className="font-semibold text-ink">Booking Setup</span> section above. This card only chooses which saved appointment types to offer.
                 </div>
               </>
             ) : (
@@ -991,6 +1029,8 @@ export function QrHubPage() {
             <QrCodeCard
               key={item.qrCodeId}
               item={item}
+              archiving={archivingQrCodeId === item.qrCodeId}
+              onArchive={() => void archiveCode(item.qrCodeId)}
               engagementExpanded={expandedEngagementCodeId === item.qrCodeId}
               onToggleEngagement={() =>
                 setExpandedEngagementCodeId((current) => (current === item.qrCodeId ? null : item.qrCodeId))
@@ -1011,10 +1051,14 @@ export function QrHubPage() {
 
 function QrCodeCard({
   item,
+  archiving,
+  onArchive,
   engagementExpanded,
   onToggleEngagement
 }: {
   item: QRCodeListItem;
+  archiving: boolean;
+  onArchive: () => void;
   engagementExpanded: boolean;
   onToggleEngagement: () => void;
 }) {
@@ -1053,7 +1097,14 @@ function QrCodeCard({
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">
                 {isContactCard ? "Contact card" : "Campaign tracker"}{item.territoryName ? ` · ${item.territoryName}` : ""}
               </div>
-              <div className="mt-1 text-2xl font-semibold text-ink">{item.label}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <div className="text-2xl font-semibold text-ink">{item.label}</div>
+                {item.isShared ? (
+                  <span className="rounded-full border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.55)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[rgba(var(--app-primary-rgb),0.7)]">
+                    Team Code
+                  </span>
+                ) : null}
+              </div>
               <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">
                 {item.ownerName ?? "Rep"}
                 {isContactCard && "title" in item.payload && item.payload.title ? ` · ${item.payload.title}` : ""}
@@ -1098,6 +1149,17 @@ function QrCodeCard({
                   <ExternalLink className="h-4 w-4" />
                   Open Booking Page
                 </a>
+              ) : null}
+              {item.canDelete ? (
+                <button
+                  type="button"
+                  onClick={onArchive}
+                  disabled={archiving}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 px-3 py-2 text-sm text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {archiving ? "Archiving..." : "Archive"}
+                </button>
               ) : null}
             </div>
           </div>
