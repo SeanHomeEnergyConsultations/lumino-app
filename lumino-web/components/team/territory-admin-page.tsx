@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ImagePlus, X } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { hasAdminAccess } from "@/lib/auth/permissions";
+import { SquareImageCropDialog } from "@/components/shared/square-image-crop-dialog";
 import type {
   ManagerDashboardResponse,
   OrganizationBrandLogoUploadTargetResponse,
@@ -63,6 +64,7 @@ export function TerritoryAdminPage() {
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
   const [logoFileName, setLogoFileName] = useState<string | null>(null);
   const [logoInputKey, setLogoInputKey] = useState(0);
+  const [pendingLogoFile, setPendingLogoFile] = useState<File | null>(null);
   const [primaryColor, setPrimaryColor] = useState<string>(DEFAULT_ORGANIZATION_THEME.primaryColor);
   const [accentColor, setAccentColor] = useState<string>(DEFAULT_ORGANIZATION_THEME.accentColor);
   const [backgroundColor, setBackgroundColor] = useState<string>(DEFAULT_ORGANIZATION_THEME.backgroundColor);
@@ -535,6 +537,11 @@ export function TerritoryAdminPage() {
     setLogoInputKey((current) => current + 1);
   }
 
+  async function handleCroppedLogo(file: File) {
+    setPendingLogoFile(null);
+    await handleUploadLogo(file);
+  }
+
   function applyThemePreset(presetId: (typeof ORGANIZATION_THEME_PRESETS)[number]["id"]) {
     const preset = ORGANIZATION_THEME_PRESETS.find((item) => item.id === presetId);
     if (!preset) return;
@@ -753,7 +760,7 @@ export function TerritoryAdminPage() {
                           onChange={(event) => {
                             const file = event.target.files?.[0];
                             if (!file) return;
-                            void handleUploadLogo(file);
+                            setPendingLogoFile(file);
                           }}
                         />
                       </label>
@@ -1464,6 +1471,19 @@ export function TerritoryAdminPage() {
           )}
         </section>
       </div>
+
+      <SquareImageCropDialog
+        file={pendingLogoFile}
+        open={Boolean(pendingLogoFile)}
+        title="Crop logo"
+        onCancel={() => {
+          setPendingLogoFile(null);
+          setLogoInputKey((current) => current + 1);
+        }}
+        onConfirm={(file) => {
+          void handleCroppedLogo(file);
+        }}
+      />
     </div>
   );
 }
