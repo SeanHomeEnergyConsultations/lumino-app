@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import type { AppBrandingResponse } from "@/types/api";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { DEFAULT_ORGANIZATION_THEME, getOrganizationThemeStyle, ORGANIZATION_THEME_PRESETS } from "@/lib/branding/theme";
@@ -21,6 +22,7 @@ export function AppBrandingEditor() {
   const [selectedThemePresetId, setSelectedThemePresetId] = useState<
     "" | (typeof ORGANIZATION_THEME_PRESETS)[number]["id"]
   >("");
+  const [expanded, setExpanded] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
 
@@ -99,7 +101,11 @@ export function AppBrandingEditor() {
 
   return (
     <section className="app-panel rounded-[2rem] border p-6">
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        className="flex w-full items-start justify-between gap-5 text-left"
+      >
         <div className="max-w-2xl">
           <div className="text-xs font-semibold uppercase tracking-[0.24em] text-mist">App Branding</div>
           <h2 className="mt-3 text-2xl font-semibold text-ink">Live app brand source of truth</h2>
@@ -119,11 +125,15 @@ export function AppBrandingEditor() {
           ) : null}
         </div>
 
-        <div className="app-chip inline-flex rounded-full px-4 py-2 text-sm font-semibold text-[rgba(var(--app-primary-rgb),0.72)]">
-          {canEdit ? "Platform owner can edit" : "Read only"}
+        <div className="flex items-center gap-3">
+          <div className="app-chip inline-flex rounded-full px-4 py-2 text-sm font-semibold text-[rgba(var(--app-primary-rgb),0.72)]">
+            {canEdit ? "Platform owner can edit" : "Read only"}
+          </div>
+          <ChevronDown className={`h-5 w-5 text-[rgba(var(--app-primary-rgb),0.5)] transition ${expanded ? "rotate-180" : ""}`} />
         </div>
-      </div>
+      </button>
 
+      {expanded ? (
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-4">
           <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-[rgba(var(--app-primary-rgb),0.58)]">
@@ -273,6 +283,7 @@ export function AppBrandingEditor() {
           </div>
         </div>
       </div>
+      ) : null}
     </section>
   );
 }

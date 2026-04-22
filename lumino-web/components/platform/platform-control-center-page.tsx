@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Building2, CheckCircle2, ExternalLink, RefreshCw, ShieldAlert, ShieldCheck, Sparkles } from "lucide-react";
+import { Building2, CheckCircle2, ChevronDown, ExternalLink, RefreshCw, ShieldAlert, ShieldCheck, Sparkles } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { AppBrandingEditor } from "@/components/platform/app-branding-editor";
 import { parseDatasetEntitlementInput } from "@/lib/platform/dataset-entitlements";
@@ -153,6 +153,25 @@ export function PlatformControlCenterPage() {
   const [releasingDatasetId, setReleasingDatasetId] = useState<string | null>(null);
   const [sendingTestAlert, setSendingTestAlert] = useState(false);
   const [datasetTargets, setDatasetTargets] = useState<Record<string, string>>({});
+  const [expandedSections, setExpandedSections] = useState({
+    organizations: true,
+    datasets: false,
+    security: false
+  });
+
+  function jumpToSection(sectionId: string) {
+    if (sectionId === "platform-organizations") {
+      setExpandedSections((current) => ({ ...current, organizations: true }));
+    } else if (sectionId === "platform-datasets") {
+      setExpandedSections((current) => ({ ...current, datasets: true }));
+    } else if (sectionId === "platform-security-events") {
+      setExpandedSections((current) => ({ ...current, security: true }));
+    }
+    if (typeof document === "undefined") return;
+    window.setTimeout(() => {
+      document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 40);
+  }
 
   async function loadOverview(showSpinner = false) {
     if (!session?.access_token) return;
@@ -468,50 +487,72 @@ export function PlatformControlCenterPage() {
           {
             label: "Organizations",
             value: items.length,
-            detail: `${items.filter((item) => item.status === "active").length} active`
+            detail: `${items.filter((item) => item.status === "active").length} active`,
+            targetId: "platform-organizations"
           },
           {
             label: "Active Team Members",
             value: items.reduce((sum, item) => sum + item.activeTeamMemberCount, 0),
-            detail: `${items.reduce((sum, item) => sum + item.adminCount, 0)} admins`
+            detail: `${items.reduce((sum, item) => sum + item.adminCount, 0)} admins`,
+            targetId: "platform-organizations"
           },
           {
             label: "Completed Imports",
             value: items.reduce((sum, item) => sum + item.completedImportCount, 0),
-            detail: `${items.reduce((sum, item) => sum + item.importBatchCount, 0)} total batches`
+            detail: `${items.reduce((sum, item) => sum + item.importBatchCount, 0)} total batches`,
+            targetId: "platform-organizations"
           },
           {
             label: "Security Events",
             value: events.length,
-            detail: `${events.filter((item) => item.severity === "high").length} high severity`
+            detail: `${events.filter((item) => item.severity === "high").length} high severity`,
+            targetId: "platform-security-events"
           }
         ].map((metric) => (
-          <div key={metric.label} className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
+          <button
+            key={metric.label}
+            type="button"
+            onClick={() => jumpToSection(metric.targetId)}
+            className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 text-left shadow-panel backdrop-blur transition hover:border-slate-300 hover:bg-slate-50"
+          >
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">{metric.label}</div>
             <div className="mt-3 text-3xl font-semibold text-ink">{loading ? "…" : metric.value}</div>
             <div className="mt-2 text-sm text-slate-500">{metric.detail}</div>
-          </div>
+          </button>
         ))}
       </section>
 
-      <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-6 shadow-panel backdrop-blur">
-        <div className="flex items-center gap-3">
-          <Building2 className="h-5 w-5 text-slate-500" />
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Organizations</div>
-            <p className="mt-1 text-sm text-slate-500">
-              Billing plans, feature flags, setup progress, and one-click entry into each org.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-5 space-y-4">
-          {loading ? (
-            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
-              Loading organizations…
+      <section
+        id="platform-organizations"
+        className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-6 shadow-panel backdrop-blur"
+      >
+        <button
+          type="button"
+          onClick={() => setExpandedSections((current) => ({ ...current, organizations: !current.organizations }))}
+          className="flex w-full items-center justify-between gap-3 text-left"
+        >
+          <div className="flex items-center gap-3">
+            <Building2 className="h-5 w-5 text-slate-500" />
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Organizations</div>
+              <p className="mt-1 text-sm text-slate-500">
+                Billing plans, feature flags, setup progress, and one-click entry into each org.
+              </p>
             </div>
-          ) : items.length ? (
-            items.map((item) => {
+          </div>
+          <ChevronDown
+            className={`h-5 w-5 text-slate-400 transition ${expandedSections.organizations ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {expandedSections.organizations ? (
+          <div className="mt-5 space-y-4">
+            {loading ? (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+                Loading organizations…
+              </div>
+            ) : items.length ? (
+              items.map((item) => {
               const draft = drafts[item.organizationId];
               const platformLocked = item.isPlatformSource;
               return (
@@ -851,29 +892,43 @@ export function PlatformControlCenterPage() {
                   </div>
                 </div>
               );
-            })
-          ) : (
-            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
-              No organizations found yet.
-            </div>
-          )}
-        </div>
+              })
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+                No organizations found yet.
+              </div>
+            )}
+          </div>
+        ) : null}
       </section>
 
-      <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-6 shadow-panel backdrop-blur">
-        <div className="flex items-center gap-3">
-          <Sparkles className="h-5 w-5 text-slate-500" />
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Shared Datasets</div>
-            <p className="mt-1 text-sm text-slate-500">
-              Publish and analyze once in the platform source org, then grant active access to customer orgs without cloning or reanalyzing batches.
-            </p>
+      <section
+        id="platform-datasets"
+        className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-6 shadow-panel backdrop-blur"
+      >
+        <button
+          type="button"
+          onClick={() => setExpandedSections((current) => ({ ...current, datasets: !current.datasets }))}
+          className="flex w-full items-center justify-between gap-3 text-left"
+        >
+          <div className="flex items-center gap-3">
+            <Sparkles className="h-5 w-5 text-slate-500" />
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Shared Datasets</div>
+              <p className="mt-1 text-sm text-slate-500">
+                Publish and analyze once in the platform source org, then grant active access to customer orgs without cloning or reanalyzing batches.
+              </p>
+            </div>
           </div>
-        </div>
+          <ChevronDown
+            className={`h-5 w-5 text-slate-400 transition ${expandedSections.datasets ? "rotate-180" : ""}`}
+          />
+        </button>
 
-        <div className="mt-5 space-y-4">
-          {datasets.length ? (
-            datasets.map((dataset) => {
+        {expandedSections.datasets ? (
+          <div className="mt-5 space-y-4">
+            {datasets.length ? (
+              datasets.map((dataset) => {
               const availableTargets = items.filter((item) => item.organizationId !== dataset.sourceOrganizationId);
               const targetOrganizationId =
                 datasetTargets[dataset.datasetId] ?? availableTargets[0]?.organizationId ?? "";
@@ -997,26 +1052,41 @@ export function PlatformControlCenterPage() {
                   </div>
                 </div>
               );
-            })
-          ) : (
-            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
-              No shared datasets published yet. Publish a batch from the import detail screen to make it available here.
-            </div>
-          )}
-        </div>
+              })
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+                No shared datasets published yet. Publish a batch from the import detail screen to make it available here.
+              </div>
+            )}
+          </div>
+        ) : null}
       </section>
 
-      <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-6 shadow-panel backdrop-blur">
-        <div className="flex items-center gap-3">
-          <ShieldCheck className="h-5 w-5 text-slate-500" />
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Security Events</div>
-            <p className="mt-1 text-sm text-slate-500">
-              Triage the latest account, import, branding, and rate-limit events across the platform.
-            </p>
+      <section
+        id="platform-security-events"
+        className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-6 shadow-panel backdrop-blur"
+      >
+        <button
+          type="button"
+          onClick={() => setExpandedSections((current) => ({ ...current, security: !current.security }))}
+          className="flex w-full items-center justify-between gap-3 text-left"
+        >
+          <div className="flex items-center gap-3">
+            <ShieldCheck className="h-5 w-5 text-slate-500" />
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Security Events</div>
+              <p className="mt-1 text-sm text-slate-500">
+                Triage the latest account, import, branding, and rate-limit events across the platform.
+              </p>
+            </div>
           </div>
-        </div>
+          <ChevronDown
+            className={`h-5 w-5 text-slate-400 transition ${expandedSections.security ? "rotate-180" : ""}`}
+          />
+        </button>
 
+        {expandedSections.security ? (
+          <>
         <div className="mt-5 grid gap-3 md:grid-cols-3">
           <select
             value={selectedOrganizationId}
@@ -1122,6 +1192,8 @@ export function PlatformControlCenterPage() {
             </div>
           )}
         </div>
+          </>
+        ) : null}
       </section>
     </div>
   );
