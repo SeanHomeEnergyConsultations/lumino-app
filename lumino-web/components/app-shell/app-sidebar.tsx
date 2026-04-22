@@ -14,7 +14,8 @@ import {
   Upload,
   Building2,
   Trophy,
-  QrCode
+  QrCode,
+  FolderOpen
 } from "lucide-react";
 import { LogoMark } from "@/components/shared/logo-mark";
 import { useAuth } from "@/lib/auth/client";
@@ -35,6 +36,7 @@ export const appNavItems: readonly NavItem[] = [
   { href: "/queue", label: "Queue", icon: ListTodo, requiredFeature: "visitLoggingEnabled" },
   { href: "/leads", label: "Leads", icon: ContactRound, requiredFeature: "leadsEnabled" },
   { href: "/appointments", label: "Appointments", icon: CalendarCheck2, requiredFeature: "appointmentsEnabled" },
+  { href: "/resources", label: "Resources", icon: FolderOpen },
   { href: "/qr", label: "QR", icon: QrCode },
   { href: "/wins", label: "Wins", icon: Trophy },
   { href: "/imports", label: "Imports", icon: Upload, requiredFeature: "selfImportsEnabled", managerOnly: true },

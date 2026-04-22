@@ -7,6 +7,7 @@ const PROTECTED_PATHS = [
   "/queue",
   "/leads",
   "/appointments",
+  "/resources",
   "/qr",
   "/tasks",
   "/dashboard",

@@ -932,3 +932,32 @@ export interface PublicQrAvailabilityResponse {
   appointmentTypeLabel: string;
   days: QrAvailabilityDay[];
 }
+
+export type ResourceMaterialType = "document" | "video" | "printable";
+
+export interface OrganizationResourceItem {
+  resourceId: string;
+  title: string;
+  description: string | null;
+  resourceType: ResourceMaterialType;
+  territoryId: string | null;
+  territoryName: string | null;
+  fileName: string;
+  mimeType: string | null;
+  fileSizeBytes: number;
+  uploaderUserId: string;
+  uploaderName: string | null;
+  signedUrl: string | null;
+  createdAt: string;
+}
+
+export interface ResourcesResponse {
+  canManageResources: boolean;
+  items: OrganizationResourceItem[];
+}
+
+export interface ResourceUploadTargetResponse {
+  bucket: string;
+  path: string;
+  token: string;
+}
