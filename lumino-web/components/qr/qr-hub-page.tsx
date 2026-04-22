@@ -742,25 +742,20 @@ function QrCodeCard({
               { label: "Booked", value: item.stats.appointmentsBooked },
               { label: "Saved", value: item.stats.saveContacts },
               {
-                label: "Engagement",
+                label: "Engaged",
                 value: engagementTotal
               }
             ].map((stat) => (
               <button
                 key={stat.label}
                 type="button"
-                onClick={stat.label === "Engagement" ? onToggleEngagement : undefined}
+                onClick={stat.label === "Engaged" ? onToggleEngagement : undefined}
                 className={`rounded-[1.4rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/80 px-4 py-3 text-left ${
-                  stat.label === "Engagement" ? "transition hover:bg-[rgba(var(--app-surface-rgb),0.55)]" : ""
+                  stat.label === "Engaged" ? "transition hover:bg-[rgba(var(--app-surface-rgb),0.55)]" : ""
                 }`}
               >
                 <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">{stat.label}</div>
                 <div className="mt-2 text-2xl font-semibold text-ink">{stat.value}</div>
-                {stat.label === "Engagement" ? (
-                  <div className="mt-1 text-[11px] text-[rgba(var(--app-primary-rgb),0.58)]">
-                    {engagementExpanded ? "Hide breakdown" : "Click for breakdown"}
-                  </div>
-                ) : null}
               </button>
             ))}
           </div>
