@@ -158,6 +158,7 @@ export function PlatformControlCenterPage() {
     datasets: false,
     security: false
   });
+  const [expandedOrganizations, setExpandedOrganizations] = useState<Record<string, boolean>>({});
 
   function jumpToSection(sectionId: string) {
     if (sectionId === "platform-organizations") {
@@ -171,6 +172,13 @@ export function PlatformControlCenterPage() {
     window.setTimeout(() => {
       document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 40);
+  }
+
+  function toggleOrganization(organizationId: string) {
+    setExpandedOrganizations((current) => ({
+      ...current,
+      [organizationId]: !(current[organizationId] ?? false)
+    }));
   }
 
   async function loadOverview(showSpinner = false) {
@@ -555,10 +563,15 @@ export function PlatformControlCenterPage() {
               items.map((item) => {
               const draft = drafts[item.organizationId];
               const platformLocked = item.isPlatformSource;
+              const isExpanded = expandedOrganizations[item.organizationId] ?? false;
               return (
                 <div key={item.organizationId} className="rounded-[1.75rem] border border-slate-200 bg-slate-50/90 p-5">
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                    <div className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleOrganization(item.organizationId)}
+                      className="min-w-0 flex-1 text-left"
+                    >
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="text-lg font-semibold text-ink">{item.name}</div>
                         <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
@@ -574,16 +587,14 @@ export function PlatformControlCenterPage() {
                             Platform Source
                           </span>
                         ) : null}
+                        <ChevronDown
+                          className={`ml-auto h-5 w-5 text-slate-400 transition ${isExpanded ? "rotate-180" : ""}`}
+                        />
                       </div>
                       <div className="mt-2 text-sm text-slate-500">
                         {item.appName}
                         {item.slug ? ` · ${item.slug}` : ""}
                       </div>
-                      {item.isPlatformSource ? (
-                        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600">
-                          This organization is locked as the platform source org. Shared datasets are published from here, and customer plan controls do not apply.
-                        </div>
-                      ) : null}
                       <div className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-2 xl:grid-cols-4">
                         <div>
                           <div className="text-xs font-semibold uppercase tracking-[0.14em] text-mist">Team</div>
@@ -602,9 +613,9 @@ export function PlatformControlCenterPage() {
                           <div className="mt-1">{formatDateTime(item.lastActivityAt)}</div>
                         </div>
                       </div>
-                    </div>
+                    </button>
 
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2 xl:pl-4">
                       <button
                         type="button"
                         onClick={() => switchAndGo(item.organizationId, "/dashboard")}
@@ -636,6 +647,14 @@ export function PlatformControlCenterPage() {
                       </button>
                     </div>
                   </div>
+
+                  {isExpanded ? (
+                  <>
+                  {item.isPlatformSource ? (
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600">
+                      This organization is locked as the platform source org. Shared datasets are published from here, and customer plan controls do not apply.
+                    </div>
+                  ) : null}
 
                   <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr,1fr,1fr,1.1fr]">
                     <div className="rounded-3xl border border-slate-200 bg-white p-4">
@@ -890,6 +909,8 @@ export function PlatformControlCenterPage() {
                       {getOrganizationSaveLabel(item, canMutate, savingOrgId === item.organizationId)}
                     </button>
                   </div>
+                  </>
+                  ) : null}
                 </div>
               );
               })
