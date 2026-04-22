@@ -1,10 +1,5 @@
-import { ProtectedAppShell } from "@/components/app-shell/protected-app-shell";
-import { TasksPage } from "@/components/tasks/tasks-page";
+import { redirect } from "next/navigation";
 
 export default function TasksRoute() {
-  return (
-    <ProtectedAppShell requiredFeature="tasksEnabled">
-      <TasksPage />
-    </ProtectedAppShell>
-  );
+  redirect("/follow-up");
 }

@@ -7,7 +7,6 @@ import {
   Map,
   LayoutDashboard,
   ListTodo,
-  CheckSquare2,
   Users,
   CalendarCheck2,
   ContactRound,
@@ -33,7 +32,7 @@ type NavItem = {
 
 export const appNavItems: readonly NavItem[] = [
   { href: "/map", label: "Map", icon: Map, requiredFeature: "mapEnabled" },
-  { href: "/queue", label: "Queue", icon: ListTodo, requiredFeature: "visitLoggingEnabled" },
+  { href: "/follow-up", label: "Follow Up", icon: ListTodo, requiredFeature: "visitLoggingEnabled" },
   { href: "/leads", label: "Leads", icon: ContactRound, requiredFeature: "leadsEnabled" },
   { href: "/appointments", label: "Appointments", icon: CalendarCheck2, requiredFeature: "appointmentsEnabled" },
   { href: "/resources", label: "Resources", icon: FolderOpen },
@@ -41,7 +40,6 @@ export const appNavItems: readonly NavItem[] = [
   { href: "/wins", label: "Wins", icon: Trophy },
   { href: "/imports", label: "Imports", icon: Upload, requiredFeature: "selfImportsEnabled", managerOnly: true },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, managerOnly: true },
-  { href: "/tasks", label: "Tasks", icon: CheckSquare2, requiredFeature: "tasksEnabled" },
   { href: "/team", label: "Team", icon: Users, requiredFeature: "teamManagementEnabled", managerOnly: true },
   { href: "/platform", label: "Platform", icon: Building2, platformOnly: true }
 ] as const;

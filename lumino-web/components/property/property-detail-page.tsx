@@ -240,10 +240,10 @@ export function PropertyDetailPage({ propertyId }: { propertyId: string }) {
               Open on Map
             </Link>
             <Link
-              href="/queue"
+              href="/follow-up"
               className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-slate-300"
             >
-              Back to Queue
+              Back to Follow Up
             </Link>
           </div>
         </div>

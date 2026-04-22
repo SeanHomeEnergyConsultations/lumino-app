@@ -1,5 +1,4 @@
-import { ProtectedAppShell } from "@/components/app-shell/protected-app-shell";
-import { QueuePage } from "@/components/queue/queue-page";
+import { redirect } from "next/navigation";
 
 export default async function QueueRoute({
   searchParams
@@ -7,10 +6,13 @@ export default async function QueueRoute({
   searchParams?: Promise<{ ownerId?: string; repName?: string }>;
 }) {
   const resolvedSearchParams = (await searchParams) ?? {};
+  const params = new URLSearchParams();
+  if (resolvedSearchParams.ownerId) {
+    params.set("ownerId", resolvedSearchParams.ownerId);
+  }
+  if (resolvedSearchParams.repName) {
+    params.set("repName", resolvedSearchParams.repName);
+  }
 
-  return (
-    <ProtectedAppShell requiredFeature="visitLoggingEnabled">
-      <QueuePage initialOwnerId={resolvedSearchParams.ownerId ?? null} repName={resolvedSearchParams.repName ?? null} />
-    </ProtectedAppShell>
-  );
+  redirect(params.toString() ? `/follow-up?${params.toString()}` : "/follow-up");
 }

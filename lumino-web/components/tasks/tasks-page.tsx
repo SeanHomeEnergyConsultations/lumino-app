@@ -86,7 +86,7 @@ function TaskSection({
                 ) : null}
                 {item.leadId ? (
                   <Link
-                    href="/queue"
+                    href="/follow-up"
                     className="app-glass-button rounded-2xl px-4 py-2 text-sm font-semibold text-ink transition hover:brightness-105"
                   >
                     Queue

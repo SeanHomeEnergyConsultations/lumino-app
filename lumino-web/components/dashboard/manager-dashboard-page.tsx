@@ -67,7 +67,7 @@ export function ManagerDashboardPage() {
 
       <div className="mt-6 grid gap-3 md:grid-cols-5">
           {[
-            { label: "Active Reps", value: dashboard?.summary.activeReps ?? 0, icon: Users, href: "/queue" },
+            { label: "Active Reps", value: dashboard?.summary.activeReps ?? 0, icon: Users, href: "/follow-up" },
             { label: "Knocks Today", value: dashboard?.summary.knocksToday ?? 0, icon: MapPinned, href: "/map" },
             { label: "Opportunities", value: dashboard?.summary.opportunitiesToday ?? 0, icon: Target, href: "/map?filters=opportunity" },
             { label: "Appointments", value: dashboard?.summary.appointmentsToday ?? 0, icon: CalendarCheck2, href: "/map?filters=appointment_set" },
@@ -252,10 +252,10 @@ export function ManagerDashboardPage() {
                       <div>{rep.activeWindowMinutes ? `${rep.activeWindowMinutes} min` : "—"}</div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Link
-                          href={`/queue?ownerId=${rep.userId}&repName=${encodeURIComponent(rep.fullName ?? rep.email ?? "Rep")}` as Route}
+                          href={`/follow-up?ownerId=${rep.userId}&repName=${encodeURIComponent(rep.fullName ?? rep.email ?? "Rep")}` as Route}
                           className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition hover:border-slate-300"
                         >
-                          Queue
+                          Follow Up
                         </Link>
                         <Link
                           href={`/map?ownerId=${rep.userId}` as Route}

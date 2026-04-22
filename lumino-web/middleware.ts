@@ -4,6 +4,7 @@ import { CURRENT_AGREEMENT_COOKIE } from "@/lib/legal/clickwrap";
 
 const PROTECTED_PATHS = [
   "/map",
+  "/follow-up",
   "/queue",
   "/leads",
   "/appointments",
