@@ -54,7 +54,7 @@ export async function PATCH(request: Request) {
     eventType: "qr_booking_profile_updated",
     severity: "low",
     metadata: {
-      enabledTypes: item.bookingTypes.filter((type) => type.enabled).map((type) => type.type)
+      enabledTypes: item.bookingTypes.filter((type) => type.enabled).map((type) => type.label)
     }
   });
 

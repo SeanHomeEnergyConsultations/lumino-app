@@ -10,7 +10,6 @@ import {
   getQrBookingTypeConfig,
   normalizeQrAvailabilitySettings,
   normalizeQrBookingTypeConfigs,
-  QR_APPOINTMENT_TYPE_CONFIG,
   type QrAppointmentType
 } from "@/lib/qr/availability";
 import { getRequestIpAddress, getRequestUserAgent } from "@/lib/security/request-meta";
@@ -147,7 +146,13 @@ async function getRepBusyRanges(input: {
     .filter((row) => row.appointment_at)
     .map((row) => {
       const type = appointmentTypeByLeadId.get(row.id) ?? "in_person_consult";
-      const config = QR_APPOINTMENT_TYPE_CONFIG[type];
+      const config =
+        normalizeQrBookingTypeConfigs([
+          {
+            id: type,
+            type
+          }
+        ])[0];
       const start = new Date(row.appointment_at as string);
       return {
         start: addMinutes(start, -config.preBufferMinutes),
@@ -175,7 +180,7 @@ async function getRepBusyRanges(input: {
 
 export async function getPublicQrAvailability(input: {
   slug: string;
-  appointmentType: QrAppointmentType;
+  bookingTypeId: string;
 }) {
   const supabase = createServerSupabaseClient();
   const { data: qrCode, error } = await supabase
@@ -225,8 +230,8 @@ export async function getPublicQrAvailability(input: {
       ? (qrCode.payload.bookingTypes as Record<string, unknown>)
       : null
   );
-  const config = getQrBookingTypeConfig(bookingTypes, input.appointmentType);
-  if (!config.enabled) {
+  const config = getQrBookingTypeConfig(bookingTypes, input.bookingTypeId);
+  if (!config?.enabled) {
     throw new Error("This appointment type is not currently available.");
   }
   const now = new Date();
@@ -311,8 +316,9 @@ export async function getPublicQrAvailability(input: {
   }
 
   return {
+    bookingTypeId: config.id,
     timezone: availability.timezone,
-    appointmentType: input.appointmentType,
+    appointmentType: config.type,
     appointmentTypeLabel: config.label,
     days: days.slice(0, 10)
   };
@@ -375,26 +381,17 @@ export async function upsertUserBookingProfile(
       minNoticeHours: number;
       maxDaysOut: number;
     };
-    bookingTypes: {
-      phone_call: {
-        enabled?: boolean;
-        label: string;
-        shortDescription?: string | null;
-        fullDescription?: string | null;
-        durationMinutes: number;
-        preBufferMinutes: number;
-        postBufferMinutes: number;
-      };
-      in_person_consult: {
-        enabled?: boolean;
-        label: string;
-        shortDescription?: string | null;
-        fullDescription?: string | null;
-        durationMinutes: number;
-        preBufferMinutes: number;
-        postBufferMinutes: number;
-      };
-    };
+    bookingTypes: Array<{
+      id: string;
+      type: QrAppointmentType;
+      enabled?: boolean;
+      label: string;
+      shortDescription?: string | null;
+      fullDescription?: string | null;
+      durationMinutes: number;
+      preBufferMinutes: number;
+      postBufferMinutes: number;
+    }>;
   },
   context: AuthSessionContext
 ) {
@@ -405,20 +402,17 @@ export async function upsertUserBookingProfile(
 
   const payload = {
     availability: normalizeQrAvailabilitySettings(input.availability),
-    bookingTypes: Object.fromEntries(
-      normalizeQrBookingTypeConfigs(input.bookingTypes).map((item) => [
-        item.type,
-        {
-          enabled: item.enabled,
-          label: item.label,
-          shortDescription: item.shortDescription,
-          fullDescription: item.fullDescription,
-          durationMinutes: item.durationMinutes,
-          preBufferMinutes: item.preBufferMinutes,
-          postBufferMinutes: item.postBufferMinutes
-        }
-      ])
-    )
+    bookingTypes: normalizeQrBookingTypeConfigs(input.bookingTypes).map((item) => ({
+      id: item.id,
+      type: item.type,
+      enabled: item.enabled,
+      label: item.label,
+      shortDescription: item.shortDescription,
+      fullDescription: item.fullDescription,
+      durationMinutes: item.durationMinutes,
+      preBufferMinutes: item.preBufferMinutes,
+      postBufferMinutes: item.postBufferMinutes
+    }))
   };
 
   const { error } = await supabase.from("user_booking_profiles").upsert(
@@ -476,34 +470,20 @@ export async function createQrCode(
     website?: string | null;
     bookingEnabled?: boolean;
     bookingBlurb?: string | null;
+    bookingTypes?: Array<{
+      id: string;
+      type: QrAppointmentType;
+      enabled?: boolean;
+      label: string;
+      shortDescription?: string | null;
+      fullDescription?: string | null;
+      durationMinutes: number;
+      preBufferMinutes: number;
+      postBufferMinutes: number;
+    }> | null;
+    bookingTypeIds?: string[] | null;
     destinationUrl?: string | null;
     description?: string | null;
-    availabilityTimezone?: string | null;
-    availabilityWorkingDays?: number[] | null;
-    availabilityStartTime?: string | null;
-    availabilityEndTime?: string | null;
-    availabilityMinNoticeHours?: number | null;
-    availabilityMaxDaysOut?: number | null;
-    bookingTypes?: {
-      phone_call: {
-        enabled?: boolean;
-        label: string;
-        shortDescription?: string | null;
-        fullDescription?: string | null;
-        durationMinutes: number;
-        preBufferMinutes: number;
-        postBufferMinutes: number;
-      };
-      in_person_consult: {
-        enabled?: boolean;
-        label: string;
-        shortDescription?: string | null;
-        fullDescription?: string | null;
-        durationMinutes: number;
-        preBufferMinutes: number;
-        postBufferMinutes: number;
-      };
-    } | null;
   },
   context: AuthSessionContext
 ) {
@@ -514,6 +494,7 @@ export async function createQrCode(
 
   const slug = await generateUniqueSlug();
   const branding = await getOrganizationBranding(context);
+  const savedBookingProfile = await getUserBookingProfile(context);
   const codeType = input.codeType ?? "contact_card";
 
   if (codeType === "campaign_tracker" && !hasManagerAccess(context)) {
@@ -530,15 +511,10 @@ export async function createQrCode(
           description: input.description?.trim() || null
         }
       : {
-          bookingTypes: normalizeQrBookingTypeConfigs(input.bookingTypes ?? null),
-          availability: normalizeQrAvailabilitySettings({
-            timezone: input.availabilityTimezone ?? undefined,
-            workingDays: input.availabilityWorkingDays ?? undefined,
-            startTime: input.availabilityStartTime ?? undefined,
-            endTime: input.availabilityEndTime ?? undefined,
-            minNoticeHours: input.availabilityMinNoticeHours ?? undefined,
-            maxDaysOut: input.availabilityMaxDaysOut ?? undefined
-          }),
+          bookingTypes: normalizeQrBookingTypeConfigs(input.bookingTypes ?? savedBookingProfile.bookingTypes).filter((item) =>
+            input.bookingTypeIds?.length ? input.bookingTypeIds.includes(item.id) : item.enabled
+          ),
+          availability: savedBookingProfile.availability,
           firstName,
           lastName: rest.join(" ") || null,
           title: input.title?.trim() || null,
@@ -693,7 +669,7 @@ export async function bookAppointmentFromQr(input: {
   email?: string | null;
   address: string;
   appointmentAt: string;
-  appointmentType: QrAppointmentType;
+  bookingTypeId: string;
   notes?: string | null;
   request: Request;
 }) {
@@ -715,7 +691,7 @@ export async function bookAppointmentFromQr(input: {
 
   const availability = await getPublicQrAvailability({
     slug: input.slug,
-    appointmentType: input.appointmentType
+    bookingTypeId: input.bookingTypeId
   });
   const isAllowedSlot = availability.days.some((day) =>
     day.slots.some((slot) => slot.startAt === new Date(input.appointmentAt).toISOString())
@@ -780,8 +756,8 @@ export async function bookAppointmentFromQr(input: {
                 ? (qrCode.payload.bookingTypes as Record<string, unknown>)
                 : null
             ),
-            input.appointmentType
-          ).label}`
+            input.bookingTypeId
+          )?.label ?? "Appointment"}`
         ]
           .filter(Boolean)
           .join("\n\n") || undefined,
@@ -810,7 +786,7 @@ export async function bookAppointmentFromQr(input: {
       .update({
         scheduled_at: input.appointmentAt,
         status: "scheduled",
-        appointment_type: input.appointmentType,
+        appointment_type: availability.appointmentType,
         notes: input.notes?.trim() || null,
         assigned_rep_id: qrCode.owner_user_id as string,
         updated_at: new Date().toISOString()
@@ -825,7 +801,7 @@ export async function bookAppointmentFromQr(input: {
       assigned_rep_id: qrCode.owner_user_id as string,
       scheduled_at: input.appointmentAt,
       status: "scheduled",
-      appointment_type: input.appointmentType,
+      appointment_type: availability.appointmentType,
       notes: input.notes?.trim() || null
     });
 
@@ -841,7 +817,8 @@ export async function bookAppointmentFromQr(input: {
       leadId: lead.leadId,
       propertyId: lead.propertyId,
       appointmentAt: input.appointmentAt,
-      appointmentType: input.appointmentType,
+      appointmentType: availability.appointmentType,
+      bookingTypeId: input.bookingTypeId,
       territoryId: (qrCode.territory_id as string | null) ?? null
     }
   });
@@ -856,7 +833,8 @@ export async function bookAppointmentFromQr(input: {
       qr_code_id: qrCode.id,
       qr_label: qrCode.label,
       appointment_at: input.appointmentAt,
-      appointment_type: input.appointmentType
+      appointment_type: availability.appointmentType,
+      booking_type_id: input.bookingTypeId
     }
   });
 

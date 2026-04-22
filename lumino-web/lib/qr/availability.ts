@@ -1,5 +1,7 @@
 export type QrAppointmentType = "phone_call" | "in_person_consult";
+
 export type QrBookingTypeConfig = {
+  id: string;
   type: QrAppointmentType;
   enabled: boolean;
   label: string;
@@ -29,7 +31,7 @@ export const DEFAULT_QR_AVAILABILITY_SETTINGS: QrAvailabilitySettings = {
   maxDaysOut: 14
 };
 
-export const QR_APPOINTMENT_TYPE_CONFIG: Record<QrAppointmentType, QrBookingTypeConfig> = {
+const DEFAULT_QR_BOOKING_TYPE_TEMPLATES: Record<QrAppointmentType, Omit<QrBookingTypeConfig, "id">> = {
   phone_call: {
     type: "phone_call",
     enabled: true,
@@ -56,63 +58,139 @@ export const QR_APPOINTMENT_TYPE_CONFIG: Record<QrAppointmentType, QrBookingType
   }
 };
 
+const DEFAULT_QR_BOOKING_TYPES: QrBookingTypeConfig[] = [
+  {
+    id: "phone-call",
+    ...DEFAULT_QR_BOOKING_TYPE_TEMPLATES.phone_call
+  },
+  {
+    id: "in-person-consult",
+    ...DEFAULT_QR_BOOKING_TYPE_TEMPLATES.in_person_consult
+  }
+];
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
 function defaultSlotStep(durationMinutes: number) {
-  if (durationMinutes <= 20) return 15;
   if (durationMinutes <= 45) return 15;
   return 30;
 }
 
-export function normalizeQrBookingTypeConfig(
-  type: QrAppointmentType,
-  value: Partial<QrBookingTypeConfig> | null | undefined
-): QrBookingTypeConfig {
-  const fallback = QR_APPOINTMENT_TYPE_CONFIG[type];
+function slugify(value: string) {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return slug || "appointment";
+}
+
+function randomSuffix() {
+  return Math.random().toString(36).slice(2, 8);
+}
+
+export function createQrBookingType(type: QrAppointmentType, overrides?: Partial<QrBookingTypeConfig>): QrBookingTypeConfig {
+  const fallback = DEFAULT_QR_BOOKING_TYPE_TEMPLATES[type];
+  const label =
+    typeof overrides?.label === "string" && overrides.label.trim() ? overrides.label.trim() : fallback.label;
   const durationMinutes =
-    typeof value?.durationMinutes === "number" ? clamp(Math.round(value.durationMinutes), 10, 180) : fallback.durationMinutes;
-  const preBufferMinutes =
-    typeof value?.preBufferMinutes === "number" ? clamp(Math.round(value.preBufferMinutes), 0, 240) : fallback.preBufferMinutes;
-  const postBufferMinutes =
-    typeof value?.postBufferMinutes === "number" ? clamp(Math.round(value.postBufferMinutes), 0, 240) : fallback.postBufferMinutes;
+    typeof overrides?.durationMinutes === "number"
+      ? clamp(Math.round(overrides.durationMinutes), 10, 180)
+      : fallback.durationMinutes;
 
   return {
+    id:
+      typeof overrides?.id === "string" && overrides.id.trim()
+        ? overrides.id.trim()
+        : `${slugify(label)}-${randomSuffix()}`,
     type,
-    enabled: typeof value?.enabled === "boolean" ? value.enabled : fallback.enabled,
-    label: typeof value?.label === "string" && value.label.trim() ? value.label.trim() : fallback.label,
+    enabled: typeof overrides?.enabled === "boolean" ? overrides.enabled : fallback.enabled,
+    label,
     shortDescription:
-      typeof value?.shortDescription === "string" && value.shortDescription.trim()
-        ? value.shortDescription.trim()
+      typeof overrides?.shortDescription === "string" && overrides.shortDescription.trim()
+        ? overrides.shortDescription.trim()
         : fallback.shortDescription,
     fullDescription:
-      typeof value?.fullDescription === "string" && value.fullDescription.trim()
-        ? value.fullDescription.trim()
+      typeof overrides?.fullDescription === "string" && overrides.fullDescription.trim()
+        ? overrides.fullDescription.trim()
         : fallback.fullDescription,
     durationMinutes,
-    preBufferMinutes,
-    postBufferMinutes,
+    preBufferMinutes:
+      typeof overrides?.preBufferMinutes === "number"
+        ? clamp(Math.round(overrides.preBufferMinutes), 0, 240)
+        : fallback.preBufferMinutes,
+    postBufferMinutes:
+      typeof overrides?.postBufferMinutes === "number"
+        ? clamp(Math.round(overrides.postBufferMinutes), 0, 240)
+        : fallback.postBufferMinutes,
     slotStepMinutes:
-      typeof value?.slotStepMinutes === "number"
-        ? clamp(Math.round(value.slotStepMinutes), 10, 60)
+      typeof overrides?.slotStepMinutes === "number"
+        ? clamp(Math.round(overrides.slotStepMinutes), 10, 60)
         : defaultSlotStep(durationMinutes)
   };
 }
 
-export function normalizeQrBookingTypeConfigs(
-  value: Partial<Record<QrAppointmentType, Partial<QrBookingTypeConfig>>> | null | undefined
-) {
-  return (Object.keys(QR_APPOINTMENT_TYPE_CONFIG) as QrAppointmentType[]).map((type) =>
-    normalizeQrBookingTypeConfig(type, value?.[type])
+type LegacyBookingTypeObject = Partial<Record<QrAppointmentType, Partial<QrBookingTypeConfig>>>;
+
+function normalizeFromArray(value: unknown): QrBookingTypeConfig[] {
+  if (!Array.isArray(value)) return [];
+
+  const normalized = value
+    .map((item, index) => {
+      if (!item || typeof item !== "object") return null;
+      const candidate = item as Partial<QrBookingTypeConfig> & { type?: string | null };
+      const type = candidate.type === "phone_call" || candidate.type === "in_person_consult" ? candidate.type : null;
+      if (!type) return null;
+      return createQrBookingType(type, {
+        ...candidate,
+        id:
+          typeof candidate.id === "string" && candidate.id.trim()
+            ? candidate.id.trim()
+            : `${slugify(candidate.label ?? `${type}-${index + 1}`)}-${randomSuffix()}`
+      });
+    })
+    .filter((item): item is QrBookingTypeConfig => Boolean(item));
+
+  const seen = new Set<string>();
+  return normalized.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function normalizeFromLegacyObject(value: LegacyBookingTypeObject | null | undefined): QrBookingTypeConfig[] {
+  if (!value || typeof value !== "object") {
+    return DEFAULT_QR_BOOKING_TYPES.map((item) => ({ ...item }));
+  }
+
+  return (Object.keys(DEFAULT_QR_BOOKING_TYPE_TEMPLATES) as QrAppointmentType[]).map((type) =>
+    createQrBookingType(type, {
+      ...value[type],
+      id: type === "phone_call" ? "phone-call" : "in-person-consult"
+    })
   );
+}
+
+export function normalizeQrBookingTypeConfigs(
+  value: unknown
+): QrBookingTypeConfig[] {
+  const fromArray = normalizeFromArray(value);
+  if (fromArray.length) return fromArray;
+
+  return normalizeFromLegacyObject(value as LegacyBookingTypeObject | null | undefined);
 }
 
 export function getQrBookingTypeConfig(
   bookingTypes: QrBookingTypeConfig[] | null | undefined,
-  type: QrAppointmentType
+  bookingTypeId: string
 ) {
-  return bookingTypes?.find((item) => item.type === type) ?? normalizeQrBookingTypeConfig(type, null);
+  const normalized = bookingTypes ?? normalizeQrBookingTypeConfigs(null);
+  return normalized.find((item) => item.id === bookingTypeId) ?? null;
 }
 
 export function getEnabledQrBookingTypes(bookingTypes: QrBookingTypeConfig[] | null | undefined) {
@@ -145,8 +223,4 @@ export function normalizeQrAvailabilitySettings(
         ? value.maxDaysOut
         : DEFAULT_QR_AVAILABILITY_SETTINGS.maxDaysOut
   };
-}
-
-export function formatQrAppointmentTypeLabel(type: QrAppointmentType) {
-  return QR_APPOINTMENT_TYPE_CONFIG[type].label;
 }

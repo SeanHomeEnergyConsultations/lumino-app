@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { CalendarCheck2, ChevronLeft, MapPinHouse } from "lucide-react";
-import type { PublicQrAvailabilityResponse, PublicQRCodeResponse, QRAppointmentType } from "@/types/api";
+import type { PublicQrAvailabilityResponse, PublicQRCodeResponse } from "@/types/api";
 
 async function trackEvent(slug: string, eventType: string) {
   await fetch(`/api/public/qr/${slug}/event`, {
@@ -18,7 +18,7 @@ async function trackEvent(slug: string, eventType: string) {
 
 export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResponse["item"]> }) {
   const enabledTypes = item.payload.bookingEnabled ? item.payload.bookingTypes.filter((type) => type.enabled) : [];
-  const [selectedType, setSelectedType] = useState<QRAppointmentType | null>(enabledTypes[0]?.type ?? null);
+  const [selectedTypeId, setSelectedTypeId] = useState<string | null>(enabledTypes[0]?.id ?? null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -34,9 +34,15 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
   const [bookingError, setBookingError] = useState<string | null>(null);
 
   const selectedTypeConfig = useMemo(
-    () => enabledTypes.find((type) => type.type === selectedType) ?? enabledTypes[0] ?? null,
-    [enabledTypes, selectedType]
+    () => enabledTypes.find((type) => type.id === selectedTypeId) ?? enabledTypes[0] ?? null,
+    [enabledTypes, selectedTypeId]
   );
+
+  useEffect(() => {
+    if (!enabledTypes.length) return;
+    if (selectedTypeId && enabledTypes.some((type) => type.id === selectedTypeId)) return;
+    setSelectedTypeId(enabledTypes[0]?.id ?? null);
+  }, [enabledTypes, selectedTypeId]);
 
   useEffect(() => {
     if (!selectedTypeConfig) return;
@@ -46,7 +52,7 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
       setAvailabilityState("loading");
       setAvailabilityError(null);
       try {
-        const response = await fetch(`/api/public/qr/${item.slug}/availability?appointmentType=${selectedTypeConfig.type}`);
+        const response = await fetch(`/api/public/qr/${item.slug}/availability?bookingTypeId=${selectedTypeConfig.id}`);
         const json = (await response.json()) as PublicQrAvailabilityResponse & { error?: string };
         if (!response.ok) {
           throw new Error(json.error || "Could not load open times.");
@@ -102,7 +108,7 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
           email: email || null,
           address,
           appointmentAt: selectedSlot,
-          appointmentType: selectedTypeConfig.type,
+          bookingTypeId: selectedTypeConfig.id,
           notes: notes || null
         })
       });
@@ -157,9 +163,9 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
                   const active = selectedTypeConfig?.type === type.type;
                   return (
                     <button
-                      key={type.type}
+                      key={type.id}
                       type="button"
-                      onClick={() => setSelectedType(type.type)}
+                      onClick={() => setSelectedTypeId(type.id)}
                       className={`rounded-[1.4rem] border px-4 py-4 text-left transition ${
                         active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white hover:border-slate-300"
                       }`}

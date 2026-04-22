@@ -27,7 +27,7 @@ export async function GET(
 
   const { searchParams } = new URL(request.url);
   const parsed = qrAvailabilityQuerySchema.safeParse({
-    appointmentType: searchParams.get("appointmentType") ?? undefined
+    bookingTypeId: searchParams.get("bookingTypeId") ?? undefined
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -39,7 +39,7 @@ export async function GET(
   try {
     const availability = await getPublicQrAvailability({
       slug,
-      appointmentType: parsed.data.appointmentType
+      bookingTypeId: parsed.data.bookingTypeId
     });
     return NextResponse.json(availability);
   } catch (error) {

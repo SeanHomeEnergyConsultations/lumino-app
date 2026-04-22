@@ -200,7 +200,7 @@ export function PublicQrCard({ item }: { item: NonNullable<PublicQRCodeResponse[
             {enabledTypes.length ? (
               <div className="mt-6 grid gap-3 md:grid-cols-2">
                 {enabledTypes.map((type) => (
-                  <div key={type.type} className="rounded-[1.4rem] border border-slate-200 bg-white p-4">
+                  <div key={type.id} className="rounded-[1.4rem] border border-slate-200 bg-white p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-lg font-semibold text-slate-950">{type.label}</div>

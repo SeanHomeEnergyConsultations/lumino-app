@@ -20,6 +20,8 @@ const optionalUrl = z.preprocess((value) => {
 }, z.string().url().max(500).nullable().optional());
 
 const bookingTypeConfigSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  type: z.enum(["phone_call", "in_person_consult"]),
   enabled: z.boolean().optional(),
   label: z.string().trim().min(2).max(80),
   shortDescription: optionalTrimmedString(160),
@@ -51,19 +53,8 @@ export const qrCodeCreateSchema = z.object({
   bookingBlurb: optionalTrimmedString(240),
   destinationUrl: optionalUrl,
   description: optionalTrimmedString(240),
-  availabilityTimezone: optionalTrimmedString(80),
-  availabilityWorkingDays: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
-  availabilityStartTime: optionalTrimmedString(5),
-  availabilityEndTime: optionalTrimmedString(5),
-  availabilityMinNoticeHours: z.number().int().min(0).max(72).nullable().optional(),
-  availabilityMaxDaysOut: z.number().int().min(1).max(60).nullable().optional(),
-  bookingTypes: z
-    .object({
-      phone_call: bookingTypeConfigSchema,
-      in_person_consult: bookingTypeConfigSchema
-    })
-    .nullable()
-    .optional()
+  bookingTypes: z.array(bookingTypeConfigSchema).max(20).nullable().optional(),
+  bookingTypeIds: z.array(z.string().trim().min(1).max(80)).max(20).nullable().optional()
 }).superRefine((value, ctx) => {
   if ((value.codeType ?? "contact_card") === "campaign_tracker" && !value.destinationUrl) {
     ctx.addIssue({
@@ -74,33 +65,12 @@ export const qrCodeCreateSchema = z.object({
   }
 
   if ((value.codeType ?? "contact_card") === "contact_card") {
-    const startTime = value.availabilityStartTime;
-    const endTime = value.availabilityEndTime;
-    if (startTime && !/^\d{2}:\d{2}$/.test(startTime)) {
+    if (value.bookingEnabled !== false && (!value.bookingTypeIds || value.bookingTypeIds.length === 0)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["availabilityStartTime"],
-        message: "Start time must use HH:MM format."
+        path: ["bookingTypeIds"],
+        message: "Choose at least one saved appointment type for this card."
       });
-    }
-    if (endTime && !/^\d{2}:\d{2}$/.test(endTime)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["availabilityEndTime"],
-        message: "End time must use HH:MM format."
-      });
-    }
-
-    const bookingTypes = value.bookingTypes;
-    if (bookingTypes) {
-      const anyEnabled = Object.values(bookingTypes).some((config) => config.enabled !== false);
-      if (!anyEnabled) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["bookingTypes"],
-          message: "Enable at least one appointment type for booking."
-        });
-      }
     }
   }
 });
@@ -124,7 +94,7 @@ export const qrBookingSchema = z
     email: z.string().trim().email().max(320).nullable().optional(),
     address: z.string().trim().min(6).max(240),
     appointmentAt: z.string().datetime(),
-    appointmentType: z.enum(["phone_call", "in_person_consult"]).default("in_person_consult"),
+    bookingTypeId: z.string().trim().min(1).max(80),
     notes: z.string().trim().max(2000).nullable().optional()
   })
   .superRefine((value, ctx) => {
@@ -139,23 +109,33 @@ export const qrBookingSchema = z
   });
 
 export const qrAvailabilityQuerySchema = z.object({
-  appointmentType: z.enum(["phone_call", "in_person_consult"]).default("in_person_consult")
+  bookingTypeId: z.string().trim().min(1).max(80)
 });
 
 export const qrBookingProfileSchema = z.object({
   availability: availabilitySettingsSchema,
-  bookingTypes: z.object({
-    phone_call: bookingTypeConfigSchema,
-    in_person_consult: bookingTypeConfigSchema
-  })
+  bookingTypes: z.array(bookingTypeConfigSchema).min(1).max(20)
 }).superRefine((value, ctx) => {
-  const anyEnabled = Object.values(value.bookingTypes).some((config) => config.enabled !== false);
+  const anyEnabled = value.bookingTypes.some((config) => config.enabled !== false);
   if (!anyEnabled) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["bookingTypes"],
       message: "Enable at least one appointment type."
     });
+  }
+
+  const ids = new Set<string>();
+  for (const config of value.bookingTypes) {
+    if (ids.has(config.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["bookingTypes"],
+        message: "Each appointment preset needs a unique ID."
+      });
+      break;
+    }
+    ids.add(config.id);
   }
 });
 

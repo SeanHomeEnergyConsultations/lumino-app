@@ -842,6 +842,7 @@ export type QRCodeEventType =
 export type QRCodeType = "contact_card" | "campaign_tracker";
 export type QRAppointmentType = "phone_call" | "in_person_consult";
 export interface QRBookingTypeConfig {
+  id: string;
   type: QRAppointmentType;
   enabled: boolean;
   label: string;
@@ -947,6 +948,7 @@ export interface QrAvailabilityDay {
 }
 
 export interface PublicQrAvailabilityResponse {
+  bookingTypeId: string;
   timezone: string;
   appointmentType: QRAppointmentType;
   appointmentTypeLabel: string;
