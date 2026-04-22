@@ -60,8 +60,8 @@ export function PublicQrCard({ item }: { item: NonNullable<PublicQRCodeResponse[
         background: `linear-gradient(160deg, ${item.payload.primaryColor ?? "#10212f"} 0%, #09111a 42%, ${item.payload.accentColor ?? "#1f8ca3"} 100%)`
       }}
     >
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 lg:flex-row">
-        <section className="w-full rounded-[2rem] border border-white/10 bg-black/20 p-6 shadow-2xl backdrop-blur md:p-8 lg:max-w-md">
+      <div className="mx-auto w-full max-w-2xl">
+        <section className="w-full rounded-[2rem] border border-white/10 bg-black/20 p-6 shadow-2xl backdrop-blur md:p-8">
           <div className="text-center">
             {item.payload.photoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -108,6 +108,20 @@ export function PublicQrCard({ item }: { item: NonNullable<PublicQRCodeResponse[
           </div>
 
           <div className="mt-6 grid gap-3">
+            {item.payload.bookingEnabled && enabledTypes.length ? (
+              <Link
+                href={`/book/${item.slug}`}
+                onClick={() => void trackEvent(item.slug, "book_click")}
+                className="flex items-center justify-between rounded-2xl border border-white/20 bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-white/90"
+              >
+                <span className="flex items-center gap-3">
+                  <CalendarCheck2 className="h-4 w-4" />
+                  Set Appointment
+                </span>
+                <span className="text-slate-500">Pick a time</span>
+              </Link>
+            ) : null}
+
             {item.payload.phone ? (
               <a
                 href={`tel:${item.payload.phone}`}
@@ -177,57 +191,6 @@ export function PublicQrCard({ item }: { item: NonNullable<PublicQRCodeResponse[
               </span>
               <span className="text-white/55">VCF</span>
             </button>
-          </div>
-        </section>
-
-        <section className="flex-1 rounded-[2rem] border border-white/10 bg-white/95 p-6 text-slate-900 shadow-2xl md:p-8">
-          <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-8">
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-slate-900 p-3 text-white">
-                <CalendarCheck2 className="h-5 w-5" />
-              </div>
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Appointments</div>
-                <h1 className="mt-1 text-2xl font-semibold text-slate-950">Book a time that works</h1>
-              </div>
-            </div>
-
-            <p className="mt-4 max-w-2xl text-sm text-slate-600">
-              {item.payload.bookingBlurb ??
-                "Choose the kind of appointment that fits best, then pick from the real open times on this rep’s schedule."}
-            </p>
-
-            {enabledTypes.length ? (
-              <Link
-                href={`/book/${item.slug}`}
-                onClick={() => void trackEvent(item.slug, "book_click")}
-                className="mt-6 flex items-center justify-between rounded-[1.6rem] border border-slate-900 bg-slate-900 px-5 py-4 text-white transition hover:bg-slate-800"
-              >
-                <div>
-                  <div className="text-sm font-semibold uppercase tracking-[0.16em] text-white/70">Set Appointment</div>
-                  <div className="mt-1 text-lg font-semibold">See live openings and pick a time</div>
-                </div>
-                <div className="rounded-full bg-white/10 px-3 py-1 text-sm font-semibold text-white/85">
-                  Open
-                </div>
-              </Link>
-            ) : (
-              <div className="mt-6 rounded-[1.4rem] border border-slate-200 bg-white px-4 py-4 text-sm text-slate-600">
-                Booking is not available on this card right now.
-              </div>
-            )}
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              {item.payload.phone ? (
-                <a
-                  href={`tel:${item.payload.phone}`}
-                  onClick={() => void trackEvent(item.slug, "call_click")}
-                  className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                >
-                  Call Instead
-                </a>
-              ) : null}
-            </div>
           </div>
         </section>
       </div>
