@@ -26,6 +26,17 @@ function randomSlug(length = 7) {
   return Array.from(bytes, (value) => chars[value % chars.length]).join("");
 }
 
+function slugifyQrLabel(value: string) {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return slug || "qr-card";
+}
+
 function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60_000);
 }
@@ -325,10 +336,17 @@ export async function getPublicQrAvailability(input: {
   };
 }
 
-async function generateUniqueSlug() {
+async function generateUniqueSlug(baseLabel: string) {
   const supabase = createServerSupabaseClient();
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const slug = randomSlug(7);
+  const normalizedBase = slugifyQrLabel(baseLabel);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const slug =
+      attempt === 0
+        ? normalizedBase
+        : attempt < 4
+          ? `${normalizedBase}-${attempt + 1}`
+          : `${normalizedBase}-${randomSlug(4).toLowerCase()}`;
     const { data, error } = await supabase.from("qr_codes").select("id").eq("slug", slug).maybeSingle();
     if (error) throw error;
     if (!data) return slug;
@@ -493,7 +511,6 @@ export async function createQrCode(
     throw new Error("No active organization found for this user.");
   }
 
-  const slug = await generateUniqueSlug();
   const branding = await getOrganizationBranding(context);
   const savedBookingProfile = await getUserBookingProfile(context);
   const codeType = input.codeType ?? "contact_card";
@@ -504,6 +521,7 @@ export async function createQrCode(
 
   const fullName = context.appUser.fullName?.trim() || "Lumino Rep";
   const [firstName, ...rest] = fullName.split(" ");
+  const slug = await generateUniqueSlug(`${fullName} ${input.label}`);
 
   const payload =
     codeType === "campaign_tracker"
