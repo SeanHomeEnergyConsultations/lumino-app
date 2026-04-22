@@ -425,8 +425,8 @@ export function TerritoryAdminPage() {
     if (typeof window !== "undefined") {
       const message =
         mode === "account"
-          ? `Delete ${memberName}'s account entirely? This removes them from Lumino, deletes their login, and should only be used if they are not attached anywhere else.`
-          : `Remove ${memberName} from this organization? They will lose access to this team's data, but their underlying account can still exist.`;
+          ? `Delete ${memberName} from Lumino entirely? This removes their org membership, deletes their login, and should only be used if they are truly done using Lumino anywhere.`
+          : `Remove ${memberName} from this org? They will lose access to this org, but their underlying Lumino account can still be reused later.`;
       const confirmed = window.confirm(message);
       if (!confirmed) return;
     }
@@ -727,7 +727,7 @@ export function TerritoryAdminPage() {
                             : "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                         } disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400`}
                       >
-                        {member.isActive ? "Deactivate" : "Reactivate"}
+                        {member.isActive ? "Deactivate Access" : "Restore Access"}
                       </button>
                       {member.onboardingStatus !== "active" ? (
                         <button
@@ -743,12 +743,12 @@ export function TerritoryAdminPage() {
                         onClick={() => void handleMemberAction(member.memberId, "send_password_reset")}
                         className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
                       >
-                        Send Reset
+                        Send Password Reset
                       </button>
                       {canDeleteMembers && canMutateMember && ["rep", "setter"].includes(member.role) ? (
                         <details className="group relative">
                           <summary className="list-none rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 cursor-pointer">
-                            More
+                            Offboard
                           </summary>
                           <div className="absolute right-0 z-10 mt-2 flex min-w-[13rem] flex-col gap-1 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
                             <button
@@ -762,7 +762,7 @@ export function TerritoryAdminPage() {
                               }
                               className="rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                             >
-                              Remove From Team
+                              Remove from Org
                             </button>
                             <button
                               type="button"
@@ -775,7 +775,7 @@ export function TerritoryAdminPage() {
                               }
                               className="rounded-xl px-3 py-2 text-left text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
                             >
-                              Delete Account
+                              Delete from Lumino
                             </button>
                           </div>
                         </details>
