@@ -7,8 +7,9 @@ import { resolveOrCreateProperty } from "@/lib/db/mutations/properties";
 import { getGoogleCalendarBusyWindows } from "@/lib/google-calendar/service";
 import {
   DEFAULT_QR_AVAILABILITY_SETTINGS,
-  formatQrAppointmentTypeLabel,
+  getQrBookingTypeConfig,
   normalizeQrAvailabilitySettings,
+  normalizeQrBookingTypeConfigs,
   QR_APPOINTMENT_TYPE_CONFIG,
   type QrAppointmentType
 } from "@/lib/qr/availability";
@@ -219,7 +220,15 @@ export async function getPublicQrAvailability(input: {
       ? (qrCode.payload.availability as Record<string, unknown>)
       : DEFAULT_QR_AVAILABILITY_SETTINGS
   );
-  const config = QR_APPOINTMENT_TYPE_CONFIG[input.appointmentType];
+  const bookingTypes = normalizeQrBookingTypeConfigs(
+    typeof qrCode.payload?.bookingTypes === "object" && qrCode.payload?.bookingTypes
+      ? (qrCode.payload.bookingTypes as Record<string, unknown>)
+      : null
+  );
+  const config = getQrBookingTypeConfig(bookingTypes, input.appointmentType);
+  if (!config.enabled) {
+    throw new Error("This appointment type is not currently available.");
+  }
   const now = new Date();
   const windowEnd = addMinutes(now, availability.maxDaysOut * 24 * 60);
   const busyRanges = await getRepBusyRanges({
@@ -304,7 +313,7 @@ export async function getPublicQrAvailability(input: {
   return {
     timezone: availability.timezone,
     appointmentType: input.appointmentType,
-    appointmentTypeLabel: formatQrAppointmentTypeLabel(input.appointmentType),
+    appointmentTypeLabel: config.label,
     days: days.slice(0, 10)
   };
 }
@@ -378,6 +387,26 @@ export async function createQrCode(
     availabilityEndTime?: string | null;
     availabilityMinNoticeHours?: number | null;
     availabilityMaxDaysOut?: number | null;
+    bookingTypes?: {
+      phone_call: {
+        enabled?: boolean;
+        label: string;
+        shortDescription?: string | null;
+        fullDescription?: string | null;
+        durationMinutes: number;
+        preBufferMinutes: number;
+        postBufferMinutes: number;
+      };
+      in_person_consult: {
+        enabled?: boolean;
+        label: string;
+        shortDescription?: string | null;
+        fullDescription?: string | null;
+        durationMinutes: number;
+        preBufferMinutes: number;
+        postBufferMinutes: number;
+      };
+    } | null;
   },
   context: AuthSessionContext
 ) {
@@ -404,6 +433,7 @@ export async function createQrCode(
           description: input.description?.trim() || null
         }
       : {
+          bookingTypes: normalizeQrBookingTypeConfigs(input.bookingTypes ?? null),
           availability: normalizeQrAvailabilitySettings({
             timezone: input.availabilityTimezone ?? undefined,
             workingDays: input.availabilityWorkingDays ?? undefined,
@@ -594,7 +624,14 @@ export async function bookAppointmentFromQr(input: {
         [
           input.notes?.trim(),
           `Booked from QR code "${qrCode.label as string}".`,
-          `Appointment type: ${formatQrAppointmentTypeLabel(input.appointmentType)}`
+          `Appointment type: ${getQrBookingTypeConfig(
+            normalizeQrBookingTypeConfigs(
+              typeof qrCode.payload?.bookingTypes === "object" && qrCode.payload?.bookingTypes
+                ? (qrCode.payload.bookingTypes as Record<string, unknown>)
+                : null
+            ),
+            input.appointmentType
+          ).label}`
         ]
           .filter(Boolean)
           .join("\n\n") || undefined,

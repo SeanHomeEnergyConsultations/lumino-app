@@ -19,6 +19,16 @@ const optionalUrl = z.preprocess((value) => {
   return trimmed.length ? trimmed : null;
 }, z.string().url().max(500).nullable().optional());
 
+const bookingTypeConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  label: z.string().trim().min(2).max(80),
+  shortDescription: optionalTrimmedString(160),
+  fullDescription: optionalTrimmedString(1200),
+  durationMinutes: z.number().int().min(10).max(180),
+  preBufferMinutes: z.number().int().min(0).max(240),
+  postBufferMinutes: z.number().int().min(0).max(240)
+});
+
 export const qrCodeCreateSchema = z.object({
   codeType: z.enum(["contact_card", "campaign_tracker"]).optional(),
   label: z.string().trim().min(2).max(120),
@@ -37,7 +47,14 @@ export const qrCodeCreateSchema = z.object({
   availabilityStartTime: optionalTrimmedString(5),
   availabilityEndTime: optionalTrimmedString(5),
   availabilityMinNoticeHours: z.number().int().min(0).max(72).nullable().optional(),
-  availabilityMaxDaysOut: z.number().int().min(1).max(60).nullable().optional()
+  availabilityMaxDaysOut: z.number().int().min(1).max(60).nullable().optional(),
+  bookingTypes: z
+    .object({
+      phone_call: bookingTypeConfigSchema,
+      in_person_consult: bookingTypeConfigSchema
+    })
+    .nullable()
+    .optional()
 }).superRefine((value, ctx) => {
   if ((value.codeType ?? "contact_card") === "campaign_tracker" && !value.destinationUrl) {
     ctx.addIssue({
@@ -63,6 +80,18 @@ export const qrCodeCreateSchema = z.object({
         path: ["availabilityEndTime"],
         message: "End time must use HH:MM format."
       });
+    }
+
+    const bookingTypes = value.bookingTypes;
+    if (bookingTypes) {
+      const anyEnabled = Object.values(bookingTypes).some((config) => config.enabled !== false);
+      if (!anyEnabled) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["bookingTypes"],
+          message: "Enable at least one appointment type for booking."
+        });
+      }
     }
   }
 });

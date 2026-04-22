@@ -1,6 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { hasManagerAccess } from "@/lib/auth/permissions";
-import { normalizeQrAvailabilitySettings } from "@/lib/qr/availability";
+import { normalizeQrAvailabilitySettings, normalizeQrBookingTypeConfigs } from "@/lib/qr/availability";
 import { getAppBaseUrl } from "@/lib/utils/env";
 import type { AuthSessionContext } from "@/types/auth";
 import type {
@@ -47,6 +47,9 @@ function normalizePayload(payload: Record<string, unknown> | null | undefined): 
     logoUrl: typeof payload?.logoUrl === "string" ? payload.logoUrl : null,
     primaryColor: typeof payload?.primaryColor === "string" ? payload.primaryColor : null,
     accentColor: typeof payload?.accentColor === "string" ? payload.accentColor : null,
+    bookingTypes: normalizeQrBookingTypeConfigs(
+      typeof payload?.bookingTypes === "object" && payload?.bookingTypes ? (payload.bookingTypes as Record<string, unknown>) : null
+    ),
     availability: normalizeQrAvailabilitySettings(
       typeof payload?.availability === "object" && payload?.availability ? (payload.availability as Record<string, unknown>) : null
     )
@@ -65,6 +68,12 @@ function normalizeCampaignPayload(
 export function buildQrPublicUrl(slug: string, codeType: QRCodeType = "contact_card") {
   const baseUrl = getAppBaseUrl();
   const path = codeType === "campaign_tracker" ? `/go/${slug}` : `/connect/${slug}`;
+  return baseUrl ? `${baseUrl.replace(/\/$/, "")}${path}` : path;
+}
+
+export function buildQrBookingUrl(slug: string) {
+  const baseUrl = getAppBaseUrl();
+  const path = `/book/${slug}`;
   return baseUrl ? `${baseUrl.replace(/\/$/, "")}${path}` : path;
 }
 
@@ -144,6 +153,7 @@ function mapQrItems(input: {
       codeType: row.code_type,
       status: row.status,
       publicUrl: buildQrPublicUrl(row.slug, row.code_type),
+      publicBookingUrl: row.code_type === "contact_card" ? buildQrBookingUrl(row.slug) : buildQrPublicUrl(row.slug, row.code_type),
       createdAt: row.created_at,
       payload,
       stats: {
@@ -253,6 +263,7 @@ export async function getPublicQrCodeBySlug(slug: string): Promise<PublicQRCodeR
     label: data.label as string,
     slug: data.slug as string,
     publicUrl: buildQrPublicUrl(data.slug as string),
+    publicBookingUrl: buildQrBookingUrl(data.slug as string),
     ownerName: [payload.firstName, payload.lastName].filter(Boolean).join(" ") || null,
     payload
   };

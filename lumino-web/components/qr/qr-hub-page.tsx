@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Copy, ExternalLink, ImagePlus, MapPinned, Phone, QrCode, Save, Sparkles, X } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
-import { DEFAULT_QR_AVAILABILITY_SETTINGS } from "@/lib/qr/availability";
+import { DEFAULT_QR_AVAILABILITY_SETTINGS, QR_APPOINTMENT_TYPE_CONFIG } from "@/lib/qr/availability";
 import type {
+  QRBookingTypeConfig,
   QRCodeHubResponse,
   QRCodeListItem,
   QRCodeType,
@@ -42,6 +43,13 @@ function normalizeUrlInput(value: string) {
   return `https://${trimmed}`;
 }
 
+function createDefaultBookingTypeState(): Record<"phone_call" | "in_person_consult", QRBookingTypeConfig> {
+  return {
+    phone_call: { ...QR_APPOINTMENT_TYPE_CONFIG.phone_call },
+    in_person_consult: { ...QR_APPOINTMENT_TYPE_CONFIG.in_person_consult }
+  };
+}
+
 export function QrHubPage() {
   const { session, appContext, supabase } = useAuth();
   const [hub, setHub] = useState<QRCodeHubResponse | null>(null);
@@ -75,6 +83,7 @@ export function QrHubPage() {
     DEFAULT_QR_AVAILABILITY_SETTINGS.minNoticeHours
   );
   const [availabilityMaxDaysOut, setAvailabilityMaxDaysOut] = useState(DEFAULT_QR_AVAILABILITY_SETTINGS.maxDaysOut);
+  const [bookingTypes, setBookingTypes] = useState(createDefaultBookingTypeState);
   const [destinationUrl, setDestinationUrl] = useState("");
   const [description, setDescription] = useState("");
   const [expandedEngagementCodeId, setExpandedEngagementCodeId] = useState<string | null>(null);
@@ -229,6 +238,26 @@ export function QrHubPage() {
           availabilityEndTime,
           availabilityMinNoticeHours,
           availabilityMaxDaysOut,
+          bookingTypes: {
+            phone_call: {
+              enabled: bookingTypes.phone_call.enabled,
+              label: bookingTypes.phone_call.label,
+              shortDescription: bookingTypes.phone_call.shortDescription,
+              fullDescription: bookingTypes.phone_call.fullDescription,
+              durationMinutes: bookingTypes.phone_call.durationMinutes,
+              preBufferMinutes: bookingTypes.phone_call.preBufferMinutes,
+              postBufferMinutes: bookingTypes.phone_call.postBufferMinutes
+            },
+            in_person_consult: {
+              enabled: bookingTypes.in_person_consult.enabled,
+              label: bookingTypes.in_person_consult.label,
+              shortDescription: bookingTypes.in_person_consult.shortDescription,
+              fullDescription: bookingTypes.in_person_consult.fullDescription,
+              durationMinutes: bookingTypes.in_person_consult.durationMinutes,
+              preBufferMinutes: bookingTypes.in_person_consult.preBufferMinutes,
+              postBufferMinutes: bookingTypes.in_person_consult.postBufferMinutes
+            }
+          },
           destinationUrl: normalizeUrlInput(destinationUrl),
           description: description || null
         })
@@ -265,6 +294,7 @@ export function QrHubPage() {
       setAvailabilityEndTime(DEFAULT_QR_AVAILABILITY_SETTINGS.endTime);
       setAvailabilityMinNoticeHours(DEFAULT_QR_AVAILABILITY_SETTINGS.minNoticeHours);
       setAvailabilityMaxDaysOut(DEFAULT_QR_AVAILABILITY_SETTINGS.maxDaysOut);
+      setBookingTypes(createDefaultBookingTypeState());
       setDestinationUrl("");
       setDescription("");
       await loadHub();
@@ -592,7 +622,164 @@ export function QrHubPage() {
                   </div>
 
                   <div className="mt-4 rounded-[1.2rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/80 px-4 py-3 text-xs text-[rgba(var(--app-primary-rgb),0.62)]">
-                    Homeowners will choose between two booking types: a 15 minute phone call or a 60 minute in-person consult. Buffer rules still apply behind the scenes when Lumino checks open time.
+                    Homeowners will only see the appointment types you enable here. Public names and descriptions can be customized while Lumino still handles the behind-the-scenes timing and buffer rules.
+                  </div>
+                </div>
+
+                <div className="rounded-[1.6rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.5)] p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Appointment Types</div>
+                  <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
+                    Customize the names, descriptions, and timing rules homeowners will see on the booking page.
+                  </div>
+
+                  <div className="mt-4 space-y-4">
+                    {(["phone_call", "in_person_consult"] as const).map((typeKey) => {
+                      const bookingType = bookingTypes[typeKey];
+                      return (
+                        <div key={typeKey} className="rounded-[1.4rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/80 p-4">
+                          <label className="flex items-center justify-between gap-4">
+                            <div>
+                              <div className="text-sm font-semibold text-ink">{typeKey === "phone_call" ? "Type One" : "Type Two"}</div>
+                              <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">
+                                Internal slot: {typeKey === "phone_call" ? "Phone Call" : "In-Person Consult"}
+                              </div>
+                            </div>
+                            <span className="inline-flex items-center gap-2 text-sm font-medium text-ink">
+                              Enabled
+                              <input
+                                type="checkbox"
+                                checked={bookingType.enabled}
+                                onChange={(event) =>
+                                  setBookingTypes((current) => ({
+                                    ...current,
+                                    [typeKey]: {
+                                      ...current[typeKey],
+                                      enabled: event.target.checked
+                                    }
+                                  }))
+                                }
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                            </span>
+                          </label>
+
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <label className="block space-y-2">
+                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Public Name</div>
+                              <input
+                                value={bookingType.label}
+                                onChange={(event) =>
+                                  setBookingTypes((current) => ({
+                                    ...current,
+                                    [typeKey]: {
+                                      ...current[typeKey],
+                                      label: event.target.value
+                                    }
+                                  }))
+                                }
+                                className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                              />
+                            </label>
+
+                            <label className="block space-y-2">
+                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Length (minutes)</div>
+                              <input
+                                type="number"
+                                min={10}
+                                max={180}
+                                value={bookingType.durationMinutes}
+                                onChange={(event) =>
+                                  setBookingTypes((current) => ({
+                                    ...current,
+                                    [typeKey]: {
+                                      ...current[typeKey],
+                                      durationMinutes: Number(event.target.value || 0)
+                                    }
+                                  }))
+                                }
+                                className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                              />
+                            </label>
+
+                            <label className="block space-y-2 md:col-span-2">
+                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Brief Description</div>
+                              <input
+                                value={bookingType.shortDescription ?? ""}
+                                onChange={(event) =>
+                                  setBookingTypes((current) => ({
+                                    ...current,
+                                    [typeKey]: {
+                                      ...current[typeKey],
+                                      shortDescription: event.target.value
+                                    }
+                                  }))
+                                }
+                                placeholder="A short summary shown on the booking page."
+                                className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                              />
+                            </label>
+
+                            <label className="block space-y-2 md:col-span-2">
+                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Full Description</div>
+                              <textarea
+                                value={bookingType.fullDescription ?? ""}
+                                onChange={(event) =>
+                                  setBookingTypes((current) => ({
+                                    ...current,
+                                    [typeKey]: {
+                                      ...current[typeKey],
+                                      fullDescription: event.target.value
+                                    }
+                                  }))
+                                }
+                                placeholder="Shown after the homeowner clicks into this appointment type."
+                                className="min-h-24 w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                              />
+                            </label>
+
+                            <label className="block space-y-2">
+                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Pre Buffer</div>
+                              <input
+                                type="number"
+                                min={0}
+                                max={240}
+                                value={bookingType.preBufferMinutes}
+                                onChange={(event) =>
+                                  setBookingTypes((current) => ({
+                                    ...current,
+                                    [typeKey]: {
+                                      ...current[typeKey],
+                                      preBufferMinutes: Number(event.target.value || 0)
+                                    }
+                                  }))
+                                }
+                                className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                              />
+                            </label>
+
+                            <label className="block space-y-2">
+                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Post Buffer</div>
+                              <input
+                                type="number"
+                                min={0}
+                                max={240}
+                                value={bookingType.postBufferMinutes}
+                                onChange={(event) =>
+                                  setBookingTypes((current) => ({
+                                    ...current,
+                                    [typeKey]: {
+                                      ...current[typeKey],
+                                      postBufferMinutes: Number(event.target.value || 0)
+                                    }
+                                  }))
+                                }
+                                className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </>
@@ -675,6 +862,9 @@ function QrCodeCard({
   const copyUrl = async () => {
     await navigator.clipboard.writeText(item.publicUrl).catch(() => null);
   };
+  const copyBookingUrl = async () => {
+    await navigator.clipboard.writeText(item.publicBookingUrl).catch(() => null);
+  };
   const isContactCard = item.codeType === "contact_card";
   const engagementTotal =
     item.stats.calls +
@@ -720,6 +910,16 @@ function QrCodeCard({
                 <Copy className="h-4 w-4" />
                 Copy Link
               </button>
+              {isContactCard ? (
+                <button
+                  type="button"
+                  onClick={() => void copyBookingUrl()}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-3 py-2 text-sm text-ink transition hover:bg-[rgba(var(--app-surface-rgb),0.48)]"
+                >
+                  <Copy className="h-4 w-4" />
+                  Copy Booking Link
+                </button>
+              ) : null}
               <a
                 href={item.publicUrl}
                 target="_blank"
@@ -729,6 +929,17 @@ function QrCodeCard({
                 <ExternalLink className="h-4 w-4" />
                 Open
               </a>
+              {isContactCard ? (
+                <a
+                  href={item.publicBookingUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-3 py-2 text-sm text-ink transition hover:bg-[rgba(var(--app-surface-rgb),0.48)]"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Open Booking Page
+                </a>
+              ) : null}
             </div>
           </div>
 
