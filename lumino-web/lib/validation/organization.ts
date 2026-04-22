@@ -14,6 +14,22 @@ export const organizationBrandingSchema = z.object({
   sidebarColor: z.string().trim().regex(hexColor).nullable().optional().or(z.literal(""))
 });
 
+export const organizationBrandLogoUploadTargetSchema = z
+  .object({
+    fileName: z.string().trim().min(1).max(240),
+    mimeType: z.string().trim().min(1).max(120),
+    fileSizeBytes: z.number().int().min(1).max(10 * 1024 * 1024)
+  })
+  .superRefine((value, ctx) => {
+    if (!value.mimeType.startsWith("image/")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["mimeType"],
+        message: "Brand logo must be an image file."
+      });
+    }
+  });
+
 export const organizationCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
   slug: z.string().trim().min(2).max(80).regex(/^[a-z0-9-]+$/).nullable().optional().or(z.literal("")),

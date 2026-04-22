@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ImagePlus, X } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { hasAdminAccess } from "@/lib/auth/permissions";
 import type {
   ManagerDashboardResponse,
+  OrganizationBrandLogoUploadTargetResponse,
   OrganizationCreateResponse,
   OrganizationBrandingResponse,
   OrganizationsResponse,
@@ -26,7 +28,7 @@ function statusPill(status: string) {
 }
 
 export function TerritoryAdminPage() {
-  const { session, appContext, organizationBranding, refreshOrganizationBranding } = useAuth();
+  const { session, appContext, organizationBranding, refreshOrganizationBranding, supabase } = useAuth();
   const accessToken = session?.access_token ?? null;
 
   const [organizations, setOrganizations] = useState<OrganizationsResponse["items"]>([]);
@@ -56,6 +58,10 @@ export function TerritoryAdminPage() {
   const [inviteRole, setInviteRole] = useState<"owner" | "admin" | "manager" | "rep" | "setter">("rep");
   const [brandName, setBrandName] = useState("Lumino");
   const [logoUrl, setLogoUrl] = useState("");
+  const [logoUploadState, setLogoUploadState] = useState<"idle" | "uploading" | "uploaded" | "error">("idle");
+  const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
+  const [logoFileName, setLogoFileName] = useState<string | null>(null);
+  const [logoInputKey, setLogoInputKey] = useState(0);
   const [primaryColor, setPrimaryColor] = useState<string>(DEFAULT_ORGANIZATION_THEME.primaryColor);
   const [accentColor, setAccentColor] = useState<string>(DEFAULT_ORGANIZATION_THEME.accentColor);
   const [backgroundColor, setBackgroundColor] = useState<string>(DEFAULT_ORGANIZATION_THEME.backgroundColor);
@@ -186,6 +192,9 @@ export function TerritoryAdminPage() {
     if (!organizationBranding) return;
     setBrandName(organizationBranding.appName || "Lumino");
     setLogoUrl(organizationBranding.logoUrl || "");
+    setLogoFileName(organizationBranding.logoUrl ? "Current logo" : null);
+    setLogoUploadState("idle");
+    setLogoUploadError(null);
     setPrimaryColor(organizationBranding.primaryColor || DEFAULT_ORGANIZATION_THEME.primaryColor);
     setAccentColor(organizationBranding.accentColor || DEFAULT_ORGANIZATION_THEME.accentColor);
     setBackgroundColor(organizationBranding.backgroundColor || DEFAULT_ORGANIZATION_THEME.backgroundColor);
@@ -471,6 +480,58 @@ export function TerritoryAdminPage() {
     }
   }
 
+  async function handleUploadLogo(file: File) {
+    if (!accessToken || !supabase) return;
+
+    setLogoUploadState("uploading");
+    setLogoUploadError(null);
+    setLogoFileName(file.name);
+    try {
+      const uploadTargetResponse = await authFetch(accessToken, "/api/organization/branding/logo-upload-url", {
+        method: "POST",
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type,
+          fileSizeBytes: file.size
+        })
+      });
+
+      const uploadTargetJson = (await uploadTargetResponse.json()) as Partial<OrganizationBrandLogoUploadTargetResponse> & {
+        error?: string;
+      };
+      if (
+        !uploadTargetResponse.ok ||
+        !uploadTargetJson.bucket ||
+        !uploadTargetJson.path ||
+        !uploadTargetJson.token ||
+        !uploadTargetJson.publicUrl
+      ) {
+        throw new Error(uploadTargetJson.error || "Could not prepare logo upload.");
+      }
+
+      const storageUpload = await supabase.storage
+        .from(uploadTargetJson.bucket)
+        .uploadToSignedUrl(uploadTargetJson.path, uploadTargetJson.token, file);
+      if (storageUpload.error) {
+        throw storageUpload.error;
+      }
+
+      setLogoUrl(uploadTargetJson.publicUrl);
+      setLogoUploadState("uploaded");
+    } catch (error) {
+      setLogoUploadState("error");
+      setLogoUploadError(error instanceof Error ? error.message : "Could not upload logo.");
+    }
+  }
+
+  function clearLogo() {
+    setLogoUrl("");
+    setLogoFileName(null);
+    setLogoUploadState("idle");
+    setLogoUploadError(null);
+    setLogoInputKey((current) => current + 1);
+  }
+
   function applyThemePreset(presetId: (typeof ORGANIZATION_THEME_PRESETS)[number]["id"]) {
     const preset = ORGANIZATION_THEME_PRESETS.find((item) => item.id === presetId);
     if (!preset) return;
@@ -656,13 +717,66 @@ export function TerritoryAdminPage() {
                 placeholder="Organization name"
                 className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
               />
-              <input
-                type="url"
-                value={logoUrl}
-                onChange={(event) => setLogoUrl(event.target.value)}
-                placeholder="Logo URL"
-                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
-              />
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Logo</div>
+                <div className="mt-3 flex items-center gap-4">
+                  {logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={logoUrl}
+                      alt={`${brandName} logo preview`}
+                      className="h-20 w-20 rounded-[1.4rem] border border-slate-200 object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-20 w-20 items-center justify-center rounded-[1.4rem] border border-dashed border-slate-300 bg-slate-50 text-slate-400">
+                      <ImagePlus className="h-5 w-5" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-ink">
+                      {logoFileName ?? "Upload a logo from your phone or computer"}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">PNG, JPG, or other image formats up to 10 MB.</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800">
+                        <ImagePlus className="h-4 w-4" />
+                        {logoUrl ? "Replace Logo" : "Upload Logo"}
+                        <input
+                          key={logoInputKey}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            void handleUploadLogo(file);
+                          }}
+                        />
+                      </label>
+                      {logoUrl ? (
+                        <button
+                          type="button"
+                          onClick={clearLogo}
+                          className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                        >
+                          <X className="h-4 w-4" />
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+                {logoUploadState === "uploading" ? (
+                  <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-[rgba(var(--app-accent-rgb),0.8)]">
+                    Uploading logo...
+                  </div>
+                ) : null}
+                {logoUploadError ? (
+                  <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                    {logoUploadError}
+                  </div>
+                ) : null}
+              </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="app-chip rounded-2xl px-3 py-2 text-sm text-slate-600">
                   <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Primary</span>
@@ -726,7 +840,7 @@ export function TerritoryAdminPage() {
               <button
                 type="button"
                 onClick={() => void handleSaveBranding()}
-                disabled={!brandName.trim() || brandingState === "saving"}
+                disabled={!brandName.trim() || brandingState === "saving" || logoUploadState === "uploading"}
                 className="app-primary-button rounded-2xl px-4 py-2.5 text-sm font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {brandingState === "saving" ? "Saving..." : "Save Branding"}

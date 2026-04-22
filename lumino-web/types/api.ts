@@ -969,3 +969,10 @@ export interface QRPhotoUploadTargetResponse {
   token: string;
   publicUrl: string;
 }
+
+export interface OrganizationBrandLogoUploadTargetResponse {
+  bucket: string;
+  path: string;
+  token: string;
+  publicUrl: string;
+}
