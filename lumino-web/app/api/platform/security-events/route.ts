@@ -31,17 +31,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  await recordSecurityEvent({
-    request,
-    context,
-    eventType: "platform_security_alert_test",
-    severity: "high",
-    triggerAlert: true,
-    metadata: {
-      source: "platform_control_center",
-      note: "Controlled test alert triggered by platform owner."
-    }
-  });
+  try {
+    const result = await recordSecurityEvent({
+      request,
+      context,
+      eventType: "platform_security_alert_test",
+      severity: "high",
+      triggerAlert: true,
+      throwOnAlertFailure: true,
+      metadata: {
+        source: "platform_control_center",
+        note: "Controlled test alert triggered by platform owner."
+      }
+    });
 
-  return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ...result });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to deliver security alert."
+      },
+      { status: 502 }
+    );
+  }
 }

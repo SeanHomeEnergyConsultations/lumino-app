@@ -41,6 +41,7 @@ export async function recordSecurityEvent(input: {
   targetUserId?: string | null;
   metadata?: Record<string, unknown>;
   triggerAlert?: boolean;
+  throwOnAlertFailure?: boolean;
 }) {
   const supabase = createServerSupabaseClient();
   const severity = input.severity ?? "info";
@@ -59,7 +60,27 @@ export async function recordSecurityEvent(input: {
     metadata
   });
 
-  if (!input.triggerAlert && severity !== "high") return;
+  const shouldAlert = Boolean(input.triggerAlert || severity === "high");
+  if (!shouldAlert) {
+    return {
+      alertAttempted: false,
+      alertDelivered: false,
+      alertError: null as string | null
+    };
+  }
+
+  const webhookUrl = getSecurityAlertWebhookUrl();
+  if (!webhookUrl) {
+    const message = "SECURITY_ALERT_WEBHOOK_URL is not configured.";
+    if (input.throwOnAlertFailure) {
+      throw new Error(message);
+    }
+    return {
+      alertAttempted: false,
+      alertDelivered: false,
+      alertError: message
+    };
+  }
 
   try {
     await sendSecurityAlert({
@@ -72,7 +93,22 @@ export async function recordSecurityEvent(input: {
       userAgent,
       metadata
     });
+    return {
+      alertAttempted: true,
+      alertDelivered: true,
+      alertError: null as string | null
+    };
   } catch (error) {
     console.error("Failed to send security alert", error);
+    const message =
+      error instanceof Error ? error.message : "Unknown security alert delivery failure";
+    if (input.throwOnAlertFailure) {
+      throw new Error(message);
+    }
+    return {
+      alertAttempted: true,
+      alertDelivered: false,
+      alertError: message
+    };
   }
 }
