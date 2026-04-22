@@ -7,6 +7,7 @@ import { AppBrandingEditor } from "@/components/platform/app-branding-editor";
 import { parseDatasetEntitlementInput } from "@/lib/platform/dataset-entitlements";
 import { ORGANIZATION_BILLING_PLANS } from "@/lib/platform/features";
 import type {
+  OrganizationCreateResponse,
   PlatformDatasetItem,
   PlatformDatasetsResponse,
   PlatformOrganizationDatasetEntitlements,
@@ -156,6 +157,10 @@ export function PlatformControlCenterPage() {
   const [navigatingOrgId, setNavigatingOrgId] = useState<string | null>(null);
   const [releasingDatasetId, setReleasingDatasetId] = useState<string | null>(null);
   const [sendingTestAlert, setSendingTestAlert] = useState(false);
+  const [creatingOrganization, setCreatingOrganization] = useState(false);
+  const [newOrganizationName, setNewOrganizationName] = useState("");
+  const [newOrganizationSlug, setNewOrganizationSlug] = useState("");
+  const [newOrganizationAppName, setNewOrganizationAppName] = useState("");
   const [datasetTargets, setDatasetTargets] = useState<Record<string, string>>({});
   const [expandedSections, setExpandedSections] = useState({
     organizations: true,
@@ -183,6 +188,15 @@ export function PlatformControlCenterPage() {
       ...current,
       [organizationId]: !(current[organizationId] ?? false)
     }));
+  }
+
+  async function readErrorMessage(response: Response, fallback: string) {
+    try {
+      const json = (await response.json()) as { error?: string };
+      return json.error || fallback;
+    } catch {
+      return fallback;
+    }
   }
 
   async function loadOverview(showSpinner = false) {
@@ -376,6 +390,44 @@ export function PlatformControlCenterPage() {
     }
   }
 
+  async function createOrganization() {
+    if (!session?.access_token || !canMutate || !newOrganizationName.trim()) return;
+
+    setCreatingOrganization(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      const response = await authFetch(session.access_token, "/api/organizations", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newOrganizationName.trim(),
+          slug: newOrganizationSlug.trim() || null,
+          appName: newOrganizationAppName.trim() || null
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, "Failed to create organization."));
+      }
+
+      const json = (await response.json()) as OrganizationCreateResponse;
+      await loadOverview();
+      setExpandedOrganizations((current) => ({
+        ...current,
+        [json.item.organizationId]: true
+      }));
+      setNewOrganizationName("");
+      setNewOrganizationSlug("");
+      setNewOrganizationAppName("");
+      setMessage(`Created ${json.item.name}.`);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Failed to create organization.");
+    } finally {
+      setCreatingOrganization(false);
+    }
+  }
+
   async function releaseDataset(datasetId: string) {
     if (!session?.access_token) return;
     const organizationId = datasetTargets[datasetId];
@@ -563,6 +615,54 @@ export function PlatformControlCenterPage() {
 
         {expandedSections.organizations ? (
           <div className="mt-5 space-y-4">
+            {canMutate ? (
+              <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50/90 p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Create Organization</div>
+                    <div className="mt-1 text-sm text-slate-500">
+                      Add a new customer org here, then manage its plan, branding, and setup below.
+                    </div>
+                  </div>
+                  <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">
+                    Starter flow
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 xl:grid-cols-[1.1fr_0.8fr_0.8fr_auto]">
+                  <input
+                    type="text"
+                    value={newOrganizationName}
+                    onChange={(event) => setNewOrganizationName(event.target.value)}
+                    placeholder="Organization name"
+                    className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                  />
+                  <input
+                    type="text"
+                    value={newOrganizationSlug}
+                    onChange={(event) => setNewOrganizationSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
+                    placeholder="slug"
+                    className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                  />
+                  <input
+                    type="text"
+                    value={newOrganizationAppName}
+                    onChange={(event) => setNewOrganizationAppName(event.target.value)}
+                    placeholder="App name (optional)"
+                    className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void createOrganization()}
+                    disabled={creatingOrganization || !newOrganizationName.trim()}
+                    className="rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {creatingOrganization ? "Creating..." : "Create"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             {loading ? (
               <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
                 Loading organizations…
