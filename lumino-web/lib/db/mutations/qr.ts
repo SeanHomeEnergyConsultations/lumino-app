@@ -2,6 +2,7 @@ import { createServerSupabaseClient } from "@/lib/db/supabase-server";
 import { hasManagerAccess } from "@/lib/auth/permissions";
 import { getOrganizationBranding } from "@/lib/db/queries/organization";
 import { getQrHub } from "@/lib/db/queries/qr";
+import { ensureOutcomeTask } from "@/lib/db/mutations/tasks";
 import { upsertLead } from "@/lib/db/mutations/leads";
 import { resolveOrCreateProperty } from "@/lib/db/mutations/properties";
 import { getGoogleCalendarBusyWindows } from "@/lib/google-calendar/service";
@@ -836,6 +837,16 @@ export async function bookAppointmentFromQr(input: {
       appointment_type: availability.appointmentType,
       booking_type_id: input.bookingTypeId
     }
+  });
+
+  await ensureOutcomeTask({
+    context: fauxContext,
+    propertyId: lead.propertyId,
+    leadId: lead.leadId,
+    type: "appointment_confirm",
+    dueAt: new Date().toISOString(),
+    notes:
+      "New QR booking. Send confirmation to the homeowner and double-check for any calendar conflicts before the appointment."
   });
 
   return {
