@@ -332,7 +332,74 @@ export async function getPublicQrAvailability(input: {
     timezone: availability.timezone,
     appointmentType: config.type,
     appointmentTypeLabel: config.label,
-    days: days.slice(0, 10)
+    days: days.slice(0, Math.min(availability.maxDaysOut, 42))
+  };
+}
+
+async function resolveOrCreatePlaceholderQrProperty(input: {
+  organizationId: string;
+  ownerUserId: string;
+  slug: string;
+  firstName: string;
+  lastName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+}) {
+  const supabase = createServerSupabaseClient();
+  const name = [input.firstName.trim(), input.lastName?.trim()].filter(Boolean).join(" ") || "QR Booking";
+  const contactKey =
+    input.phone?.replace(/\D+/g, "") ||
+    input.email?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") ||
+    randomSlug(6).toLowerCase();
+  const normalizedAddress = `qr-booking:${input.slug}:${contactKey}`;
+
+  const { data: existing, error: existingError } = await supabase
+    .from("properties")
+    .select("id")
+    .eq("normalized_address", normalizedAddress)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+  if (existing) {
+    return { propertyId: existing.id as string, created: false };
+  }
+
+  const displayAddress = `Booking Request - ${name}`;
+  const now = new Date().toISOString();
+  const { data: insertedProperty, error: insertError } = await supabase
+    .from("properties")
+    .insert({
+      normalized_address: normalizedAddress,
+      raw_address: displayAddress,
+      address_line_1: displayAddress,
+      city: null,
+      state: null,
+      postal_code: null,
+      zipcode: null,
+      created_at: now,
+      updated_at: now
+    })
+    .select("id")
+    .single();
+
+  if (insertError) throw insertError;
+
+  await supabase.from("activities").insert({
+    organization_id: input.organizationId,
+    entity_type: "property",
+    entity_id: insertedProperty.id,
+    actor_user_id: input.ownerUserId,
+    type: "property_created_from_map",
+    data: {
+      address: displayAddress,
+      geocoded: false,
+      source: "qr_booking_placeholder"
+    }
+  });
+
+  return {
+    propertyId: insertedProperty.id as string,
+    created: true
   };
 }
 
@@ -684,9 +751,9 @@ export async function bookAppointmentFromQr(input: {
   slug: string;
   firstName: string;
   lastName?: string | null;
-  phone: string;
+  phone?: string | null;
   email?: string | null;
-  address: string;
+  address?: string | null;
   appointmentAt: string;
   bookingTypeId: string;
   notes?: string | null;
@@ -717,6 +784,9 @@ export async function bookAppointmentFromQr(input: {
   );
   if (!isAllowedSlot) {
     throw new Error("That slot is no longer available. Please choose another time.");
+  }
+  if (availability.appointmentType === "in_person_consult" && !input.address?.trim()) {
+    throw new Error("Please add the property address for an in-person consult.");
   }
 
   const fauxContext: AuthSessionContext = {
@@ -750,24 +820,36 @@ export async function bookAppointmentFromQr(input: {
     hasAcceptedRequiredAgreement: true
   };
 
-  const property = await resolveOrCreateProperty(
-    {
-      address: input.address,
-      persist: true
-    },
-    fauxContext
-  );
+  const property =
+    input.address?.trim()
+      ? await resolveOrCreateProperty(
+          {
+            address: input.address,
+            persist: true
+          },
+          fauxContext
+        )
+      : await resolveOrCreatePlaceholderQrProperty({
+          organizationId: qrCode.organization_id as string,
+          ownerUserId: qrCode.owner_user_id as string,
+          slug: input.slug,
+          firstName: input.firstName,
+          lastName: input.lastName ?? null,
+          phone: input.phone ?? null,
+          email: input.email ?? null
+        });
 
   const lead = await upsertLead(
     {
       propertyId: property.propertyId as string,
       firstName: input.firstName,
       lastName: input.lastName ?? undefined,
-      phone: input.phone,
+      phone: input.phone ?? undefined,
       email: input.email ?? undefined,
       notes:
         [
           input.notes?.trim(),
+          input.address?.trim() ? `Submitted address: ${input.address.trim()}.` : "Booked without a property address.",
           `Booked from QR code "${qrCode.label as string}".`,
           `Appointment type: ${getQrBookingTypeConfig(
             normalizeQrBookingTypeConfigs(
@@ -783,8 +865,8 @@ export async function bookAppointmentFromQr(input: {
       leadStatus: "Appointment Set",
       interestLevel: "high",
       appointmentAt: input.appointmentAt,
-      preferredChannel: "text",
-      textConsent: true,
+      preferredChannel: input.phone ? "text" : "call",
+      textConsent: Boolean(input.phone),
       cadenceTrack: "appointment_active"
     },
     fauxContext

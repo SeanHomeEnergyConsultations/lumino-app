@@ -20,16 +20,16 @@ const optionalUrl = z.preprocess((value) => {
 }, z.string().url().max(500).nullable().optional());
 
 const bookingTypeConfigSchema = z.object({
-  id: z.string().trim().min(1).max(80),
+  id: z.string().trim().min(1).max(160),
   type: z.enum(["phone_call", "in_person_consult"]),
   enabled: z.boolean().optional(),
   label: z.string().trim().min(2).max(80),
   shortDescription: optionalTrimmedString(160),
   fullDescription: optionalTrimmedString(1200),
-  durationMinutes: z.number().int().min(10).max(180),
-  preBufferMinutes: z.number().int().min(0).max(240),
-  postBufferMinutes: z.number().int().min(0).max(240)
-});
+  durationMinutes: z.coerce.number().int().min(10).max(180),
+  preBufferMinutes: z.coerce.number().int().min(0).max(240),
+  postBufferMinutes: z.coerce.number().int().min(0).max(240)
+}).passthrough();
 
 const availabilitySettingsSchema = z.object({
   timezone: z.string().trim().min(1).max(80),
@@ -54,7 +54,7 @@ export const qrCodeCreateSchema = z.object({
   destinationUrl: optionalUrl,
   description: optionalTrimmedString(240),
   bookingTypes: z.array(bookingTypeConfigSchema).max(20).nullable().optional(),
-  bookingTypeIds: z.array(z.string().trim().min(1).max(80)).max(20).nullable().optional()
+  bookingTypeIds: z.array(z.string().trim().min(1).max(160)).max(20).nullable().optional()
 }).superRefine((value, ctx) => {
   if ((value.codeType ?? "contact_card") === "campaign_tracker" && !value.destinationUrl) {
     ctx.addIssue({
@@ -90,14 +90,22 @@ export const qrBookingSchema = z
   .object({
     firstName: z.string().trim().min(1).max(80),
     lastName: z.string().trim().max(80).nullable().optional(),
-    phone: z.string().trim().min(7).max(40),
+    phone: optionalTrimmedString(40),
     email: z.string().trim().email().max(320).nullable().optional(),
-    address: z.string().trim().min(6).max(240),
-    appointmentAt: z.string().datetime(),
-    bookingTypeId: z.string().trim().min(1).max(80),
+    address: optionalTrimmedString(240),
+    appointmentAt: z.string().trim().min(1),
+    bookingTypeId: z.string().trim().min(1).max(160),
     notes: z.string().trim().max(2000).nullable().optional()
   })
   .superRefine((value, ctx) => {
+    if (!value.phone && !value.email) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["phone"],
+        message: "Add a phone number or an email so the rep can confirm the appointment."
+      });
+    }
+
     const appointmentAt = new Date(value.appointmentAt).getTime();
     if (Number.isNaN(appointmentAt) || appointmentAt <= Date.now()) {
       ctx.addIssue({
@@ -109,7 +117,7 @@ export const qrBookingSchema = z
   });
 
 export const qrAvailabilityQuerySchema = z.object({
-  bookingTypeId: z.string().trim().min(1).max(80)
+  bookingTypeId: z.string().trim().min(1).max(160)
 });
 
 export const qrBookingProfileSchema = z.object({
