@@ -23,6 +23,8 @@ type DatasetEntitlementDraft = {
 };
 
 type FeatureDraft = {
+  name: string;
+  slug: string;
   billingPlan: PlatformOrganizationOverviewItem["billingPlan"];
   enrichmentEnabled: boolean | null;
   priorityScoringEnabled: boolean | null;
@@ -89,6 +91,8 @@ function buildInitialDrafts(items: PlatformOrganizationOverviewItem[]) {
     items.map((item) => [
       item.organizationId,
       {
+        name: item.name,
+        slug: item.slug ?? "",
         billingPlan: item.billingPlan,
         enrichmentEnabled: item.featureOverrides.enrichmentEnabled,
         priorityScoringEnabled: item.featureOverrides.priorityScoringEnabled,
@@ -326,7 +330,11 @@ export function PlatformControlCenterPage() {
       const [organizationResponse, featuresResponse, entitlementsResponse] = await Promise.all([
         authFetch(session.access_token, `/api/platform/organizations/${item.organizationId}`, {
           method: "PATCH",
-          body: JSON.stringify({ billingPlan: draft.billingPlan })
+          body: JSON.stringify({
+            name: draft.name,
+            slug: draft.slug.trim() || null,
+            billingPlan: draft.billingPlan
+          })
         }),
         authFetch(session.access_token, `/api/platform/organizations/${item.organizationId}/features`, {
           method: "PATCH",
@@ -656,7 +664,7 @@ export function PlatformControlCenterPage() {
                     </div>
                   ) : null}
 
-                  <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr,1fr,1fr,1.1fr]">
+                  <div className="mt-5 grid gap-4 xl:grid-cols-[1fr,1fr,1fr,1fr,1.1fr]">
                     <div className="rounded-3xl border border-slate-200 bg-white p-4">
                       <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Setup Checklist</div>
                       <div className="mt-3 space-y-3">
@@ -703,6 +711,48 @@ export function PlatformControlCenterPage() {
                             ) : null}
                           </div>
                         ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-slate-200 bg-white p-4">
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Organization</div>
+                      <div className="mt-3 space-y-3">
+                        <div>
+                          <label className="text-xs font-semibold uppercase tracking-[0.14em] text-mist">Name</label>
+                          <input
+                            type="text"
+                            value={draft?.name ?? item.name}
+                            disabled={!canMutate}
+                            onChange={(event) =>
+                              setDrafts((current) => ({
+                                ...current,
+                                [item.organizationId]: {
+                                  ...(current[item.organizationId] ?? buildInitialDrafts([item])[item.organizationId]),
+                                  name: event.target.value
+                                }
+                              }))
+                            }
+                            className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold uppercase tracking-[0.14em] text-mist">Slug</label>
+                          <input
+                            type="text"
+                            value={draft?.slug ?? item.slug ?? ""}
+                            disabled={!canMutate}
+                            onChange={(event) =>
+                              setDrafts((current) => ({
+                                ...current,
+                                [item.organizationId]: {
+                                  ...(current[item.organizationId] ?? buildInitialDrafts([item])[item.organizationId]),
+                                  slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-")
+                                }
+                              }))
+                            }
+                            className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          />
+                        </div>
                       </div>
                     </div>
 
