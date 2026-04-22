@@ -629,6 +629,7 @@ export interface OrganizationBranding {
   organizationId: string;
   appName: string;
   logoUrl: string | null;
+  logoScale: number | null;
   primaryColor: string | null;
   accentColor: string | null;
   backgroundColor: string | null;
@@ -645,6 +646,7 @@ export interface AppBranding {
   brandingId: string;
   appName: string;
   logoUrl: string | null;
+  logoScale: number | null;
   primaryColor: string | null;
   accentColor: string | null;
   backgroundColor: string | null;

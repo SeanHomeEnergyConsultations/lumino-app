@@ -12,6 +12,7 @@ export async function getOrganizationBranding(
       organizationId: "default",
       appName: appBranding.appName,
       logoUrl: appBranding.logoUrl,
+      logoScale: appBranding.logoScale,
       primaryColor: appBranding.primaryColor,
       accentColor: appBranding.accentColor,
       backgroundColor: appBranding.backgroundColor,
@@ -32,6 +33,7 @@ export async function getOrganizationBranding(
         accent_color?: string | null;
         theme_config?:
           | {
+              logoScale?: number | null;
               backgroundColor?: string | null;
               backgroundAccentColor?: string | null;
               surfaceColor?: string | null;
@@ -67,6 +69,9 @@ export async function getOrganizationBranding(
       (data?.name as string | null | undefined) ??
       appBranding.appName,
     logoUrl: (data?.logo_url as string | null | undefined) ?? appBranding.logoUrl,
+    logoScale:
+      (data?.theme_config?.logoScale as number | null | undefined) ??
+      appBranding.logoScale,
     primaryColor: (data?.primary_color as string | null | undefined) ?? appBranding.primaryColor,
     accentColor: (data?.accent_color as string | null | undefined) ?? appBranding.accentColor,
     backgroundColor:

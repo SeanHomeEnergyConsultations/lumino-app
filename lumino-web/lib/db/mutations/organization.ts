@@ -18,6 +18,7 @@ export async function updateOrganizationBranding(
   input: {
     appName: string;
     logoUrl?: string | null;
+    logoScale?: number | null;
     primaryColor?: string | null;
     accentColor?: string | null;
     backgroundColor?: string | null;
@@ -36,6 +37,7 @@ export async function updateOrganizationBranding(
     primary_color: input.primaryColor?.trim() || null,
     accent_color: input.accentColor?.trim() || null,
     theme_config: {
+      logoScale: input.logoScale ?? 1,
       backgroundColor: input.backgroundColor?.trim() || null,
       backgroundAccentColor: input.backgroundAccentColor?.trim() || null,
       surfaceColor: input.surfaceColor?.trim() || null,

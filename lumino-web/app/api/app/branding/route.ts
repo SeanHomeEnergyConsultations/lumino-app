@@ -52,6 +52,7 @@ export async function PATCH(request: Request) {
     {
       appName: parsed.data.appName,
       logoUrl: parsed.data.logoUrl || null,
+      logoScale: parsed.data.logoScale ?? 1,
       primaryColor: parsed.data.primaryColor || null,
       accentColor: parsed.data.accentColor || null,
       backgroundColor: parsed.data.backgroundColor || null,
@@ -70,6 +71,7 @@ export async function PATCH(request: Request) {
     metadata: {
       previousAppName: previous.appName,
       previousLogoUrl: previous.logoUrl,
+      previousLogoScale: previous.logoScale,
       previousPrimaryColor: previous.primaryColor,
       previousAccentColor: previous.accentColor,
       previousBackgroundColor: previous.backgroundColor,
@@ -78,6 +80,7 @@ export async function PATCH(request: Request) {
       previousSidebarColor: previous.sidebarColor,
       appName: parsed.data.appName,
       logoUrl: parsed.data.logoUrl || null,
+      logoScale: parsed.data.logoScale ?? 1,
       primaryColor: parsed.data.primaryColor || null,
       accentColor: parsed.data.accentColor || null,
       backgroundColor: parsed.data.backgroundColor || null,

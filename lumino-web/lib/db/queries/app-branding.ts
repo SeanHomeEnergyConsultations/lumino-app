@@ -19,6 +19,7 @@ export async function getAppBranding(_context?: AuthSessionContext | null): Prom
     brandingId: (data?.id as string | undefined) ?? "default",
     appName: (data?.app_name as string | null | undefined) ?? DEFAULT_BRANDING.appName,
     logoUrl: (data?.logo_url as string | null | undefined) ?? null,
+    logoScale: (data?.theme_config?.logoScale as number | null | undefined) ?? 1,
     primaryColor: (data?.primary_color as string | null | undefined) ?? DEFAULT_BRANDING.primaryColor,
     accentColor: (data?.accent_color as string | null | undefined) ?? DEFAULT_BRANDING.accentColor,
     backgroundColor:

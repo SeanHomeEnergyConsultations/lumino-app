@@ -58,6 +58,7 @@ export function TerritoryAdminPage() {
   const [inviteRole, setInviteRole] = useState<"owner" | "admin" | "manager" | "rep" | "setter">("rep");
   const [brandName, setBrandName] = useState("Lumino");
   const [logoUrl, setLogoUrl] = useState("");
+  const [logoScale, setLogoScale] = useState(1);
   const [logoUploadState, setLogoUploadState] = useState<"idle" | "uploading" | "uploaded" | "error">("idle");
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
   const [logoFileName, setLogoFileName] = useState<string | null>(null);
@@ -192,6 +193,7 @@ export function TerritoryAdminPage() {
     if (!organizationBranding) return;
     setBrandName(organizationBranding.appName || "Lumino");
     setLogoUrl(organizationBranding.logoUrl || "");
+    setLogoScale(organizationBranding.logoScale ?? 1);
     setLogoFileName(organizationBranding.logoUrl ? "Current logo" : null);
     setLogoUploadState("idle");
     setLogoUploadError(null);
@@ -462,6 +464,7 @@ export function TerritoryAdminPage() {
         body: JSON.stringify({
           appName: brandName.trim(),
           logoUrl: logoUrl.trim() || null,
+          logoScale,
           primaryColor: primaryColor.trim(),
           accentColor: accentColor.trim(),
           backgroundColor: backgroundColor.trim(),
@@ -725,7 +728,8 @@ export function TerritoryAdminPage() {
                     <img
                       src={logoUrl}
                       alt={`${brandName} logo preview`}
-                      className="h-20 w-20 rounded-[1.4rem] border border-slate-200 object-cover"
+                      className="h-20 w-20 rounded-[1.4rem] border border-slate-200 object-contain"
+                      style={{ transform: `scale(${logoScale})` }}
                     />
                   ) : (
                     <div className="flex h-20 w-20 items-center justify-center rounded-[1.4rem] border border-dashed border-slate-300 bg-slate-50 text-slate-400">
@@ -776,6 +780,22 @@ export function TerritoryAdminPage() {
                     {logoUploadError}
                   </div>
                 ) : null}
+                <div className="mt-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Logo Size</div>
+                    <div className="text-xs text-slate-500">{Math.round(logoScale * 100)}%</div>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.4"
+                    max="1.6"
+                    step="0.05"
+                    value={logoScale}
+                    onChange={(event) => setLogoScale(Number(event.target.value))}
+                    className="mt-3 w-full accent-[var(--app-primary)]"
+                  />
+                  <div className="mt-1 text-xs text-slate-500">Slide to shrink or enlarge the logo inside the badge.</div>
+                </div>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="app-chip rounded-2xl px-3 py-2 text-sm text-slate-600">
@@ -862,7 +882,12 @@ export function TerritoryAdminPage() {
                   >
                     {logoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={logoUrl} alt={`${brandName} logo`} className="h-full w-full object-cover" />
+                      <img
+                        src={logoUrl}
+                        alt={`${brandName} logo`}
+                        className="h-full w-full object-contain"
+                        style={{ transform: `scale(${logoScale})` }}
+                      />
                     ) : (
                       brandName
                         .split(/\s+/)

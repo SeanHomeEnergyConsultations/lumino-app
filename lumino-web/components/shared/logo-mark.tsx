@@ -1,10 +1,12 @@
 export function LogoMark({
   appName = "Lumino",
   logoUrl = null,
+  logoScale = 1,
   primaryColor = "#0b1220"
 }: {
   appName?: string;
   logoUrl?: string | null;
+  logoScale?: number | null;
   primaryColor?: string;
 }) {
   const initials = appName
@@ -21,7 +23,12 @@ export function LogoMark({
     >
       {logoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={logoUrl} alt={`${appName} logo`} className="h-full w-full object-cover" />
+        <img
+          src={logoUrl}
+          alt={`${appName} logo`}
+          className="h-full w-full object-contain"
+          style={{ transform: `scale(${logoScale ?? 1})` }}
+        />
       ) : (
         initials || "LU"
       )}

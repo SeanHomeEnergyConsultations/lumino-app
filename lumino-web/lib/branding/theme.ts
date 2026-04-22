@@ -100,6 +100,7 @@ function hexToRgbString(input: string) {
 type BrandingThemeInput = {
   appName?: string | null;
   logoUrl?: string | null;
+  logoScale?: number | null;
   primaryColor?: string | null;
   accentColor?: string | null;
   backgroundColor?: string | null;
@@ -112,6 +113,7 @@ export function getResolvedOrganizationTheme(branding?: BrandingThemeInput) {
   return {
     appName: branding?.appName ?? DEFAULT_ORGANIZATION_THEME.appName,
     logoUrl: branding?.logoUrl ?? null,
+    logoScale: branding?.logoScale ?? 1,
     primaryColor: branding?.primaryColor ?? DEFAULT_ORGANIZATION_THEME.primaryColor,
     accentColor: branding?.accentColor ?? DEFAULT_ORGANIZATION_THEME.accentColor,
     backgroundColor: branding?.backgroundColor ?? DEFAULT_ORGANIZATION_THEME.backgroundColor,

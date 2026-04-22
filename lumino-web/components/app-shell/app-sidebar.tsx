@@ -77,7 +77,12 @@ export function AppSidebar() {
   return (
     <aside className="app-sidebar-surface w-72 shrink-0 border-r px-5 py-6">
       <div className="flex items-center gap-3">
-        <LogoMark appName={appName} logoUrl={effectiveBranding?.logoUrl ?? null} primaryColor={primaryColor} />
+        <LogoMark
+          appName={appName}
+          logoUrl={effectiveBranding?.logoUrl ?? null}
+          logoScale={effectiveBranding?.logoScale ?? 1}
+          primaryColor={primaryColor}
+        />
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.24em]" style={{ color: accentColor }}>
             {appName}
