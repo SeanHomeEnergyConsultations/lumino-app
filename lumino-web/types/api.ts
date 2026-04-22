@@ -888,12 +888,15 @@ export interface QRCodeListItem {
   qrCodeId: string;
   ownerUserId: string;
   ownerName: string | null;
+  ownerRole: "owner" | "admin" | "manager" | "rep" | "setter" | null;
   territoryId: string | null;
   territoryName: string | null;
   label: string;
   slug: string;
   codeType: QRCodeType;
   status: "active" | "paused" | "archived";
+  isShared: boolean;
+  canDelete: boolean;
   publicUrl: string;
   publicBookingUrl: string;
   createdAt: string;
