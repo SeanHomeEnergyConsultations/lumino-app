@@ -166,10 +166,9 @@ export function SquareImageCropDialog({
                   draggable={false}
                   className="select-none object-contain"
                   style={{
-                    width: imageElement ? imageElement.naturalWidth * baseScale : CROP_BOX_SIZE,
-                    height: imageElement ? imageElement.naturalHeight * baseScale : CROP_BOX_SIZE,
-                    transform: `translate(${offsetX}px, ${offsetY}px) scale(${zoom})`,
-                    transformOrigin: "center center"
+                    width: imageElement ? renderedWidth : CROP_BOX_SIZE,
+                    height: imageElement ? renderedHeight : CROP_BOX_SIZE,
+                    transform: `translate(${offsetX}px, ${offsetY}px)`
                   }}
                 />
               ) : null}
