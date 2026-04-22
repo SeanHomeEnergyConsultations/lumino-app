@@ -29,6 +29,15 @@ const bookingTypeConfigSchema = z.object({
   postBufferMinutes: z.number().int().min(0).max(240)
 });
 
+const availabilitySettingsSchema = z.object({
+  timezone: z.string().trim().min(1).max(80),
+  workingDays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+  startTime: z.string().trim().regex(/^\d{2}:\d{2}$/),
+  endTime: z.string().trim().regex(/^\d{2}:\d{2}$/),
+  minNoticeHours: z.number().int().min(0).max(72),
+  maxDaysOut: z.number().int().min(1).max(60)
+});
+
 export const qrCodeCreateSchema = z.object({
   codeType: z.enum(["contact_card", "campaign_tracker"]).optional(),
   label: z.string().trim().min(2).max(120),
@@ -131,6 +140,23 @@ export const qrBookingSchema = z
 
 export const qrAvailabilityQuerySchema = z.object({
   appointmentType: z.enum(["phone_call", "in_person_consult"]).default("in_person_consult")
+});
+
+export const qrBookingProfileSchema = z.object({
+  availability: availabilitySettingsSchema,
+  bookingTypes: z.object({
+    phone_call: bookingTypeConfigSchema,
+    in_person_consult: bookingTypeConfigSchema
+  })
+}).superRefine((value, ctx) => {
+  const anyEnabled = Object.values(value.bookingTypes).some((config) => config.enabled !== false);
+  if (!anyEnabled) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["bookingTypes"],
+      message: "Enable at least one appointment type."
+    });
+  }
 });
 
 export const qrPhotoUploadTargetSchema = z.object({

@@ -339,6 +339,103 @@ function sanitizeQrAssetName(value: string) {
   return cleaned || "photo";
 }
 
+export async function getUserBookingProfile(context: AuthSessionContext) {
+  const supabase = createServerSupabaseClient();
+  if (!context.organizationId) {
+    throw new Error("No active organization found for this user.");
+  }
+
+  const { data, error } = await supabase
+    .from("user_booking_profiles")
+    .select("payload")
+    .eq("organization_id", context.organizationId)
+    .eq("owner_user_id", context.appUser.id)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const payload = (data?.payload as Record<string, unknown> | null | undefined) ?? null;
+  return {
+    availability: normalizeQrAvailabilitySettings(
+      typeof payload?.availability === "object" && payload?.availability ? (payload.availability as Record<string, unknown>) : null
+    ),
+    bookingTypes: normalizeQrBookingTypeConfigs(
+      typeof payload?.bookingTypes === "object" && payload?.bookingTypes ? (payload.bookingTypes as Record<string, unknown>) : null
+    )
+  };
+}
+
+export async function upsertUserBookingProfile(
+  input: {
+    availability: {
+      timezone: string;
+      workingDays: number[];
+      startTime: string;
+      endTime: string;
+      minNoticeHours: number;
+      maxDaysOut: number;
+    };
+    bookingTypes: {
+      phone_call: {
+        enabled?: boolean;
+        label: string;
+        shortDescription?: string | null;
+        fullDescription?: string | null;
+        durationMinutes: number;
+        preBufferMinutes: number;
+        postBufferMinutes: number;
+      };
+      in_person_consult: {
+        enabled?: boolean;
+        label: string;
+        shortDescription?: string | null;
+        fullDescription?: string | null;
+        durationMinutes: number;
+        preBufferMinutes: number;
+        postBufferMinutes: number;
+      };
+    };
+  },
+  context: AuthSessionContext
+) {
+  const supabase = createServerSupabaseClient();
+  if (!context.organizationId) {
+    throw new Error("No active organization found for this user.");
+  }
+
+  const payload = {
+    availability: normalizeQrAvailabilitySettings(input.availability),
+    bookingTypes: Object.fromEntries(
+      normalizeQrBookingTypeConfigs(input.bookingTypes).map((item) => [
+        item.type,
+        {
+          enabled: item.enabled,
+          label: item.label,
+          shortDescription: item.shortDescription,
+          fullDescription: item.fullDescription,
+          durationMinutes: item.durationMinutes,
+          preBufferMinutes: item.preBufferMinutes,
+          postBufferMinutes: item.postBufferMinutes
+        }
+      ])
+    )
+  };
+
+  const { error } = await supabase.from("user_booking_profiles").upsert(
+    {
+      organization_id: context.organizationId,
+      owner_user_id: context.appUser.id,
+      payload,
+      updated_at: new Date().toISOString()
+    },
+    { onConflict: "organization_id,owner_user_id" }
+  );
+
+  if (error) throw error;
+
+  return getUserBookingProfile(context);
+}
+
 export async function createQrPhotoUploadTarget(
   input: {
     fileName: string;

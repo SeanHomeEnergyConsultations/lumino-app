@@ -950,6 +950,13 @@ export interface PublicQrAvailabilityResponse {
   days: QrAvailabilityDay[];
 }
 
+export interface UserBookingProfileResponse {
+  item: {
+    availability: QRCodeContactCardPayload["availability"];
+    bookingTypes: QRBookingTypeConfig[];
+  };
+}
+
 export type ResourceMaterialType = "document" | "video" | "printable";
 
 export interface OrganizationResourceItem {

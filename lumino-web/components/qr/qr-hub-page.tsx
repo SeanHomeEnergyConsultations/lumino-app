@@ -10,7 +10,8 @@ import type {
   QRCodeListItem,
   QRCodeType,
   QRPhotoUploadTargetResponse,
-  TerritoriesResponse
+  TerritoriesResponse,
+  UserBookingProfileResponse
 } from "@/types/api";
 
 const WEEKDAY_CHOICES = [
@@ -84,6 +85,12 @@ export function QrHubPage() {
   );
   const [availabilityMaxDaysOut, setAvailabilityMaxDaysOut] = useState(DEFAULT_QR_AVAILABILITY_SETTINGS.maxDaysOut);
   const [bookingTypes, setBookingTypes] = useState(createDefaultBookingTypeState);
+  const [selectedBookingTypes, setSelectedBookingTypes] = useState<Array<"phone_call" | "in_person_consult">>([
+    "phone_call",
+    "in_person_consult"
+  ]);
+  const [bookingProfileState, setBookingProfileState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [bookingProfileMessage, setBookingProfileMessage] = useState<string | null>(null);
   const [destinationUrl, setDestinationUrl] = useState("");
   const [description, setDescription] = useState("");
   const [expandedEngagementCodeId, setExpandedEngagementCodeId] = useState<string | null>(null);
@@ -122,6 +129,37 @@ export function QrHubPage() {
   useEffect(() => {
     void loadHub();
   }, [loadHub]);
+
+  useEffect(() => {
+    if (!session?.access_token) return;
+
+    authFetch(session.access_token, "/api/qr/booking-profile")
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Could not load saved booking setup.");
+        }
+        return (await response.json()) as UserBookingProfileResponse;
+      })
+      .then((json) => {
+        const bookingTypeMap = Object.fromEntries(json.item.bookingTypes.map((type) => [type.type, type])) as Record<
+          "phone_call" | "in_person_consult",
+          QRBookingTypeConfig
+        >;
+        setAvailabilityTimezone(json.item.availability.timezone);
+        setAvailabilityWorkingDays(json.item.availability.workingDays);
+        setAvailabilityStartTime(json.item.availability.startTime);
+        setAvailabilityEndTime(json.item.availability.endTime);
+        setAvailabilityMinNoticeHours(json.item.availability.minNoticeHours);
+        setAvailabilityMaxDaysOut(json.item.availability.maxDaysOut);
+        setBookingTypes(bookingTypeMap);
+        setSelectedBookingTypes(
+          json.item.bookingTypes.filter((type) => type.enabled).map((type) => type.type) as Array<
+            "phone_call" | "in_person_consult"
+          >
+        );
+      })
+      .catch(() => null);
+  }, [session?.access_token]);
 
   useEffect(() => {
     if (!session?.access_token) return;
@@ -240,7 +278,7 @@ export function QrHubPage() {
           availabilityMaxDaysOut,
           bookingTypes: {
             phone_call: {
-              enabled: bookingTypes.phone_call.enabled,
+              enabled: bookingTypes.phone_call.enabled && selectedBookingTypes.includes("phone_call"),
               label: bookingTypes.phone_call.label,
               shortDescription: bookingTypes.phone_call.shortDescription,
               fullDescription: bookingTypes.phone_call.fullDescription,
@@ -249,7 +287,8 @@ export function QrHubPage() {
               postBufferMinutes: bookingTypes.phone_call.postBufferMinutes
             },
             in_person_consult: {
-              enabled: bookingTypes.in_person_consult.enabled,
+              enabled:
+                bookingTypes.in_person_consult.enabled && selectedBookingTypes.includes("in_person_consult"),
               label: bookingTypes.in_person_consult.label,
               shortDescription: bookingTypes.in_person_consult.shortDescription,
               fullDescription: bookingTypes.in_person_consult.fullDescription,
@@ -295,12 +334,67 @@ export function QrHubPage() {
       setAvailabilityMinNoticeHours(DEFAULT_QR_AVAILABILITY_SETTINGS.minNoticeHours);
       setAvailabilityMaxDaysOut(DEFAULT_QR_AVAILABILITY_SETTINGS.maxDaysOut);
       setBookingTypes(createDefaultBookingTypeState());
+      setSelectedBookingTypes(["phone_call", "in_person_consult"]);
       setDestinationUrl("");
       setDescription("");
       await loadHub();
     } catch (saveError) {
       setSaveState("error");
       setError(saveError instanceof Error ? saveError.message : "Could not create QR code.");
+    }
+  }
+
+  async function saveBookingProfile() {
+    if (!session?.access_token) return;
+    setBookingProfileState("saving");
+    setBookingProfileMessage(null);
+    try {
+      const response = await authFetch(session.access_token, "/api/qr/booking-profile", {
+        method: "PATCH",
+        body: JSON.stringify({
+          availability: {
+            timezone: availabilityTimezone,
+            workingDays: availabilityWorkingDays,
+            startTime: availabilityStartTime,
+            endTime: availabilityEndTime,
+            minNoticeHours: availabilityMinNoticeHours,
+            maxDaysOut: availabilityMaxDaysOut
+          },
+          bookingTypes: {
+            phone_call: {
+              enabled: bookingTypes.phone_call.enabled,
+              label: bookingTypes.phone_call.label,
+              shortDescription: bookingTypes.phone_call.shortDescription,
+              fullDescription: bookingTypes.phone_call.fullDescription,
+              durationMinutes: bookingTypes.phone_call.durationMinutes,
+              preBufferMinutes: bookingTypes.phone_call.preBufferMinutes,
+              postBufferMinutes: bookingTypes.phone_call.postBufferMinutes
+            },
+            in_person_consult: {
+              enabled: bookingTypes.in_person_consult.enabled,
+              label: bookingTypes.in_person_consult.label,
+              shortDescription: bookingTypes.in_person_consult.shortDescription,
+              fullDescription: bookingTypes.in_person_consult.fullDescription,
+              durationMinutes: bookingTypes.in_person_consult.durationMinutes,
+              preBufferMinutes: bookingTypes.in_person_consult.preBufferMinutes,
+              postBufferMinutes: bookingTypes.in_person_consult.postBufferMinutes
+            }
+          }
+        })
+      });
+
+      const json = (await response.json()) as { error?: string; issues?: { formErrors?: string[] } };
+      if (!response.ok) {
+        throw new Error(json.error || json.issues?.formErrors?.[0] || "Could not save booking setup.");
+      }
+      setBookingProfileState("saved");
+      setBookingProfileMessage("Saved your booking setup. New booking links will start with these settings.");
+      setSelectedBookingTypes(
+        (["phone_call", "in_person_consult"] as const).filter((type) => bookingTypes[type].enabled)
+      );
+    } catch (saveError) {
+      setBookingProfileState("error");
+      setBookingProfileMessage(saveError instanceof Error ? saveError.message : "Could not save booking setup.");
     }
   }
 
@@ -513,6 +607,42 @@ export function QrHubPage() {
                   />
                 </label>
 
+                <div className="rounded-[1.6rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.5)] p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Offer on This Code</div>
+                  <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
+                    Pick which of your saved appointment options this homeowner should be able to choose from.
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {(["phone_call", "in_person_consult"] as const).map((typeKey) => {
+                      const bookingType = bookingTypes[typeKey];
+                      const active = selectedBookingTypes.includes(typeKey);
+                      return (
+                        <button
+                          key={typeKey}
+                          type="button"
+                          disabled={!bookingType.enabled}
+                          onClick={() =>
+                            setSelectedBookingTypes((current) => {
+                              if (active) {
+                                return current.filter((value) => value !== typeKey);
+                              }
+                              return [...current, typeKey];
+                            })
+                          }
+                          className={`rounded-full border px-3 py-2 text-sm font-semibold transition ${
+                            active
+                              ? "border-[rgba(var(--app-primary-rgb),0.96)] bg-[rgba(var(--app-primary-rgb),0.96)] text-white"
+                              : "border-[rgba(var(--app-primary-rgb),0.08)] bg-white text-[rgba(var(--app-primary-rgb),0.72)] hover:border-[rgba(var(--app-primary-rgb),0.2)]"
+                          } disabled:cursor-not-allowed disabled:opacity-40`}
+                        >
+                          {bookingType.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <label className="block space-y-2">
                   <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Booking blurb</div>
                   <textarea
@@ -523,7 +653,36 @@ export function QrHubPage() {
                 </label>
 
                 <div className="rounded-[1.6rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.5)] p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Booking Availability</div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Saved Booking Setup</div>
+                      <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
+                        Save your working hours and appointment types once, then reuse them every time you create a new code.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void saveBookingProfile()}
+                      disabled={bookingProfileState === "saving"}
+                      className="rounded-2xl bg-[rgba(var(--app-primary-rgb),0.96)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {bookingProfileState === "saving" ? "Saving..." : "Save Setup"}
+                    </button>
+                  </div>
+
+                  {bookingProfileMessage ? (
+                    <div
+                      className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
+                        bookingProfileState === "error"
+                          ? "border-rose-200 bg-rose-50 text-rose-900"
+                          : "border-emerald-200 bg-emerald-50 text-emerald-900"
+                      }`}
+                    >
+                      {bookingProfileMessage}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 text-xs font-semibold uppercase tracking-[0.18em] text-mist">Working Hours</div>
                   <div className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
                     Homeowners will only see open slots inside these days and hours.
                   </div>
@@ -639,7 +798,7 @@ export function QrHubPage() {
                         <div key={typeKey} className="rounded-[1.4rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/80 p-4">
                           <label className="flex items-center justify-between gap-4">
                             <div>
-                              <div className="text-sm font-semibold text-ink">{typeKey === "phone_call" ? "Type One" : "Type Two"}</div>
+                              <div className="text-sm font-semibold text-ink">{typeKey === "phone_call" ? "Phone-Style Slot" : "In-Person Slot"}</div>
                               <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">
                                 Internal slot: {typeKey === "phone_call" ? "Phone Call" : "In-Person Consult"}
                               </div>
