@@ -826,3 +826,82 @@ export interface PlatformDatasetsResponse {
 export interface PlatformOrganizationDatasetEntitlementsResponse {
   item: PlatformOrganizationDatasetEntitlements;
 }
+
+export type QRCodeEventType =
+  | "scan"
+  | "call_click"
+  | "text_click"
+  | "email_click"
+  | "website_click"
+  | "book_click"
+  | "save_contact"
+  | "appointment_booked";
+
+export type QRCodeType = "contact_card" | "campaign_tracker";
+
+export interface QRCodeContactCardPayload {
+  firstName: string | null;
+  lastName: string | null;
+  title: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  bookingEnabled: boolean;
+  bookingBlurb: string | null;
+  organizationName: string | null;
+  appName: string | null;
+  logoUrl: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+}
+
+export interface QRCodeCampaignTrackerPayload {
+  destinationUrl: string;
+  description: string | null;
+}
+
+export interface QRCodeListItem {
+  qrCodeId: string;
+  ownerUserId: string;
+  ownerName: string | null;
+  territoryId: string | null;
+  territoryName: string | null;
+  label: string;
+  slug: string;
+  codeType: QRCodeType;
+  status: "active" | "paused" | "archived";
+  publicUrl: string;
+  createdAt: string;
+  payload: QRCodeContactCardPayload | QRCodeCampaignTrackerPayload;
+  stats: {
+    scans: number;
+    appointmentsBooked: number;
+    saveContacts: number;
+    calls: number;
+    texts: number;
+    emails: number;
+    websiteClicks: number;
+    lastScanAt: string | null;
+    topCities: string[];
+  };
+}
+
+export interface QRCodeHubResponse {
+  items: QRCodeListItem[];
+}
+
+export interface QRCodeCreateResponse {
+  item: QRCodeListItem;
+}
+
+export interface PublicQRCodeResponse {
+  item: {
+    qrCodeId: string;
+    organizationId: string;
+    label: string;
+    slug: string;
+    publicUrl: string;
+    ownerName: string | null;
+    payload: QRCodeContactCardPayload;
+  } | null;
+}
