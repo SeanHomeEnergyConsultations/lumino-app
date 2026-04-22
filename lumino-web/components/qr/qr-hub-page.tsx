@@ -9,6 +9,13 @@ function qrImageUrl(value: string) {
   return `https://quickchart.io/qr?text=${encodeURIComponent(value)}&size=220&margin=1`;
 }
 
+function normalizeUrlInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 export function QrHubPage() {
   const { session, appContext } = useAuth();
   const [hub, setHub] = useState<QRCodeHubResponse | null>(null);
@@ -100,17 +107,27 @@ export function QrHubPage() {
           title: title || null,
           phone: phone || null,
           email: email || null,
-          website: website || null,
+          website: normalizeUrlInput(website),
           bookingEnabled,
           bookingBlurb: bookingBlurb || null,
-          destinationUrl: destinationUrl || null,
+          destinationUrl: normalizeUrlInput(destinationUrl),
           description: description || null
         })
       });
 
-      const json = (await response.json()) as { error?: string };
+      const json = (await response.json()) as {
+        error?: string;
+        issues?: {
+          formErrors?: string[];
+          fieldErrors?: Record<string, string[] | undefined>;
+        };
+      };
       if (!response.ok) {
-        throw new Error(json.error || "Could not create QR code.");
+        const firstFieldIssue = Object.values(json.issues?.fieldErrors ?? {})
+          .flat()
+          .find(Boolean);
+        const firstFormIssue = json.issues?.formErrors?.find(Boolean);
+        throw new Error(firstFieldIssue || firstFormIssue || json.error || "Could not create QR code.");
       }
 
       setSaveState("saved");
