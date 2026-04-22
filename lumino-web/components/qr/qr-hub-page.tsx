@@ -36,6 +36,7 @@ export function QrHubPage() {
   );
   const [destinationUrl, setDestinationUrl] = useState("");
   const [description, setDescription] = useState("");
+  const [expandedEngagementCodeId, setExpandedEngagementCodeId] = useState<string | null>(null);
 
   const loadHub = useCallback(async () => {
     if (!session?.access_token) return;
@@ -71,6 +72,17 @@ export function QrHubPage() {
   useEffect(() => {
     void loadHub();
   }, [loadHub]);
+
+  useEffect(() => {
+    if (!session?.access_token) return;
+    const interval = window.setInterval(() => {
+      void loadHub();
+    }, 30000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [loadHub, session?.access_token]);
 
   useEffect(() => {
     if (appContext?.appUser.email) {
@@ -345,7 +357,14 @@ export function QrHubPage() {
 
         <section className="space-y-4">
           {(hub?.items ?? []).map((item) => (
-            <QrCodeCard key={item.qrCodeId} item={item} />
+            <QrCodeCard
+              key={item.qrCodeId}
+              item={item}
+              engagementExpanded={expandedEngagementCodeId === item.qrCodeId}
+              onToggleEngagement={() =>
+                setExpandedEngagementCodeId((current) => (current === item.qrCodeId ? null : item.qrCodeId))
+              }
+            />
           ))}
 
           {!loading && !(hub?.items.length ?? 0) ? (
@@ -359,11 +378,25 @@ export function QrHubPage() {
   );
 }
 
-function QrCodeCard({ item }: { item: QRCodeListItem }) {
+function QrCodeCard({
+  item,
+  engagementExpanded,
+  onToggleEngagement
+}: {
+  item: QRCodeListItem;
+  engagementExpanded: boolean;
+  onToggleEngagement: () => void;
+}) {
   const copyUrl = async () => {
     await navigator.clipboard.writeText(item.publicUrl).catch(() => null);
   };
   const isContactCard = item.codeType === "contact_card";
+  const engagementTotal =
+    item.stats.calls +
+    item.stats.texts +
+    item.stats.emails +
+    item.stats.websiteClicks +
+    item.stats.appointmentsBooked;
 
   return (
     <article className="app-panel rounded-[2rem] border p-5">
@@ -421,15 +454,47 @@ function QrCodeCard({ item }: { item: QRCodeListItem }) {
               { label: "Saved", value: item.stats.saveContacts },
               {
                 label: "Engagement",
-                value: item.stats.calls + item.stats.texts + item.stats.emails + item.stats.websiteClicks
+                value: engagementTotal
               }
             ].map((stat) => (
-              <div key={stat.label} className="rounded-[1.4rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/80 px-4 py-3">
+              <button
+                key={stat.label}
+                type="button"
+                onClick={stat.label === "Engagement" ? onToggleEngagement : undefined}
+                className={`rounded-[1.4rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-white/80 px-4 py-3 text-left ${
+                  stat.label === "Engagement" ? "transition hover:bg-[rgba(var(--app-surface-rgb),0.55)]" : ""
+                }`}
+              >
                 <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">{stat.label}</div>
                 <div className="mt-2 text-2xl font-semibold text-ink">{stat.value}</div>
-              </div>
+                {stat.label === "Engagement" ? (
+                  <div className="mt-1 text-[11px] text-[rgba(var(--app-primary-rgb),0.58)]">
+                    {engagementExpanded ? "Hide breakdown" : "Click for breakdown"}
+                  </div>
+                ) : null}
+              </button>
             ))}
           </div>
+
+          {engagementExpanded ? (
+            <div className="mt-3 grid gap-3 md:grid-cols-5">
+              {[
+                { label: "Calls", value: item.stats.calls },
+                { label: "Texts", value: item.stats.texts },
+                { label: "Emails", value: item.stats.emails },
+                { label: "Website", value: item.stats.websiteClicks },
+                { label: "Booked", value: item.stats.appointmentsBooked }
+              ].map((detail) => (
+                <div
+                  key={detail.label}
+                  className="rounded-[1.2rem] border border-[rgba(var(--app-primary-rgb),0.08)] bg-[rgba(var(--app-surface-rgb),0.45)] px-4 py-3"
+                >
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-mist">{detail.label}</div>
+                  <div className="mt-2 text-xl font-semibold text-ink">{detail.value}</div>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <div className="mt-4 flex flex-wrap gap-3 text-sm text-[rgba(var(--app-primary-rgb),0.68)]">
             {isContactCard && "phone" in item.payload && item.payload.phone ? (

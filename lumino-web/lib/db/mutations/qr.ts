@@ -4,6 +4,8 @@ import { getOrganizationBranding } from "@/lib/db/queries/organization";
 import { getQrHub } from "@/lib/db/queries/qr";
 import { upsertLead } from "@/lib/db/mutations/leads";
 import { resolveOrCreateProperty } from "@/lib/db/mutations/properties";
+import { DEFAULT_APPOINTMENT_DURATION_MINUTES } from "@/lib/appointments/calendar";
+import { checkGoogleCalendarConflicts } from "@/lib/google-calendar/service";
 import { getRequestIpAddress, getRequestUserAgent } from "@/lib/security/request-meta";
 import { detectBrowser, detectDevice, getRequestGeo } from "@/lib/qr/tracking";
 import type { AuthSessionContext } from "@/types/auth";
@@ -214,6 +216,41 @@ export async function bookAppointmentFromQr(input: {
     agreementAcceptedAt: null,
     hasAcceptedRequiredAgreement: true
   };
+
+  const startAt = new Date(input.appointmentAt);
+  const endAt = new Date(startAt.getTime() + DEFAULT_APPOINTMENT_DURATION_MINUTES * 60_000);
+
+  const { data: localConflicts, error: localConflictError } = await supabase
+    .from("leads")
+    .select("id,appointment_at,address,first_name,last_name")
+    .eq("organization_id", qrCode.organization_id as string)
+    .not("appointment_at", "is", null)
+    .or(`owner_id.eq.${qrCode.owner_user_id},assigned_to.eq.${qrCode.owner_user_id}`)
+    .gte("appointment_at", new Date(startAt.getTime() - DEFAULT_APPOINTMENT_DURATION_MINUTES * 60_000).toISOString())
+    .lte("appointment_at", new Date(endAt.getTime()).toISOString())
+    .limit(5);
+
+  if (localConflictError) throw localConflictError;
+  if ((localConflicts ?? []).length > 0) {
+    throw new Error("That time is already booked on the rep’s Lumino schedule. Please pick another slot.");
+  }
+
+  try {
+    const googleConflict = await checkGoogleCalendarConflicts({
+      context: fauxContext,
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString()
+    });
+
+    if (googleConflict.connected && googleConflict.hasConflict) {
+      throw new Error("That time conflicts with the rep’s calendar. Please pick another slot.");
+    }
+  } catch (error) {
+    if (error instanceof Error && /conflicts with the rep’s calendar|already booked on the rep’s Lumino schedule/i.test(error.message)) {
+      throw error;
+    }
+    // If Google isn't connected or the check fails unexpectedly, keep Lumino booking available.
+  }
 
   const property = await resolveOrCreateProperty(
     {
