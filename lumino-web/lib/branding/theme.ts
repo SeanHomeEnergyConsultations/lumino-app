@@ -14,40 +14,53 @@ export const ORGANIZATION_THEME_PRESETS = [
   {
     id: "titanium-glass",
     label: "Titanium Glass",
-    description: "Dark gunmetal body with a cold steel glow, pale titanium surfaces, and icy blue glass highlights.",
+    description: "Dark titanium body with a cool steel glow, crisp silver surfaces, and a sharper electric cobalt accent.",
     theme: {
-      primaryColor: "#1f2b38",
-      accentColor: "#9fd4ff",
-      backgroundColor: "#454f5b",
-      backgroundAccentColor: "#8ca7c4",
-      surfaceColor: "#e0e7ef",
-      sidebarColor: "#afbbc8"
+      primaryColor: "#18212b",
+      accentColor: "#3d8bff",
+      backgroundColor: "#3b4652",
+      backgroundAccentColor: "#6f86a4",
+      surfaceColor: "#eef3f8",
+      sidebarColor: "#c9d4df"
     }
   },
   {
     id: "solar-focused",
-    label: "Solar Focused",
-    description: "Dark bronze-metal body with a solar amber glow, warm alloy surfaces, and brighter honeyed glass accents.",
+    label: "Solar",
+    description: "Dark bronze body with a warm amber glow, sunlit alloy surfaces, and brighter honey-gold highlights.",
     theme: {
       primaryColor: "#2d241d",
       accentColor: "#ffb347",
-      backgroundColor: "#51453a",
-      backgroundAccentColor: "#e4a03a",
-      surfaceColor: "#ece2d2",
-      sidebarColor: "#bba894"
+      backgroundColor: "#4a4036",
+      backgroundAccentColor: "#d9952f",
+      surfaceColor: "#f4eadc",
+      sidebarColor: "#cfb79e"
     }
   },
   {
     id: "roofing-focused",
-    label: "Roofing Focused",
-    description: "Storm-slate body with a heated copper glow, silver-zinc surfaces, and sharper structural contrast.",
+    label: "Roofing",
+    description: "Storm-slate body with a heated copper glow, zinc-toned surfaces, and tougher structural contrast.",
     theme: {
       primaryColor: "#242a31",
       accentColor: "#d87952",
-      backgroundColor: "#47505a",
-      backgroundAccentColor: "#8b97a5",
-      surfaceColor: "#dde3ea",
-      sidebarColor: "#aab4c0"
+      backgroundColor: "#3f4852",
+      backgroundAccentColor: "#768392",
+      surfaceColor: "#edf1f5",
+      sidebarColor: "#c4ccd5"
+    }
+  },
+  {
+    id: "green-energy",
+    label: "Green Energy",
+    description: "Deep evergreen body with a fresh lime pulse, clean mineral surfaces, and brighter sustainability cues.",
+    theme: {
+      primaryColor: "#163326",
+      accentColor: "#61d66f",
+      backgroundColor: "#284637",
+      backgroundAccentColor: "#3f7c5d",
+      surfaceColor: "#eef6ef",
+      sidebarColor: "#c8dccd"
     }
   },
   {
@@ -66,14 +79,14 @@ export const ORGANIZATION_THEME_PRESETS = [
   {
     id: "midnight-glass",
     label: "Midnight Glass",
-    description: "Black mirror backdrop with electric neon glow, bright metallic surfaces, and vivid cyber-glass controls.",
+    description: "Black mirror backdrop with a neon green pulse, smoked metallic framing, and sharp cyber-glass contrast.",
     theme: {
-      primaryColor: "#101828",
-      accentColor: "#00f5ff",
+      primaryColor: "#08110b",
+      accentColor: "#49ff73",
       backgroundColor: "#050505",
-      backgroundAccentColor: "#ff00b8",
-      surfaceColor: "#d6dfeb",
-      sidebarColor: "#8fa0b7"
+      backgroundAccentColor: "#11331b",
+      surfaceColor: "#dce7dd",
+      sidebarColor: "#94a89a"
     }
   }
 ] as const;
