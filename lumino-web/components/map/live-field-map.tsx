@@ -30,8 +30,8 @@ import MapView, {
   type MapRef,
   type ViewStateChangeEvent
 } from "react-map-gl/maplibre";
-import type { ActiveRouteRunResponse, ResolvePropertyResponse } from "@/types/api";
-import type { LeadInput, MapProperty, OrganizationFeatureAccess, PropertyDetail, TaskInput } from "@/types/entities";
+import type { ActiveRouteRunResponse } from "@/types/api";
+import type { LeadInput, MapProperty, OrganizationFeatureAccess, TaskInput } from "@/types/entities";
 import { MapToolbar, type MapFilterKey } from "@/components/map/map-toolbar";
 import { PropertyResultsPanel, mapStateVisual } from "@/components/map/property-results-panel";
 import { PropertyDrawer } from "@/components/map/property-drawer";
@@ -41,81 +41,11 @@ import {
   RouteSelectionPanel,
   RouteSelectionToggle
 } from "@/components/map/route-overlays";
+import { useLiveLocation } from "@/components/map/use-live-location";
+import { useMapPropertySelection } from "@/components/map/use-map-property-selection";
 import { useRouteSelection } from "@/components/map/use-route-selection";
 import { hasManagerAccess } from "@/lib/auth/permissions";
 import { authFetch, useAuth } from "@/lib/auth/client";
-
-function previewSelectionKey(lat: number, lng: number) {
-  return `preview:${lat.toFixed(5)},${lng.toFixed(5)}`;
-}
-
-function buildPreviewPropertyDetail(input: {
-  address: string;
-  city: string | null;
-  state: string | null;
-  postalCode: string | null;
-  lat: number;
-  lng: number;
-  featureAccess: OrganizationFeatureAccess;
-}): PropertyDetail {
-  return {
-    propertyId: previewSelectionKey(input.lat, input.lng),
-    address: input.address,
-    city: input.city,
-    state: input.state,
-    postalCode: input.postalCode,
-    lat: input.lat,
-    lng: input.lng,
-    mapState: "unworked_property",
-    followUpState: "none",
-    visitCount: 0,
-    notHomeCount: 0,
-    lastVisitOutcome: null,
-    lastVisitedAt: null,
-    leadId: null,
-    leadStatus: null,
-    ownerId: null,
-    firstName: null,
-    lastName: null,
-    phone: null,
-    email: null,
-    leadNotes: null,
-    leadNextFollowUpAt: null,
-    appointmentAt: null,
-    priorityScore: 0,
-    priorityBand: "low",
-    prioritySummary: "This location has not been saved yet. Log an outcome or save contact data to keep it.",
-    featureAccess: input.featureAccess,
-    recentVisits: [],
-    recentActivities: [],
-    facts: {
-      beds: null,
-      baths: null,
-      squareFeet: null,
-      lotSizeSqft: null,
-      yearBuilt: null,
-      lastSaleDate: null,
-      lastSalePrice: null,
-      propertyType: null,
-      listingStatus: null,
-      saleType: null,
-      daysOnMarket: null,
-      hoaMonthly: null,
-      dataCompletenessScore: null,
-      solarFitScore: null,
-      roofCapacityScore: null,
-      roofComplexityScore: null,
-      estimatedSystemCapacityKw: null,
-      estimatedYearlyEnergyKwh: null,
-      solarImageryQuality: null,
-      propertyPriorityScore: null,
-      propertyPriorityLabel: null
-    },
-    enrichments: [],
-    sourceRecords: [],
-    isPreview: true
-  };
-}
 
 function markerVisual(mapState: MapProperty["mapState"]) {
   switch (mapState) {
@@ -188,21 +118,13 @@ export function LiveFieldMap({
     [appContext]
   );
   const mapRef = useRef<MapRef | null>(null);
-  const hasAutoCenteredOnUserRef = useRef(false);
-  const hasHandledInitialAddressSearchRef = useRef(false);
   const [items, setItems] = useState(initialItems);
   const [activeFilters, setActiveFilters] = useState<MapFilterKey[]>(initialFilters);
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(initialSelectedPropertyId);
-  const [selectedProperty, setSelectedProperty] = useState<PropertyDetail | null>(null);
-  const [propertyLoading, setPropertyLoading] = useState(false);
   const [viewState, setViewState] = useState(DEFAULT_CENTER);
-  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isSavingVisit, setIsSavingVisit] = useState(false);
-  const [isResolvingTap, setIsResolvingTap] = useState(false);
   const [isResultsOpen, setIsResultsOpen] = useState(false);
   const [isResultsPanelVisible, setIsResultsPanelVisible] = useState(false);
   const [isDrawerVisible, setIsDrawerVisible] = useState(false);
-  const [mobileOpenNonce, setMobileOpenNonce] = useState(0);
   const [showTeamKnocks, setShowTeamKnocks] = useState(isManager);
   const [activeRoute, setActiveRoute] = useState<ActiveRouteRunResponse | null>(null);
   const [routeActionState, setRouteActionState] = useState<
@@ -231,11 +153,6 @@ export function LiveFieldMap({
     territoryPlanningEnabled: false,
     securityConsoleEnabled: false
   });
-
-  const selectedMapItem = useMemo(
-    () => items.find((item) => item.propertyId === selectedPropertyId) ?? null,
-    [items, selectedPropertyId]
-  );
 
   const filteredItems = useMemo(() => {
     if (activeFilters.includes("all")) return items;
@@ -276,16 +193,16 @@ export function LiveFieldMap({
     routeSelectableItems,
     activeRouteId: activeRoute?.routeRunId ?? null
   });
-
-  useEffect(() => {
-    setSelectedPropertyId(initialSelectedPropertyId);
-  }, [initialSelectedPropertyId]);
-
-  useEffect(() => {
-    if (selectedPropertyId) {
-      setIsDrawerVisible(true);
+  const userLocation = useLiveLocation({
+    onFirstFix: (location) => {
+      setViewState((current) => ({
+        ...current,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        zoom: Math.max(current.zoom, 18)
+      }));
     }
-  }, [selectedPropertyId]);
+  });
 
   useEffect(() => {
     setActiveFilters(initialFilters.length ? initialFilters : ["all"]);
@@ -302,40 +219,6 @@ export function LiveFieldMap({
       return next.length ? next : ["all"];
     });
   }, [featureAccess.priorityScoringEnabled]);
-
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    const success = (position: GeolocationPosition) => {
-      const nextLocation = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude
-      };
-      setUserLocation(nextLocation);
-      if (!hasAutoCenteredOnUserRef.current) {
-        hasAutoCenteredOnUserRef.current = true;
-        setViewState((current) => ({
-          ...current,
-          latitude: nextLocation.latitude,
-          longitude: nextLocation.longitude,
-          zoom: Math.max(current.zoom, 18)
-        }));
-      }
-    };
-
-    navigator.geolocation.getCurrentPosition(success, () => undefined, {
-      enableHighAccuracy: true,
-      maximumAge: 30000,
-      timeout: 10000
-    });
-
-    const watchId = navigator.geolocation.watchPosition(success, () => undefined, {
-      enableHighAccuracy: true,
-      maximumAge: 15000,
-      timeout: 10000
-    });
-
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, []);
 
   const loadActiveRoute = useCallback(async () => {
     if (!session?.access_token) {
@@ -377,7 +260,7 @@ export function LiveFieldMap({
     };
   }
 
-  async function loadPropertiesForViewport(bounds?: maplibregl.LngLatBoundsLike | null) {
+  const loadPropertiesForViewport = useCallback(async (bounds?: maplibregl.LngLatBoundsLike | null) => {
     if (!session?.access_token) return;
 
     const concreteBounds =
@@ -408,205 +291,71 @@ export function LiveFieldMap({
     if (json.features) {
       setFeatureAccess(json.features);
     }
-  }
+  }, [
+    cityFilter,
+    ownerIdFilter,
+    session?.access_token,
+    showTeamKnocks,
+    stateFilter,
+    viewState.latitude,
+    viewState.longitude
+  ]);
+
+  const reloadViewportProperties = useCallback(
+    () => loadPropertiesForViewport(mapRef.current?.getBounds() ?? null),
+    [loadPropertiesForViewport]
+  );
+
+  const {
+    selectedPropertyId,
+    selectedProperty,
+    propertyLoading,
+    isResolvingTap,
+    mobileOpenNonce,
+    openSelectedProperty,
+    closeSelectedProperty,
+    refreshSelectedProperty,
+    ensurePersistedSelectedProperty,
+    handleMapTap: resolveMapTap
+  } = useMapPropertySelection({
+    accessToken: session?.access_token,
+    initialSelectedPropertyId,
+    initialAddressSearch,
+    featureAccess,
+    reloadViewportProperties,
+    onFeatureAccess: setFeatureAccess,
+    setViewState
+  });
+
+  const selectedMapItem = useMemo(
+    () => items.find((item) => item.propertyId === selectedPropertyId) ?? null,
+    [items, selectedPropertyId]
+  );
+
+  useEffect(() => {
+    if (selectedPropertyId) {
+      setIsDrawerVisible(true);
+    }
+  }, [selectedPropertyId]);
 
   useEffect(() => {
     void loadPropertiesForViewport(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token, ownerIdFilter, cityFilter, stateFilter, showTeamKnocks]);
+  }, [loadPropertiesForViewport]);
 
   useEffect(() => {
     void loadActiveRoute();
   }, [loadActiveRoute]);
 
   useEffect(() => {
-    if (!session?.access_token || !selectedPropertyId) {
-      setPropertyLoading(false);
-      if (!selectedProperty?.isPreview) {
-        setSelectedProperty(null);
-      }
-      return;
-    }
-
-    if (selectedPropertyId.startsWith("preview:")) {
-      setPropertyLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setPropertyLoading(true);
-    authFetch(session.access_token, `/api/properties/${selectedPropertyId}`)
-      .then(async (response) => {
-        if (!response.ok) return null;
-        return (await response.json()) as { item: PropertyDetail };
-      })
-      .then((json) => {
-        if (!cancelled) {
-          setSelectedProperty(json?.item ?? null);
-          if (json?.item?.featureAccess) {
-            setFeatureAccess(json.item.featureAccess);
-          }
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setPropertyLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedPropertyId, session?.access_token]);
-
-  useEffect(() => {
-    if (!selectedProperty?.lat || !selectedProperty?.lng) return;
-
-    setViewState((current) => ({
-      ...current,
-      latitude: selectedProperty.lat ?? current.latitude,
-      longitude: selectedProperty.lng ?? current.longitude,
-      zoom: Math.max(current.zoom, 16)
-    }));
-  }, [selectedProperty?.lat, selectedProperty?.lng]);
-
-  useEffect(() => {
     if (selectedPropertyId || !activeRoute?.nextStop?.propertyId || !session?.access_token) return;
     openSelectedProperty(activeRoute.nextStop.propertyId);
     void refreshSelectedProperty(activeRoute.nextStop.propertyId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRoute?.nextStop?.propertyId, selectedPropertyId, session?.access_token]);
-
-  async function refreshSelectedProperty(propertyId: string) {
-    if (!session?.access_token) return;
-
-    const [detailResponse] = await Promise.all([
-      authFetch(session.access_token, `/api/properties/${propertyId}`),
-      loadPropertiesForViewport(mapRef.current?.getBounds() ?? null)
-    ]);
-
-    if (detailResponse.ok) {
-      const detailJson = (await detailResponse.json()) as { item: PropertyDetail };
-      setSelectedProperty(detailJson.item);
-    }
-  }
-
-  function openSelectedProperty(propertyId: string) {
-    setSelectedPropertyId(propertyId);
-    setIsDrawerVisible(true);
-    setMobileOpenNonce((current) => current + 1);
-  }
-
-  async function ensurePersistedSelectedProperty() {
-    if (!session?.access_token || !selectedProperty?.lat || !selectedProperty?.lng) {
-      throw new Error("This property location could not be saved.");
-    }
-
-    if (!selectedProperty.isPreview && selectedPropertyId && !selectedPropertyId.startsWith("preview:")) {
-      return selectedPropertyId;
-    }
-
-    const response = await authFetch(session.access_token, "/api/properties/resolve?commit=1", {
-      method: "POST",
-      body: JSON.stringify({
-        lat: selectedProperty.lat,
-        lng: selectedProperty.lng
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to save property location.");
-    }
-
-    const json = (await response.json()) as ResolvePropertyResponse;
-    if (!json.propertyId) {
-      throw new Error("Could not persist property location.");
-    }
-
-    setSelectedPropertyId(json.propertyId);
-    await refreshSelectedProperty(json.propertyId);
-    return json.propertyId;
-  }
+  }, [activeRoute?.nextStop?.propertyId, openSelectedProperty, refreshSelectedProperty, selectedPropertyId, session?.access_token]);
 
   async function handleMapTap(event: MapLayerMouseEvent) {
-    if (!session?.access_token || isResolvingTap || routeSelectionMode) return;
-
-    try {
-      setIsResolvingTap(true);
-      const response = await authFetch(session.access_token, "/api/properties/resolve", {
-        method: "POST",
-        body: JSON.stringify({
-          lat: event.lngLat.lat,
-          lng: event.lngLat.lng
-        })
-      });
-
-      if (!response.ok) return;
-      const json = (await response.json()) as ResolvePropertyResponse;
-      if (json.propertyId) {
-        openSelectedProperty(json.propertyId);
-        await refreshSelectedProperty(json.propertyId);
-        return;
-      }
-
-      if (!json.preview) return;
-
-      openSelectedProperty(previewSelectionKey(json.preview.lat, json.preview.lng));
-      setSelectedProperty(buildPreviewPropertyDetail({
-        ...json.preview,
-        featureAccess
-      }));
-    } finally {
-      setIsResolvingTap(false);
-    }
+    if (routeSelectionMode) return;
+    await resolveMapTap(event.lngLat.lat, event.lngLat.lng);
   }
-
-  async function handleAddressSearch(address: string) {
-    if (!session?.access_token || isResolvingTap) return;
-
-    try {
-      setIsResolvingTap(true);
-      const response = await authFetch(session.access_token, "/api/properties/resolve", {
-        method: "POST",
-        body: JSON.stringify({
-          address
-        })
-      });
-
-      if (!response.ok) return;
-      const json = (await response.json()) as ResolvePropertyResponse;
-      if (json.propertyId) {
-        openSelectedProperty(json.propertyId);
-        await refreshSelectedProperty(json.propertyId);
-        return;
-      }
-
-      if (!json.preview) return;
-
-      setViewState((current) => ({
-        ...current,
-        latitude: json.preview?.lat ?? current.latitude,
-        longitude: json.preview?.lng ?? current.longitude,
-        zoom: Math.max(current.zoom, 16)
-      }));
-      openSelectedProperty(previewSelectionKey(json.preview.lat, json.preview.lng));
-      setSelectedProperty(
-        buildPreviewPropertyDetail({
-          ...json.preview,
-          featureAccess
-        })
-      );
-    } finally {
-      setIsResolvingTap(false);
-    }
-  }
-
-  useEffect(() => {
-    const trimmed = initialAddressSearch?.trim();
-    if (!session?.access_token || !trimmed || hasHandledInitialAddressSearchRef.current) return;
-    hasHandledInitialAddressSearchRef.current = true;
-    void handleAddressSearch(trimmed);
-  }, [initialAddressSearch, session?.access_token]);
 
   async function handleLogOutcome(outcome: string) {
     if (!selectedProperty || !session?.access_token) return;
@@ -863,8 +612,7 @@ export function LiveFieldMap({
         openSelectedProperty(refreshedRoute.nextStop.propertyId);
         await refreshSelectedProperty(refreshedRoute.nextStop.propertyId);
       } else {
-        setSelectedPropertyId(null);
-        setSelectedProperty(null);
+        closeSelectedProperty();
       }
       setRouteActionState("idle");
     } catch {
@@ -1096,11 +844,7 @@ export function LiveFieldMap({
           <MobileSelectedPropertyChip
             address={selectedMapItem.address}
             visual={selectedVisual}
-            onClear={() => {
-              setSelectedPropertyId(null);
-              setSelectedProperty(null);
-              setPropertyLoading(false);
-            }}
+            onClear={closeSelectedProperty}
           />
         ) : null}
       </div>
@@ -1116,11 +860,7 @@ export function LiveFieldMap({
         onCloseDesktop={() => setIsDrawerVisible(false)}
         isOpen={Boolean(selectedPropertyId)}
         mobileOpenNonce={mobileOpenNonce}
-        onDismiss={() => {
-          setSelectedPropertyId(null);
-          setSelectedProperty(null);
-          setPropertyLoading(false);
-        }}
+        onDismiss={closeSelectedProperty}
       />
       {isResultsOpen ? (
         <div className="fixed inset-0 z-30 bg-slate-950/20 xl:hidden" onClick={() => setIsResultsOpen(false)}>
@@ -1146,7 +886,7 @@ export function LiveFieldMap({
               items={filteredItems}
               selectedPropertyId={selectedPropertyId}
               onSelect={(propertyId) => {
-                setSelectedPropertyId(propertyId);
+                openSelectedProperty(propertyId);
                 setIsResultsOpen(false);
               }}
               routeSelectionMode={routeSelectionMode}
