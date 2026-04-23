@@ -2,3 +2,6 @@
 node_modules
 .env.local
 *.log
+test-results/
+playwright-report/
+tsconfig.typecheck.tsbuildinfo

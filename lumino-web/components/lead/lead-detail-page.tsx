@@ -5,6 +5,16 @@ import type { Route } from "next";
 import { useCallback, useEffect, useState } from "react";
 import type { LeadDetailResponse } from "@/types/api";
 import { GoogleCalendarSyncCard } from "@/components/appointments/google-calendar-sync-card";
+import {
+  ProductEmptyState,
+  ProductHero,
+  ProductNotice,
+  ProductSection,
+  ProductStatGrid,
+  productFieldClassName,
+  productFieldLabelClassName,
+  productTextAreaClassName
+} from "@/components/shared/product-primitives";
 import type {
   LeadAppointmentOutcome,
   LeadDecisionMakerStatus,
@@ -17,7 +27,9 @@ import { trackAppEvent } from "@/lib/analytics/app-events";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { formatDateTime as formatAppDateTime } from "@/lib/format/date";
 
-const leadFieldClassName = "app-focus-ring mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink";
+const leadFieldClassName = productFieldClassName;
+const leadCheckboxClassName =
+  "app-panel-soft app-focus-ring flex items-center gap-2 rounded-2xl border px-3 py-3 text-sm text-ink";
 
 function formatLabel(value: string | null) {
   if (!value) return "None";
@@ -190,102 +202,128 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Lead Detail</div>
-            <h1 className="mt-2 text-3xl font-semibold text-ink">
-              {loading ? "Loading lead..." : lead?.contactName ?? lead?.address ?? "Lead"}
-            </h1>
-            <p className="mt-3 max-w-3xl text-sm text-slate-600">
-              {loading
-                ? "Pulling together the full opportunity record."
-                : lead?.address ?? "Lead address unavailable."}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
+      <ProductHero
+        eyebrow="Lead Workspace"
+        title={loading ? "Loading lead..." : lead?.contactName ?? lead?.address ?? "Lead"}
+        description={
+          loading
+            ? "Pulling together the full homeowner record, follow-up timing, and property context."
+            : lead?.address ?? "Lead address unavailable."
+        }
+        actions={
+          <>
             <Link
               href="/leads"
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-slate-300"
+              className="app-glass-button app-focus-button rounded-2xl px-4 py-2 text-sm font-semibold text-ink transition hover:brightness-105"
             >
               Back to Leads
             </Link>
             {lead?.propertyId ? (
               <Link
                 href={`/properties/${lead.propertyId}` as Route}
-                className="rounded-2xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                className="app-primary-button app-focus-button rounded-2xl px-4 py-2 text-sm font-semibold transition hover:brightness-105"
               >
                 Property Memory
               </Link>
             ) : null}
-          </div>
-        </div>
-
-        <div className="mt-6 grid gap-3 md:grid-cols-6">
-          {[
-            { label: "Stage", value: lead?.leadStatus ?? "…" },
-            { label: "Interest", value: lead?.interestLevel ?? "None" },
-            { label: "Cadence", value: formatLabel(lead?.cadenceTrack ?? null) },
-            { label: "Channel", value: formatLabel(lead?.preferredChannel ?? null) },
-            { label: "Next Follow-Up", value: formatAppDateTime(lead?.nextFollowUpAt ?? null, "None") },
-            { label: "Appointment", value: formatAppDateTime(lead?.appointmentAt ?? null, "None") },
-            { label: "Owner", value: lead?.ownerName ?? "Unassigned" },
-            { label: "Last Activity", value: formatAppDateTime(lead?.lastActivityAt ?? null, "None") }
-          ].map((item) => (
-            <div key={item.label} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-mist">{item.label}</div>
-              <div className="mt-2 text-lg font-semibold text-ink">{item.value}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+          </>
+        }
+      >
+        <ProductStatGrid
+          columns="md:grid-cols-4 xl:grid-cols-4"
+          items={[
+            {
+              label: "Stage",
+              value: loading ? "…" : lead?.leadStatus ?? "None",
+              detail: "Where this homeowner sits in the pipeline"
+            },
+            {
+              label: "Interest",
+              value: loading ? "…" : lead?.interestLevel ?? "None",
+              detail: "Current intent signal from the field"
+            },
+            {
+              label: "Next Follow-Up",
+              value: loading ? "…" : formatAppDateTime(lead?.nextFollowUpAt ?? null, "None"),
+              detail: "Next scheduled touchpoint"
+            },
+            {
+              label: "Appointment",
+              value: loading ? "…" : formatAppDateTime(lead?.appointmentAt ?? null, "None"),
+              detail: "Latest scheduled sit or close"
+            },
+            {
+              label: "Cadence",
+              value: loading ? "…" : formatLabel(lead?.cadenceTrack ?? null),
+              detail: "Current follow-up rhythm"
+            },
+            {
+              label: "Channel",
+              value: loading ? "…" : formatLabel(lead?.preferredChannel ?? null),
+              detail: "Best current contact lane"
+            },
+            {
+              label: "Owner",
+              value: loading ? "…" : lead?.ownerName ?? "Unassigned",
+              detail: "Rep currently owning the opportunity"
+            },
+            {
+              label: "Last Activity",
+              value: loading ? "…" : formatAppDateTime(lead?.lastActivityAt ?? null, "None"),
+              detail: "Most recent logged move"
+            }
+          ]}
+        />
+      </ProductHero>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Contact and Property</div>
-          <div className="mt-4 space-y-4 text-sm text-slate-600">
-            <form className="rounded-3xl border border-slate-200 bg-slate-50 p-4" onSubmit={handleSaveLead}>
+        <ProductSection
+          eyebrow="Contact and Property"
+          title="Keep the opportunity current"
+          description="Update homeowner detail, contact preference, appointment timing, and property context without leaving the workspace."
+        >
+          <div className="space-y-4 text-sm text-slate-600">
+            <form className="app-panel-soft rounded-[1.8rem] border p-4" onSubmit={handleSaveLead}>
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Edit lead</div>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   First name
                   <input
                     value={firstName}
                     onChange={(event) => setFirstName(event.target.value)}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   />
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Last name
                   <input
                     value={lastName}
                     onChange={(event) => setLastName(event.target.value)}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   />
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Phone
                   <input
                     value={phone}
                     onChange={(event) => setPhone(event.target.value)}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   />
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Email
                   <input
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   />
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Lead stage
                   <select
                     value={leadStatus}
                     onChange={(event) => setLeadStatus(event.target.value)}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   >
                     {["New", "Attempting Contact", "Connected", "Nurture", "Appointment Set", "Qualified", "Closed Lost"].map((option) => (
                       <option key={option} value={option}>
@@ -294,36 +332,36 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     ))}
                   </select>
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Interest
                   <select
                     value={interestLevel}
                     onChange={(event) => setInterestLevel(event.target.value as "low" | "medium" | "high")}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   >
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
                     <option value="high">High</option>
                   </select>
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Preferred channel
                   <select
                     value={preferredChannel}
                     onChange={(event) => setPreferredChannel(event.target.value as LeadPreferredChannel)}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   >
                     <option value="text">Text</option>
                     <option value="call">Call</option>
                     <option value="door">Door</option>
                   </select>
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Decision-maker status
                   <select
                     value={decisionMakerStatus}
                     onChange={(event) => setDecisionMakerStatus(event.target.value as LeadDecisionMakerStatus | "")}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   >
                     <option value="">Unknown</option>
                     <option value="all_present">All present</option>
@@ -331,21 +369,21 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     <option value="other_missing">Other stakeholder missing</option>
                   </select>
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Best contact time
                   <input
                     value={bestContactTime}
                     onChange={(event) => setBestContactTime(event.target.value)}
                     placeholder="Evenings, weekends, after Tuesday…"
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   />
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Engagement score
                   <select
                     value={engagementScore}
                     onChange={(event) => setEngagementScore(event.target.value)}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   >
                     {["1", "2", "3", "4", "5"].map((option) => (
                       <option key={option} value={option}>
@@ -354,30 +392,30 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     ))}
                   </select>
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Next follow-up
                   <input
                     type="datetime-local"
                     value={nextFollowUpAt}
                     onChange={(event) => setNextFollowUpAt(event.target.value)}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   />
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Appointment
                   <input
                     type="datetime-local"
                     value={appointmentAt}
                     onChange={(event) => setAppointmentAt(event.target.value)}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   />
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Appointment outcome
                   <select
                     value={appointmentOutcome}
                     onChange={(event) => setAppointmentOutcome(event.target.value as LeadAppointmentOutcome | "")}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   >
                     <option value="">Active / none</option>
                     <option value="sat_not_closed">Sat, not closed</option>
@@ -387,12 +425,12 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     <option value="closed">Closed</option>
                   </select>
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Objection type
                   <select
                     value={objectionType}
                     onChange={(event) => setObjectionType(event.target.value as LeadObjectionType | "")}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   >
                     <option value="">None / unknown</option>
                     <option value="price">Price</option>
@@ -404,23 +442,23 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     <option value="none">No objection</option>
                   </select>
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Reschedule reason
                   <input
                     value={rescheduleReason}
                     onChange={(event) => setRescheduleReason(event.target.value)}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   />
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Cancellation reason
                   <input
                     value={cancellationReason}
                     onChange={(event) => setCancellationReason(event.target.value)}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   />
                 </label>
-                <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-ink">
+                <label className={leadCheckboxClassName}>
                   <input
                     type="checkbox"
                     checked={textConsent}
@@ -429,7 +467,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   />
                   Text consent captured
                 </label>
-                <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-ink">
+                <label className={leadCheckboxClassName}>
                   <input
                     type="checkbox"
                     checked={billReceived}
@@ -438,7 +476,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   />
                   Bill received
                 </label>
-                <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-ink">
+                <label className={leadCheckboxClassName}>
                   <input
                     type="checkbox"
                     checked={proposalPresented}
@@ -454,35 +492,37 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     compact
                   />
                 </div>
-                <label className="text-xs text-slate-500 md:col-span-2">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500 md:col-span-2`}>
                   Notes
                   <textarea
                     value={notes}
                     onChange={(event) => setNotes(event.target.value)}
                     rows={4}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${productTextAreaClassName}`}
                   />
                 </label>
               </div>
               <div className="mt-4 flex items-center justify-between gap-3">
-                <div className="text-xs text-slate-500">
-                  {leadSaveState === "saved"
-                    ? "Lead updated."
-                    : leadSaveState === "error"
-                      ? "Lead save failed."
-                      : "Edit this lead without leaving the detail page."}
+                <div className="min-h-[2.5rem] flex-1">
+                  {leadSaveState === "saved" ? (
+                    <ProductNotice tone="success" message="Lead updated and synced into the current workspace." />
+                  ) : leadSaveState === "error" ? (
+                    <ProductNotice tone="error" message="Lead save failed. Try again in a moment." />
+                  ) : (
+                    <div className="text-xs text-slate-500">Edit this homeowner record without losing map or workflow context.</div>
+                  )}
                 </div>
                 <button
                   type="submit"
                   disabled={leadSaveState === "saving"}
-                  className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200"
+                  className="app-primary-button app-focus-button rounded-2xl px-4 py-2 text-sm font-semibold transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {leadSaveState === "saving" ? "Saving..." : "Save Lead"}
                 </button>
               </div>
             </form>
 
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+            <div className="app-panel-soft rounded-[1.8rem] border p-4">
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Property Summary</div>
               <div className="mt-2">{lead?.address ?? "Unknown address"}</div>
               <div className="mt-1">{[lead?.city, lead?.state, lead?.postalCode].filter(Boolean).join(", ") || "No location detail yet"}</div>
@@ -501,15 +541,15 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
               </div>
             </div>
 
-            <form className="rounded-3xl border border-slate-200 bg-slate-50 p-4" onSubmit={handleCreateTask}>
+            <form className="app-panel-soft rounded-[1.8rem] border p-4" onSubmit={handleCreateTask}>
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Add task</div>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Task type
                   <select
                     value={taskType}
                     onChange={(event) => setTaskType(event.target.value as TaskInput["type"])}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   >
                     <option value="call">Call</option>
                     <option value="text">Text</option>
@@ -523,66 +563,72 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     <option value="custom">Custom</option>
                   </select>
                 </label>
-                <label className="text-xs text-slate-500">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500`}>
                   Due at
                   <input
                     type="datetime-local"
                     value={taskDueAt}
                     onChange={(event) => setTaskDueAt(event.target.value)}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${leadFieldClassName}`}
                   />
                 </label>
-                <label className="text-xs text-slate-500 md:col-span-2">
+                <label className={`${productFieldLabelClassName} normal-case tracking-normal text-slate-500 md:col-span-2`}>
                   Notes
                   <textarea
                     value={taskNotes}
                     onChange={(event) => setTaskNotes(event.target.value)}
                     rows={3}
-                    className={leadFieldClassName}
+                    className={`mt-2 ${productTextAreaClassName}`}
                   />
                 </label>
               </div>
               <div className="mt-4 flex items-center justify-between gap-3">
-                <div className="text-xs text-slate-500">
-                  {taskState === "saved"
-                    ? "Task created."
-                    : taskState === "error"
-                      ? "Task save failed."
-                      : "Drop a follow-up directly onto this lead."}
+                <div className="min-h-[2.5rem] flex-1">
+                  {taskState === "saved" ? (
+                    <ProductNotice tone="success" message="Task created and attached to this homeowner record." />
+                  ) : taskState === "error" ? (
+                    <ProductNotice tone="error" message="Task save failed. Check the input and try again." />
+                  ) : (
+                    <div className="text-xs text-slate-500">Drop a call, revisit, or confirmation task directly onto this opportunity.</div>
+                  )}
                 </div>
                 <button
                   type="submit"
                   disabled={taskState === "saving"}
-                  className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm ring-1 ring-slate-200"
+                  className="app-glass-button app-focus-button rounded-2xl px-4 py-2 text-sm font-semibold text-ink transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {taskState === "saving" ? "Saving..." : "Add Task"}
                 </button>
               </div>
             </form>
           </div>
-        </section>
+        </ProductSection>
 
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/80 p-5 shadow-panel backdrop-blur">
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Lead Timeline</div>
+        <ProductSection
+          eyebrow="Lead Timeline"
+          title="Activity and follow-through"
+          description="Review what has already happened on this record before planning the next move."
+        >
           <div className="mt-4 space-y-3">
             {loading ? (
-              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                Loading lead activity...
+              <div className="app-panel-soft rounded-[1.8rem] border p-4 text-sm text-slate-500">
+                Loading homeowner activity and field notes...
               </div>
             ) : lead?.activities.length ? (
               lead.activities.map((activity) => (
-                <div key={activity.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <div key={activity.id} className="app-panel-soft rounded-[1.8rem] border p-4">
                   <div className="text-sm font-semibold text-ink">{formatLabel(activity.type)}</div>
                   <div className="mt-1 text-xs text-slate-500">{formatAppDateTime(activity.createdAt, "Unknown")}</div>
                 </div>
               ))
             ) : (
-              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                No lead activity has been logged yet.
-              </div>
+              <ProductEmptyState
+                title="No lead activity logged yet"
+                description="Once calls, visits, appointment changes, or follow-up tasks land on this record, they will stack here."
+              />
             )}
           </div>
-        </section>
+        </ProductSection>
       </div>
     </div>
   );

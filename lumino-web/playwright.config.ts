@@ -19,7 +19,7 @@ export default defineConfig({
     }
   ],
   webServer: {
-    command: `PORT=${port} NEXT_PUBLIC_E2E_MODE=1 npm run dev`,
+    command: `NO_COLOR=1 FORCE_COLOR=0 NEXT_PUBLIC_E2E_MODE=1 npx next dev --hostname 127.0.0.1 --port ${port}`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000

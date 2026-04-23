@@ -244,6 +244,26 @@ body {
   border-top: 1px solid rgba(var(--app-primary-rgb), 0.08);
 }
 
+.map-premium-canvas .maplibregl-canvas {
+  filter: saturate(1.06) contrast(1.02);
+}
+
+.map-premium-canvas .maplibregl-canvas-container,
+.map-premium-canvas .maplibregl-canvas {
+  transition: filter 220ms ease;
+}
+
+.map-premium-canvas .maplibregl-ctrl-top-right {
+  top: 4.5rem;
+  right: 1rem;
+}
+
+.map-premium-canvas .maplibregl-popup-content {
+  border: 1px solid rgba(var(--app-primary-rgb), 0.1);
+  border-radius: 1.25rem;
+  box-shadow: 0 20px 40px rgba(9, 15, 27, 0.16);
+}
+
 * {
   box-sizing: border-box;
 }

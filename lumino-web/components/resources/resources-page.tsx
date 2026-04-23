@@ -308,7 +308,7 @@ export function ResourcesPage() {
                 type="button"
                 onClick={() => void uploadResource()}
                 disabled={saveState === "uploading" || !title.trim() || !selectedFile}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[rgba(var(--app-primary-rgb),0.96)] px-5 py-3 text-sm font-semibold text-white transition hover:opacity-92 disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-primary-button app-focus-button inline-flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <UploadCloud className="h-4 w-4" />
                 {saveState === "uploading" ? "Uploading..." : "Upload Material"}
@@ -376,7 +376,7 @@ export function ResourcesPage() {
                   href={item.signedUrl ?? "#"}
                   target="_blank"
                   rel="noreferrer"
-                  className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                  className={`app-focus-button inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
                     item.signedUrl
                       ? "border-[rgba(var(--app-primary-rgb),0.08)] text-ink hover:bg-[rgba(var(--app-surface-rgb),0.48)]"
                       : "cursor-not-allowed border-slate-200 text-slate-400"
@@ -405,6 +405,12 @@ export function ResourcesPage() {
               </div>
             </article>
           ))}
+
+          {loading && !filteredItems.length ? (
+            <div className="app-panel-soft rounded-[1.6rem] border p-8 text-center text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
+              Syncing the resource library and territory availability...
+            </div>
+          ) : null}
 
           {!loading && !filteredItems.length ? (
             <ProductEmptyState
