@@ -63,7 +63,6 @@ const PROPERTY_SOURCE_ID = "map-properties";
 const CLUSTER_GLOW_LAYER_ID = "map-property-cluster-glow";
 const CLUSTER_CIRCLE_LAYER_ID = "map-property-clusters";
 const CLUSTER_COUNT_LAYER_ID = "map-property-cluster-count";
-const PROPERTY_POINT_HALO_LAYER_ID = "map-property-point-halo";
 const PROPERTY_ROUTE_HALO_LAYER_ID = "map-property-route-halo";
 const PROPERTY_SELECTION_HALO_LAYER_ID = "map-property-selection-halo";
 const PROPERTY_POINT_LAYER_ID = "map-property-points";
@@ -1010,45 +1009,6 @@ export function LiveFieldMap({
     } as LayerProps),
     []
   );
-  const propertyPointHaloLayer = useMemo<LayerProps>(
-    () => ({
-      id: PROPERTY_POINT_HALO_LAYER_ID,
-      type: "circle" as const,
-      filter: [
-        "all",
-        ["!", ["has", "point_count"]],
-        ["!=", ["get", "isSelected"], 1],
-        ["!=", ["get", "isRouteSelected"], 1]
-      ] as const,
-      paint: {
-        "circle-radius": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          10,
-          10.5,
-          14,
-          12.25,
-          18,
-          14
-        ],
-        "circle-color": "rgba(255,255,255,0.88)",
-        "circle-blur": 0.24,
-        "circle-opacity": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          10,
-          0.52,
-          14,
-          0.68,
-          18,
-          0.82
-        ]
-      }
-    } as LayerProps),
-    []
-  );
   const propertySelectionHaloLayer = useMemo<LayerProps>(
     () => ({
       id: PROPERTY_SELECTION_HALO_LAYER_ID,
@@ -1056,7 +1016,7 @@ export function LiveFieldMap({
       filter: [
         "all",
         ["!", ["has", "point_count"]],
-        ["==", ["get", "isSelected"], 1]
+        ["any", ["==", ["get", "isSelected"], 1], ["==", ["get", "isRouteSelected"], 1]]
       ] as const,
       paint: {
         "circle-radius": [
@@ -1064,15 +1024,18 @@ export function LiveFieldMap({
           ["linear"],
           ["zoom"],
           10,
-          15.5,
           16,
-          19,
-          18,
+          16,
           22
         ],
         "circle-color": "rgba(255,255,255,0.98)",
-        "circle-stroke-color": "#0f172a",
-        "circle-stroke-width": 3,
+        "circle-stroke-color": [
+          "case",
+          ["==", ["get", "isSelected"], 1],
+          "#0f172a",
+          "#0f8f6f"
+        ],
+        "circle-stroke-width": 2,
         "circle-opacity": 0.98
       }
     } as LayerProps),
@@ -1083,89 +1046,22 @@ export function LiveFieldMap({
       id: PROPERTY_POINT_LAYER_ID,
       type: "circle" as const,
       filter: ["!", ["has", "point_count"]] as const,
-      layout: {
-        "circle-sort-key": ["get", "pointRank"]
-      },
       paint: {
         "circle-radius": [
-          "case",
-          ["==", ["get", "isSelected"], 1],
-          [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            10,
-            10.5,
-            14,
-            12.25,
-            18,
-            13.25
-          ],
-          ["==", ["get", "isRouteSelected"], 1],
-          [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            10,
-            9.75,
-            14,
-            11,
-            18,
-            12.25
-          ],
-          ["==", ["get", "isPriorityTarget"], 1],
-          [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            10,
-            9.5,
-            14,
-            10.8,
-            18,
-            12
-          ],
-          [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            10,
-            9.75,
-            14,
-            11.25,
-            18,
-            12.5
-          ]
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          10,
+          9,
+          14,
+          10.5,
+          18,
+          12
         ],
         "circle-color": ["get", "markerColor"],
-        "circle-stroke-color": [
-          "case",
-          ["==", ["get", "isSelected"], 1],
-          "rgba(255,255,255,0.98)",
-          ["==", ["get", "isPriorityTarget"], 1],
-          "rgba(255, 248, 220, 0.92)",
-          "rgba(255,255,255,0.94)"
-        ],
-        "circle-stroke-width": [
-          "case",
-          ["==", ["get", "isSelected"], 1],
-          2.6,
-          ["==", ["get", "isRouteSelected"], 1],
-          2.3,
-          ["==", ["get", "isPriorityTarget"], 1],
-          2.1,
-          1.7
-        ],
-        "circle-opacity": [
-          "case",
-          ["==", ["get", "isSelected"], 1],
-          1,
-          ["==", ["get", "isRouteSelected"], 1],
-          0.99,
-          ["all", ["==", ["get", "hasLead"], 0], ["==", ["get", "isPriorityTarget"], 0]],
-          0.9,
-          0.96
-        ]
+        "circle-stroke-color": "rgba(255,255,255,0.96)",
+        "circle-stroke-width": 2,
+        "circle-opacity": 0.98
       }
     } as LayerProps),
     []
@@ -1178,34 +1074,12 @@ export function LiveFieldMap({
       layout: {
         "text-field": ["coalesce", ["get", "routeSequenceLabel"], ["get", "markerLabel"]],
         "text-font": ["Open Sans Bold"],
-        "symbol-sort-key": ["get", "pointRank"],
-        "text-size": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          10,
-          8.5,
-          14,
-          10.4,
-          18,
-          11.6
-        ],
-        "text-letter-spacing": 0.03,
+        "text-size": 9,
         "text-allow-overlap": true,
-        "text-ignore-placement": false
+        "text-ignore-placement": true
       },
       paint: {
-        "text-color": ["get", "markerTextColor"],
-        "text-opacity": [
-          "case",
-          ["any", ["==", ["get", "isSelected"], 1], ["==", ["get", "isRouteSelected"], 1]],
-          1,
-          ["==", ["get", "isPriorityTarget"], 1],
-          ["interpolate", ["linear"], ["zoom"], 10, 0.6, 12.5, 0.9, 15, 1],
-          ["interpolate", ["linear"], ["zoom"], 10, 0, 12.5, 0.45, 14.5, 0.82, 17, 0.92]
-        ],
-        "text-halo-color": "rgba(255,255,255,0.94)",
-        "text-halo-width": 1.4
+        "text-color": ["get", "markerTextColor"]
       }
     } as LayerProps),
     []
@@ -1336,7 +1210,6 @@ export function LiveFieldMap({
             <Layer {...clusterCircleLayer} />
             <Layer {...clusterCountLayer} />
             <Layer {...propertyRouteHaloLayer} />
-            <Layer {...propertyPointHaloLayer} />
             <Layer {...propertySelectionHaloLayer} />
             <Layer {...propertyPointLayer} />
             <Layer {...propertyLabelLayer} />
