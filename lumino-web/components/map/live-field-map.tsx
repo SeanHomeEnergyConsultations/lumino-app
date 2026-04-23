@@ -63,11 +63,12 @@ const PROPERTY_SOURCE_ID = "map-properties";
 const CLUSTER_GLOW_LAYER_ID = "map-property-cluster-glow";
 const CLUSTER_CIRCLE_LAYER_ID = "map-property-clusters";
 const CLUSTER_COUNT_LAYER_ID = "map-property-cluster-count";
+const PROPERTY_POINT_HALO_LAYER_ID = "map-property-point-halo";
 const PROPERTY_ROUTE_HALO_LAYER_ID = "map-property-route-halo";
 const PROPERTY_SELECTION_HALO_LAYER_ID = "map-property-selection-halo";
 const PROPERTY_POINT_LAYER_ID = "map-property-points";
 const PROPERTY_LABEL_LAYER_ID = "map-property-labels";
-const INTERACTIVE_LAYER_IDS = [CLUSTER_CIRCLE_LAYER_ID, PROPERTY_POINT_LAYER_ID];
+const INTERACTIVE_LAYER_IDS = [CLUSTER_CIRCLE_LAYER_ID, PROPERTY_POINT_LAYER_ID, PROPERTY_LABEL_LAYER_ID];
 
 function markerVisual(mapState: MapProperty["mapState"]): MapPointVisual {
   switch (mapState) {
@@ -1009,6 +1010,45 @@ export function LiveFieldMap({
     } as LayerProps),
     []
   );
+  const propertyPointHaloLayer = useMemo<LayerProps>(
+    () => ({
+      id: PROPERTY_POINT_HALO_LAYER_ID,
+      type: "circle" as const,
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["!=", ["get", "isSelected"], 1],
+        ["!=", ["get", "isRouteSelected"], 1]
+      ] as const,
+      paint: {
+        "circle-radius": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          10,
+          10.5,
+          14,
+          12.25,
+          18,
+          14
+        ],
+        "circle-color": "rgba(255,255,255,0.88)",
+        "circle-blur": 0.24,
+        "circle-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          10,
+          0.52,
+          14,
+          0.68,
+          18,
+          0.82
+        ]
+      }
+    } as LayerProps),
+    []
+  );
   const propertySelectionHaloLayer = useMemo<LayerProps>(
     () => ({
       id: PROPERTY_SELECTION_HALO_LAYER_ID,
@@ -1090,11 +1130,11 @@ export function LiveFieldMap({
             ["linear"],
             ["zoom"],
             10,
-            8.5,
+            9.75,
             14,
-            10,
+            11.25,
             18,
-            11
+            12.5
           ]
         ],
         "circle-color": ["get", "markerColor"],
@@ -1146,12 +1186,12 @@ export function LiveFieldMap({
           10,
           8.5,
           14,
-          9.8,
+          10.4,
           18,
-          11
+          11.6
         ],
         "text-letter-spacing": 0.03,
-        "text-allow-overlap": false,
+        "text-allow-overlap": true,
         "text-ignore-placement": false
       },
       paint: {
@@ -1289,13 +1329,14 @@ export function LiveFieldMap({
             type="geojson"
             data={propertyFeatureCollection}
             cluster
-            clusterMaxZoom={15}
-            clusterRadius={62}
+            clusterMaxZoom={14}
+            clusterRadius={48}
           >
             <Layer {...clusterGlowLayer} />
             <Layer {...clusterCircleLayer} />
             <Layer {...clusterCountLayer} />
             <Layer {...propertyRouteHaloLayer} />
+            <Layer {...propertyPointHaloLayer} />
             <Layer {...propertySelectionHaloLayer} />
             <Layer {...propertyPointLayer} />
             <Layer {...propertyLabelLayer} />
