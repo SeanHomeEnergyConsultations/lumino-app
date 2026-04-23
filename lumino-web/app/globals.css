@@ -186,6 +186,26 @@ body {
   backdrop-filter: blur(22px) saturate(132%);
 }
 
+.app-focus-ring {
+  outline: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.app-focus-ring:focus-visible {
+  border-color: rgba(var(--app-accent-rgb), 0.42) !important;
+  box-shadow: 0 0 0 4px rgba(var(--app-accent-rgb), 0.16);
+}
+
+.app-focus-button:focus-visible {
+  box-shadow:
+    0 0 0 4px rgba(var(--app-accent-rgb), 0.18),
+    0 12px 28px rgba(9, 15, 27, 0.12);
+}
+
 .app-metal-table {
   background:
     repeating-linear-gradient(

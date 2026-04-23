@@ -2,13 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import type { RepQueueItem } from "@/types/api";
 import { authFetch } from "@/lib/auth/client";
-
-function formatDateTime(value: string | null) {
-  if (!value) return null;
-  return new Date(value).toLocaleString();
-}
+import { formatDateTime } from "@/lib/format/date";
+import type { RepQueueItem } from "@/types/api";
 
 function toDateTimeLocal(value: string | null) {
   if (!value) return "";
@@ -148,15 +144,15 @@ export function QueueCard({
       <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">
         <div>
           <div className="font-semibold text-slate-700">Last visit</div>
-          <div className="mt-1">{formatDateTime(item.lastVisitedAt) ?? "Never"}</div>
+          <div className="mt-1">{formatDateTime(item.lastVisitedAt, null) ?? "Never"}</div>
         </div>
         <div>
           <div className="font-semibold text-slate-700">Next follow-up</div>
-          <div className="mt-1">{formatDateTime(item.nextFollowUpAt) ?? "Not scheduled"}</div>
+          <div className="mt-1">{formatDateTime(item.nextFollowUpAt, null) ?? "Not scheduled"}</div>
         </div>
         <div>
           <div className="font-semibold text-slate-700">Appointment</div>
-          <div className="mt-1">{formatDateTime(item.appointmentAt) ?? "None"}</div>
+          <div className="mt-1">{formatDateTime(item.appointmentAt, null) ?? "None"}</div>
         </div>
         <div>
           <div className="font-semibold text-slate-700">Location</div>

@@ -4,14 +4,16 @@
 
 These legacy paths are not the primary supported Lumino production app:
 
-- `app.py`
-- `engine/*`
-- `solar-route-optimizer/*`
+- `archive/legacy-stack/app.py`
+- `archive/legacy-stack/engine/*`
+- `archive/legacy-stack/solar-route-optimizer/*`
+
+They have now been moved under `archive/legacy-stack/` so the active repo root reflects the real app (`lumino-web`).
 
 ## Current protection
 
-- `app.py` now refuses production-style execution unless `ALLOW_LEGACY_STACK=1`
-- `solar-route-optimizer/server.js` now refuses production-style execution unless `ALLOW_LEGACY_STACK=1`
+- `archive/legacy-stack/app.py` now refuses production-style execution unless `ALLOW_LEGACY_STACK=1`
+- `archive/legacy-stack/solar-route-optimizer/server.js` now refuses production-style execution unless `ALLOW_LEGACY_STACK=1`
 - The legacy optimizer README is marked deprecated and points operators to `lumino-web`
 
 ## Why this matters
@@ -25,9 +27,9 @@ The legacy stack predates the newer hardening in `lumino-web`, including:
 
 ## Remaining retirement work
 
-- Confirm no production platform still runs `app.py`
-- Confirm no production platform still runs `solar-route-optimizer`
-- Review any automation, cron job, or worker entry point that imports `engine/*`
+- Confirm no production platform still runs `archive/legacy-stack/app.py`
+- Confirm no production platform still runs `archive/legacy-stack/solar-route-optimizer`
+- Review any automation, cron job, or worker entry point that imports `archive/legacy-stack/engine/*`
 - Remove or archive legacy code once no production dependency remains
 
 ## Temporary override

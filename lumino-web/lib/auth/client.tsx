@@ -27,6 +27,7 @@ interface AuthContextValue {
   organizationBranding: OrganizationBranding | null;
   loading: boolean;
   envReady: boolean;
+  refreshSessionContext: () => Promise<AuthSessionContext | null>;
   refreshAppBranding: () => Promise<void>;
   refreshOrganizationBranding: () => Promise<void>;
 }
@@ -41,6 +42,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [appBranding, setAppBranding] = useState<AppBranding | null>(null);
   const [organizationBranding, setOrganizationBranding] = useState<OrganizationBranding | null>(null);
   const [loading, setLoading] = useState(true);
+
+  async function refreshSessionContext(accessToken: string | null = session?.access_token ?? null) {
+    if (!accessToken) {
+      setAppContext(null);
+      setAppBranding(null);
+      setOrganizationBranding(null);
+      return null;
+    }
+
+    try {
+      const response = await fetch("/api/auth/me", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+      if (!response.ok) {
+        setAppContext(null);
+        return null;
+      }
+
+      const json = (await response.json()) as AuthSessionContext;
+      setAppContext(json);
+      await Promise.all([loadAppBranding(accessToken), loadOrganizationBranding(accessToken)]);
+      return json;
+    } catch {
+      setAppContext(null);
+      setAppBranding(null);
+      setOrganizationBranding(null);
+      return null;
+    }
+  }
 
   async function loadAppBranding(accessToken: string | null) {
     if (!accessToken) {
@@ -111,23 +143,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const response = await fetch("/api/auth/me", {
-          headers: {
-            Authorization: `Bearer ${nextSession.access_token}`
-          }
-        });
         if (!mounted) return;
-        if (!response.ok) {
-          setAppContext(null);
-          setLoading(false);
-          return;
-        }
-        const json = (await response.json()) as AuthSessionContext;
-        setAppContext(json);
-        await Promise.all([
-          loadAppBranding(nextSession.access_token),
-          loadOrganizationBranding(nextSession.access_token)
-        ]);
+        await refreshSessionContext(nextSession.access_token);
       } catch {
         if (mounted) {
           setAppContext(null);
@@ -165,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         organizationBranding,
         loading,
         envReady: Boolean(supabase),
+        refreshSessionContext: async () => refreshSessionContext(session?.access_token ?? null),
         refreshAppBranding: async () => {
           await loadAppBranding(session?.access_token ?? null);
         },

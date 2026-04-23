@@ -44,6 +44,7 @@ def default_execution_entry():
         "appointment_status": "Not Set",
         "last_contacted_at": "",
         "last_outcome": "",
+        "last_visit_id": "",
         "activity_log": [],
     }
 

@@ -6,12 +6,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarCheck2, Clock3, ListTodo, Sparkles, TriangleAlert } from "lucide-react";
 import { QueueSection } from "@/components/queue/queue-section";
 import { authFetch, useAuth } from "@/lib/auth/client";
+import { formatDateTime } from "@/lib/format/date";
 import type { CreateRouteRunResponse, RepQueueResponse, TaskBoardItem, TasksResponse } from "@/types/api";
-
-function formatDateTime(value: string | null) {
-  if (!value) return "Unscheduled";
-  return new Date(value).toLocaleString();
-}
 
 function formatTaskNotes(value: string | null) {
   if (!value) return null;
@@ -58,7 +54,7 @@ function FollowUpTaskSection({
               <div className="mt-4 grid gap-3 text-sm text-[rgba(var(--app-primary-rgb),0.72)] md:grid-cols-3">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[rgba(var(--app-primary-rgb),0.56)]">Due</div>
-                  <div className="mt-1">{formatDateTime(item.dueAt)}</div>
+                  <div className="mt-1">{formatDateTime(item.dueAt, "Unscheduled")}</div>
                 </div>
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[rgba(var(--app-primary-rgb),0.56)]">Lead State</div>

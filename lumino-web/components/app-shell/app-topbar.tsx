@@ -9,13 +9,17 @@ import type { OrganizationsResponse } from "@/types/api";
 
 export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
   const router = useRouter();
-  const { supabase, session, appContext, appBranding, organizationBranding } = useAuth();
+  const { supabase, session, appContext, appBranding, organizationBranding, refreshSessionContext } = useAuth();
   const effectiveBranding = organizationBranding ?? appBranding;
   const appName = effectiveBranding?.appName ?? "Lumino";
   const primaryColor = effectiveBranding?.primaryColor ?? "#0b1220";
   const accentColor = effectiveBranding?.accentColor ?? "#94a3b8";
   const [organizations, setOrganizations] = useState<OrganizationsResponse["items"]>([]);
   const [switchingOrg, setSwitchingOrg] = useState(false);
+  const [orgSwitchFeedback, setOrgSwitchFeedback] = useState<{
+    tone: "success" | "error";
+    message: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!session?.access_token || !appContext?.isPlatformOwner) return;
@@ -44,6 +48,7 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
     if (nextOrganizationId === appContext.organizationId) return;
 
     setSwitchingOrg(true);
+    setOrgSwitchFeedback(null);
     try {
       const response = await authFetch(session.access_token, "/api/platform/active-organization", {
         method: "PATCH",
@@ -52,14 +57,25 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
 
       if (!response.ok) {
         const json = (await response.json().catch(() => null)) as { error?: string } | null;
-        window.alert(json?.error ?? "Could not switch organizations.");
-        setSwitchingOrg(false);
+        setOrgSwitchFeedback({
+          tone: "error",
+          message: json?.error ?? "Could not switch organizations."
+        });
         return;
       }
 
-      window.location.reload();
+      await refreshSessionContext();
+      router.refresh();
+      setOrgSwitchFeedback({
+        tone: "success",
+        message: "Organization switched."
+      });
     } catch {
-      window.alert("Could not switch organizations.");
+      setOrgSwitchFeedback({
+        tone: "error",
+        message: "Could not switch organizations."
+      });
+    } finally {
       setSwitchingOrg(false);
     }
   }
@@ -70,7 +86,7 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
         <button
           type="button"
           onClick={onOpenNav}
-          className="app-chip inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-3 text-[rgba(var(--app-primary-rgb),0.78)] transition hover:brightness-105 xl:hidden"
+          className="app-chip app-focus-button inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-3 text-[rgba(var(--app-primary-rgb),0.78)] transition hover:brightness-105 xl:hidden"
           aria-label="Open app menu"
         >
           <Menu className="h-5 w-5" />
@@ -92,7 +108,8 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
             value={appContext.organizationId ?? ""}
             disabled={switchingOrg || !organizations.length}
             onChange={(event) => void handleSwitchOrganization(event.target.value)}
-            className="app-glass-input max-w-[15rem] rounded-full px-3 py-1.5 text-sm text-[rgba(var(--app-primary-rgb),0.78)] outline-none transition focus:border-ink disabled:cursor-not-allowed disabled:opacity-60"
+            className="app-glass-input app-focus-ring max-w-[15rem] rounded-full px-3 py-1.5 text-sm text-[rgba(var(--app-primary-rgb),0.78)] disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label="Switch organization"
           >
             {organizations.map((organization) => (
               <option key={organization.organizationId} value={organization.organizationId}>
@@ -108,13 +125,25 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
           <button
             type="button"
             onClick={handleSignOut}
-            className="app-glass-button rounded-full px-3 py-1.5 text-sm text-[rgba(var(--app-primary-rgb),0.72)] transition hover:bg-[rgba(var(--app-primary-rgb),0.92)] hover:text-white"
+            className="app-glass-button app-focus-button rounded-full px-3 py-1.5 text-sm text-[rgba(var(--app-primary-rgb),0.72)] transition hover:bg-[rgba(var(--app-primary-rgb),0.92)] hover:text-white"
             style={{ borderColor: `${primaryColor}33` }}
           >
             Sign out
           </button>
         ) : null}
       </div>
+      {orgSwitchFeedback ? (
+        <div
+          className={`rounded-2xl border px-4 py-3 text-sm ${
+            orgSwitchFeedback.tone === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-rose-200 bg-rose-50 text-rose-900"
+          }`}
+          aria-live="polite"
+        >
+          {orgSwitchFeedback.message}
+        </div>
+      ) : null}
     </header>
   );
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Upload, FileUp, Database, RefreshCw } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
+import { formatDateTime } from "@/lib/format/date";
 import { parseCsvText } from "@/lib/imports/csv";
 import type { OrganizationBillingPlan } from "@/lib/platform/features";
 import type { ImportBatchAnalysisResponse, ImportBatchListItem, ImportsResponse, ImportUploadResponse } from "@/types/api";
@@ -22,11 +23,6 @@ const VISIBILITY_OPTIONS = [
   { value: "team", label: "Assigned Team" },
   { value: "assigned_user", label: "Assigned User" }
 ] as const;
-
-function formatDateTime(value: string | null) {
-  if (!value) return "Not started";
-  return new Date(value).toLocaleString();
-}
 
 function formatListType(value: ImportBatchListItem["listType"]) {
   return LIST_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? value.replaceAll("_", " ");

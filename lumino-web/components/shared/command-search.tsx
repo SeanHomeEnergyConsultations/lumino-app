@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { Search, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SearchResponse } from "@/types/api";
 import { authFetch, useAuth } from "@/lib/auth/client";
@@ -12,7 +12,9 @@ import { authFetch, useAuth } from "@/lib/auth/client";
 export function CommandSearch() {
   const router = useRouter();
   const { session } = useAuth();
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const dialogTitleId = useId();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResponse["items"]>([]);
   const [loading, setLoading] = useState(false);
@@ -80,6 +82,7 @@ export function CommandSearch() {
     setOpen(false);
     setQuery("");
     setResults([]);
+    triggerRef.current?.focus();
   }
 
   function handleOpenAddressOnMap() {
@@ -91,9 +94,13 @@ export function CommandSearch() {
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
-        className="app-glass-input flex w-full max-w-md items-center gap-2 rounded-full px-4 py-2.5 text-left text-sm text-[rgba(var(--app-primary-rgb),0.72)] transition hover:brightness-105"
+        className="app-glass-input app-focus-ring app-focus-button flex w-full max-w-md items-center gap-2 rounded-full px-4 py-2.5 text-left text-sm text-[rgba(var(--app-primary-rgb),0.72)] transition hover:brightness-105"
+        aria-label="Open search"
+        aria-haspopup="dialog"
+        aria-expanded={open}
       >
         <Search className="h-4 w-4 text-[rgba(var(--app-primary-rgb),0.5)]" />
         <span className="flex-1 truncate text-[rgba(var(--app-primary-rgb),0.58)]">
@@ -106,8 +113,17 @@ export function CommandSearch() {
 
       {open && portalReady
         ? createPortal(
-            <div className="fixed inset-0 z-[120] flex items-start justify-center bg-black/35 px-4 py-20 backdrop-blur-sm">
-              <div className="app-panel w-full max-w-2xl rounded-[2rem] border shadow-2xl">
+            <div
+              className="fixed inset-0 z-[120] flex items-start justify-center bg-black/35 px-4 py-20 backdrop-blur-sm"
+              onClick={closeSearch}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={dialogTitleId}
+                className="app-panel w-full max-w-2xl rounded-[2rem] border shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+              >
                 <form
                   className="flex items-center gap-3 border-b border-[rgba(var(--app-primary-rgb),0.08)] px-5 py-4"
                   onSubmit={(event) => {
@@ -115,18 +131,22 @@ export function CommandSearch() {
                     handleOpenAddressOnMap();
                   }}
                 >
+                  <h2 id={dialogTitleId} className="sr-only">
+                    Search Lumino
+                  </h2>
                   <Search className="h-5 w-5 text-[rgba(var(--app-primary-rgb),0.52)]" />
                   <input
                     ref={inputRef}
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Search address, homeowner, phone, or email"
-                    className="w-full bg-transparent text-base text-ink outline-none placeholder:text-[rgba(var(--app-primary-rgb),0.4)]"
+                    placeholder="Search address, homeowner, phone, or email…"
+                    aria-label="Search address, homeowner, phone, or email"
+                    className="app-focus-ring w-full bg-transparent text-base text-ink placeholder:text-[rgba(var(--app-primary-rgb),0.4)]"
                   />
                   <button
                     type="button"
                     onClick={closeSearch}
-                    className="app-glass-button inline-flex h-10 w-10 items-center justify-center rounded-full text-[rgba(var(--app-primary-rgb),0.58)] transition hover:brightness-105"
+                    className="app-glass-button app-focus-button inline-flex h-10 w-10 items-center justify-center rounded-full text-[rgba(var(--app-primary-rgb),0.58)] transition hover:brightness-105"
                     aria-label="Close search"
                   >
                     <X className="h-4 w-4" />
@@ -164,7 +184,7 @@ export function CommandSearch() {
                       <button
                         type="button"
                         onClick={handleOpenAddressOnMap}
-                        className="block w-full rounded-[1.4rem] border border-dashed border-[rgba(var(--app-primary-rgb),0.18)] px-4 py-4 text-left transition hover:bg-[rgba(var(--app-primary-rgb),0.04)]"
+                        className="app-focus-ring app-focus-button block w-full rounded-[1.4rem] border border-dashed border-[rgba(var(--app-primary-rgb),0.18)] px-4 py-4 text-left transition hover:bg-[rgba(var(--app-primary-rgb),0.04)]"
                       >
                         <div className="text-sm font-semibold text-ink">Open &quot;{trimmedQuery}&quot; on the map</div>
                         <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.54)]">
@@ -176,7 +196,7 @@ export function CommandSearch() {
                     <button
                       type="button"
                       onClick={handleOpenAddressOnMap}
-                      className="block w-full rounded-[1.4rem] border border-dashed border-[rgba(var(--app-primary-rgb),0.18)] px-4 py-5 text-left transition hover:bg-[rgba(var(--app-primary-rgb),0.04)]"
+                      className="app-focus-ring app-focus-button block w-full rounded-[1.4rem] border border-dashed border-[rgba(var(--app-primary-rgb),0.18)] px-4 py-5 text-left transition hover:bg-[rgba(var(--app-primary-rgb),0.04)]"
                     >
                       <div className="text-sm font-semibold text-ink">Open &quot;{trimmedQuery}&quot; on the map</div>
                       <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.54)]">

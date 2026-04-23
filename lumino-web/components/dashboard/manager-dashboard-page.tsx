@@ -6,13 +6,9 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CalendarCheck2, Layers3, MapPinned, Target, Users } from "lucide-react";
 import type { ManagerDashboardResponse } from "@/types/api";
 import { authFetch, useAuth } from "@/lib/auth/client";
+import { formatDateTime } from "@/lib/format/date";
 import { ManagerSupervisionMap } from "@/components/dashboard/manager-supervision-map";
 import { DailySummaryPanel } from "@/components/reporting/daily-summary-panel";
-
-function formatDateTime(value: string | null) {
-  if (!value) return "Unknown";
-  return new Date(value).toLocaleString();
-}
 
 function outcomeLabel(value: string | null) {
   if (!value) return "Lead update";

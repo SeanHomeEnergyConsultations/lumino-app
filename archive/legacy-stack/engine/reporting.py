@@ -7,18 +7,44 @@ import pandas as pd
 from engine.constants import PRIORITY, get_priority_meta
 
 
+def safe_priority_score(result):
+    try:
+        return int((result or {}).get("priority_score") or 0)
+    except Exception:
+        return 0
+
+
+def safe_doors_to_knock(result):
+    try:
+        return int((result or {}).get("doors_to_knock") or 0)
+    except Exception:
+        return 0
+
+
+def safe_numeric_value(value):
+    try:
+        if value in (None, "", "N/A", "Unknown"):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
 def build_zip_summary(all_results):
     zips = defaultdict(lambda: {"count": 0, "high": 0, "sun_hours": [], "doors": 0, "prices": []})
     for result in all_results:
-        zipcode = result["zipcode"]
+        zipcode = (result or {}).get("zipcode") or "Unknown"
         zips[zipcode]["count"] += 1
-        if result["priority_score"] >= 2:
+        priority_score = safe_priority_score(result)
+        if priority_score >= 2:
             zips[zipcode]["high"] += 1
-        if result["sun_hours"]:
-            zips[zipcode]["sun_hours"].append(result["sun_hours"])
-        if result["sale_price"]:
-            zips[zipcode]["prices"].append(result["sale_price"])
-        zips[zipcode]["doors"] += result["doors_to_knock"]
+        sun_hours = safe_numeric_value((result or {}).get("sun_hours"))
+        if sun_hours is not None:
+            zips[zipcode]["sun_hours"].append(sun_hours)
+        sale_price = safe_numeric_value((result or {}).get("sale_price"))
+        if sale_price is not None:
+            zips[zipcode]["prices"].append(sale_price)
+        zips[zipcode]["doors"] += safe_doors_to_knock(result)
 
     summary = []
     for zipcode, data in zips.items():
@@ -53,12 +79,12 @@ def generate_html_report(all_results):
     zip_rank = {item["zipcode"]: i for i, item in enumerate(zip_summary)}
     results = sorted(
         all_results,
-        key=lambda x: (zip_rank.get(x["zipcode"], 99), -x["priority_score"], -x["doors_to_knock"]),
+        key=lambda x: (zip_rank.get((x or {}).get("zipcode"), 99), -safe_priority_score(x), -safe_doors_to_knock(x)),
     )
     total = len(results)
-    high_count = sum(1 for result in results if result["priority_score"] >= 2)
-    medium_count = sum(1 for result in results if result["priority_score"] == 1)
-    total_knocks = sum(result["doors_to_knock"] for result in results)
+    high_count = sum(1 for result in results if safe_priority_score(result) >= 2)
+    medium_count = sum(1 for result in results if safe_priority_score(result) == 1)
+    total_knocks = sum(safe_doors_to_knock(result) for result in results)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -174,8 +200,9 @@ body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
 
     current_zip = None
     for result in results:
-        if result["zipcode"] != current_zip:
-            current_zip = result["zipcode"]
+        zipcode = (result or {}).get("zipcode") or "Unknown"
+        if zipcode != current_zip:
+            current_zip = zipcode
             z_data = next((item for item in zip_summary if item["zipcode"] == current_zip), {})
             html += (
                 f'<div class="section-header">Zip {current_zip} &nbsp;·&nbsp; Score {z_data.get("zip_score", "?")} '
@@ -183,12 +210,13 @@ body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
                 f'Avg {z_data.get("avg_home_value", "N/A")}</div>\n'
             )
 
-        priority_score = result["priority_score"]
-        sun_text = f'{result["sun_hours_display"]} hrs' if result["sun_hours"] else "N/A"
+        priority_score = safe_priority_score(result)
+        sun_hours = safe_numeric_value((result or {}).get("sun_hours"))
+        sun_text = f'{(result or {}).get("sun_hours_display")} hrs' if sun_hours is not None and (result or {}).get("sun_hours_display") else "N/A"
         park_short = (
-            result["parking_address"][:70] + "..."
-            if len(result["parking_address"]) > 70
-            else result["parking_address"]
+            ((result or {}).get("parking_address") or "")[:70] + "..."
+            if len((result or {}).get("parking_address") or "") > 70
+            else ((result or {}).get("parking_address") or "")
         )
         solar_tag_class = {
             "Best": "tag-solar-ideal",
@@ -196,37 +224,38 @@ body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
             "Good": "tag-solar-good",
             "Low": "tag-solar-marginal",
             "Too Low": "tag-solar-poor",
-        }.get(result["category"], "tag-solar-poor")
-        value_tag_class = "tag-value-high" if result.get("value_score", 0) >= 2 else "tag-value-mid"
-        size_label = "Large" if (result["sqft"] or 0) >= 3000 else "Mid-Size" if (result["sqft"] or 0) >= 2000 else "Compact"
+        }.get((result or {}).get("category"), "tag-solar-poor")
+        value_tag_class = "tag-value-high" if (result or {}).get("value_score", 0) >= 2 else "tag-value-mid"
+        sqft_value = safe_numeric_value((result or {}).get("sqft")) or 0
+        size_label = "Large" if sqft_value >= 3000 else "Mid-Size" if sqft_value >= 2000 else "Compact"
 
         html += (
             f'<div class="card card-priority-{priority_score}">\n'
-            f'<div class="card-header">{priority_badge_html(priority_score)}<span class="card-address">{result["address"]}</span></div>\n'
+            f'<div class="card-header">{priority_badge_html(priority_score)}<span class="card-address">{(result or {}).get("address", "")}</span></div>\n'
             '<div class="home-strip">\n'
-            f'    <div><div class="home-detail-label">Sale Price</div><div class="home-detail-value">{result["price_display"]}</div></div>\n'
-            f'    <div><div class="home-detail-label">Size</div><div class="home-detail-value">{result["sqft_display"]}</div></div>\n'
-            f'    <div><div class="home-detail-label">Beds / Baths</div><div class="home-detail-value">{result.get("beds", "?")} bd / {result.get("baths", "?")} ba</div></div>\n'
-            f'    <div><div class="home-detail-label">Sold</div><div class="home-detail-value">{result["sold_date"]}</div></div>\n'
+            f'    <div><div class="home-detail-label">Sale Price</div><div class="home-detail-value">{(result or {}).get("price_display", "N/A")}</div></div>\n'
+            f'    <div><div class="home-detail-label">Size</div><div class="home-detail-value">{(result or {}).get("sqft_display", "N/A")}</div></div>\n'
+            f'    <div><div class="home-detail-label">Beds / Baths</div><div class="home-detail-value">{(result or {}).get("beds", "?")} bd / {(result or {}).get("baths", "?")} ba</div></div>\n'
+            f'    <div><div class="home-detail-label">Sold</div><div class="home-detail-value">{(result or {}).get("sold_date", "Unknown")}</div></div>\n'
             '</div>\n'
-            f'<div class="info-row"><span class="info-label">Solar</span><span class="info-value">{sun_text}<span class="tag {solar_tag_class}">{result["category"]}</span></span></div>\n'
-            f'<div class="info-row"><span class="info-label">Home Value</span><span class="info-value">{result["price_display"]}<span class="tag {value_tag_class}">{result["value_badge"]}</span></span></div>\n'
-            f'<div class="info-row"><span class="info-label">Size</span><span class="info-value">{result["sqft_display"]}<span class="tag tag-size">{size_label}</span></span></div>\n'
+            f'<div class="info-row"><span class="info-label">Solar</span><span class="info-value">{sun_text}<span class="tag {solar_tag_class}">{(result or {}).get("category", "Unknown")}</span></span></div>\n'
+            f'<div class="info-row"><span class="info-label">Home Value</span><span class="info-value">{(result or {}).get("price_display", "N/A")}<span class="tag {value_tag_class}">{(result or {}).get("value_badge", "Unknown")}</span></span></div>\n'
+            f'<div class="info-row"><span class="info-label">Size</span><span class="info-value">{(result or {}).get("sqft_display", "N/A")}<span class="tag tag-size">{size_label}</span></span></div>\n'
             f'<div class="info-row"><span class="info-label">Park At</span><span class="info-value">{park_short}</span></div>\n'
-            f'<div class="info-row"><span class="info-label">Knock</span><span class="info-value">{result["doors_to_knock"]} doors ({result["ideal_count"]} ideal, {result["good_count"]} good)</span></div>\n'
-            f'<div class="info-row"><span class="info-label">Parking</span><span class="info-value">{result["parking_ease"]}</span></div>\n'
+            f'<div class="info-row"><span class="info-label">Knock</span><span class="info-value">{safe_doors_to_knock(result)} doors ({(result or {}).get("ideal_count", 0)} ideal, {(result or {}).get("good_count", 0)} good)</span></div>\n'
+            f'<div class="info-row"><span class="info-label">Parking</span><span class="info-value">{(result or {}).get("parking_ease", "")}</span></div>\n'
         )
 
-        if result["knock_addresses"]:
+        if (result or {}).get("knock_addresses"):
             html += '<div class="knock-list"><div class="knock-list-title">Addresses to Knock</div>'
-            for address in result["knock_addresses"]:
+            for address in (result or {}).get("knock_addresses") or []:
                 html += f'<div class="knock-item">{address}</div>'
             html += "</div>"
 
         html += (
             '<div class="btn-group">\n'
-            f'    <a href="{result["street_view_link"]}" target="_blank" class="btn btn-sv">Street View</a>\n'
-            f'    <a href="https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(result["parking_address"])}" target="_blank" class="btn btn-dir">Get Directions</a>\n'
+            f'    <a href="{(result or {}).get("street_view_link", "")}" target="_blank" class="btn btn-sv">Street View</a>\n'
+            f'    <a href="https://www.google.com/maps/search/?api=1&query={urllib.parse.quote((result or {}).get("parking_address", ""))}" target="_blank" class="btn btn-dir">Get Directions</a>\n'
             "</div></div>\n"
         )
 
@@ -240,19 +269,19 @@ body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
 def build_route_csv(selected_results):
     rows = []
     for result in selected_results:
-        addresses = result["knock_addresses"] if result["knock_addresses"] else [result["address"]]
+        addresses = (result or {}).get("knock_addresses") or [(result or {}).get("address")]
         for address in addresses:
             rows.append(
                 {
                     "address": address,
-                    "priority": get_priority_meta(result["priority_score"])["label"],
-                    "sale_price": result["price_display"],
-                    "sqft": result["sqft_display"],
-                    "sold_date": result["sold_date"],
-                    "sun_hours": result["sun_hours_display"],
-                    "solar_category": result["category"],
-                    "doors_in_cluster": result["doors_to_knock"],
-                    "zipcode": result["zipcode"],
+                    "priority": get_priority_meta(safe_priority_score(result))["label"],
+                    "sale_price": (result or {}).get("price_display", "N/A"),
+                    "sqft": (result or {}).get("sqft_display", "N/A"),
+                    "sold_date": (result or {}).get("sold_date", "Unknown"),
+                    "sun_hours": (result or {}).get("sun_hours_display", "N/A"),
+                    "solar_category": (result or {}).get("category", "Unknown"),
+                    "doors_in_cluster": safe_doors_to_knock(result),
+                    "zipcode": (result or {}).get("zipcode", "Unknown"),
                 }
             )
     return pd.DataFrame(rows).to_csv(index=False)

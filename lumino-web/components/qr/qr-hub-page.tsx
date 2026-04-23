@@ -24,6 +24,10 @@ const WEEKDAY_CHOICES = [
   { value: 0, label: "Sun" }
 ];
 
+const qrFieldClass =
+  "app-focus-ring w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm";
+const qrTextAreaClass = `${qrFieldClass} min-h-24`;
+
 function qrImageUrl(value: string, logoUrl?: string | null) {
   const params = new URLSearchParams({
     text: value,
@@ -474,7 +478,7 @@ export function QrHubPage() {
                   value={availabilityTimezone}
                   onChange={(event) => setAvailabilityTimezone(event.target.value)}
                   placeholder="America/New_York"
-                  className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                  className={qrFieldClass}
                 />
               </label>
 
@@ -485,7 +489,7 @@ export function QrHubPage() {
                     type="time"
                     value={availabilityStartTime}
                     onChange={(event) => setAvailabilityStartTime(event.target.value)}
-                    className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                    className={qrFieldClass}
                   />
                 </label>
                 <label className="block space-y-2">
@@ -494,7 +498,7 @@ export function QrHubPage() {
                     type="time"
                     value={availabilityEndTime}
                     onChange={(event) => setAvailabilityEndTime(event.target.value)}
-                    className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                    className={qrFieldClass}
                   />
                 </label>
               </div>
@@ -504,7 +508,7 @@ export function QrHubPage() {
                 <select
                   value={availabilityMinNoticeHours}
                   onChange={(event) => setAvailabilityMinNoticeHours(Number(event.target.value))}
-                  className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                  className={qrFieldClass}
                 >
                   {[0, 1, 2, 4, 8, 12, 24].map((hours) => (
                     <option key={hours} value={hours}>
@@ -519,7 +523,7 @@ export function QrHubPage() {
                 <select
                   value={availabilityMaxDaysOut}
                   onChange={(event) => setAvailabilityMaxDaysOut(Number(event.target.value))}
-                  className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                  className={qrFieldClass}
                 >
                   {[7, 10, 14, 21, 30].map((days) => (
                     <option key={days} value={days}>
@@ -653,7 +657,7 @@ export function QrHubPage() {
                                 label: event.target.value
                               }))
                             }
-                            className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                            className={qrFieldClass}
                           />
                         </label>
 
@@ -667,7 +671,7 @@ export function QrHubPage() {
                                 type: event.target.value as QRBookingTypeConfig["type"]
                               }))
                             }
-                            className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                            className={qrFieldClass}
                           >
                             <option value="phone_call">Phone-Style</option>
                             <option value="in_person_consult">In-Person</option>
@@ -687,7 +691,7 @@ export function QrHubPage() {
                                 durationMinutes: Number(event.target.value || 0)
                               }))
                             }
-                            className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                            className={qrFieldClass}
                           />
                         </label>
 
@@ -704,7 +708,7 @@ export function QrHubPage() {
                                 slotStepMinutes: Number(event.target.value || 0)
                               }))
                             }
-                            className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                            className={qrFieldClass}
                           />
                         </label>
 
@@ -719,7 +723,7 @@ export function QrHubPage() {
                               }))
                             }
                             placeholder="A short summary shown on the booking page."
-                            className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                            className={qrFieldClass}
                           />
                         </label>
 
@@ -734,7 +738,7 @@ export function QrHubPage() {
                               }))
                             }
                             placeholder="Shown after the homeowner clicks into this appointment type."
-                            className="min-h-24 w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                            className={qrTextAreaClass}
                           />
                         </label>
 
@@ -751,7 +755,7 @@ export function QrHubPage() {
                                 preBufferMinutes: Number(event.target.value || 0)
                               }))
                             }
-                            className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                            className={qrFieldClass}
                           />
                         </label>
 
@@ -768,7 +772,7 @@ export function QrHubPage() {
                                 postBufferMinutes: Number(event.target.value || 0)
                               }))
                             }
-                            className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                            className={qrFieldClass}
                           />
                         </label>
                       </div>
@@ -826,7 +830,7 @@ export function QrHubPage() {
                 value={label}
                 onChange={(event) => setLabel(event.target.value)}
                 placeholder="Millbury leave-behind"
-                className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                className={qrFieldClass}
               />
             </label>
 
@@ -835,7 +839,7 @@ export function QrHubPage() {
               <select
                 value={territoryId}
                 onChange={(event) => setTerritoryId(event.target.value)}
-                className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                className={qrFieldClass}
               >
                 <option value="">No territory tag</option>
                 {territories.map((item) => (
@@ -854,7 +858,7 @@ export function QrHubPage() {
                     value={title}
                     onChange={(event) => setTitle(event.target.value)}
                     placeholder="Solar Advisor"
-                    className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                    className={qrFieldClass}
                   />
                 </label>
 
@@ -867,6 +871,8 @@ export function QrHubPage() {
                         <img
                           src={photoUrl}
                           alt="Rep preview"
+                          width={80}
+                          height={80}
                           className="h-20 w-20 rounded-[1.4rem] border border-[rgba(var(--app-primary-rgb),0.08)] object-cover"
                         />
                       ) : (
@@ -1122,6 +1128,8 @@ function QrCodeCard({
           <img
             src={qrImageUrl(item.publicUrl, isContactCard && "logoUrl" in item.payload ? item.payload.logoUrl : null)}
             alt={`${item.label} QR code`}
+            width={160}
+            height={160}
             className="mx-auto h-40 w-40 rounded-xl"
           />
           <div className="mt-4 text-center text-xs font-semibold uppercase tracking-[0.16em] text-[rgba(var(--app-primary-rgb),0.58)]">
