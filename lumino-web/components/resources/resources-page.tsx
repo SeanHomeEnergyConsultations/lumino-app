@@ -1,7 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Route } from "next";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, FolderOpen, Printer, UploadCloud, Video } from "lucide-react";
+import {
+  ProductEmptyState,
+  ProductFilterBar,
+  ProductHero,
+  ProductNotice,
+  ProductSection,
+  ProductStatGrid,
+  productFieldClassName,
+  productFieldLabelClassName,
+  productFileInputClassName,
+  productTextAreaClassName
+} from "@/components/shared/product-primitives";
+import { buildResourcesSearchParams } from "@/components/shared/workspace-url-state";
+import { trackAppEvent } from "@/lib/analytics/app-events";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import type { OrganizationResourceItem, ResourceMaterialType, ResourcesResponse, TerritoriesResponse } from "@/types/api";
 
@@ -30,7 +46,11 @@ function ResourceTypeIcon({ type }: { type: ResourceMaterialType }) {
 }
 
 export function ResourcesPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { session, supabase } = useAuth();
+  const hasTrackedFilters = useRef(false);
   const [library, setLibrary] = useState<ResourcesResponse | null>(null);
   const [territories, setTerritories] = useState<TerritoriesResponse["items"]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,8 +61,12 @@ export function ResourcesPage() {
   const [resourceType, setResourceType] = useState<ResourceMaterialType>("document");
   const [territoryId, setTerritoryId] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [typeFilter, setTypeFilter] = useState<"all" | ResourceMaterialType>("all");
-  const [territoryFilter, setTerritoryFilter] = useState<"all" | "untagged" | string>("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | ResourceMaterialType>(
+    () => (searchParams.get("type") as "all" | ResourceMaterialType | null) ?? "all"
+  );
+  const [territoryFilter, setTerritoryFilter] = useState<"all" | "untagged" | string>(
+    () => searchParams.get("territory") ?? "all"
+  );
 
   const loadLibrary = useCallback(async () => {
     if (!session?.access_token) return;
@@ -78,6 +102,30 @@ export function ResourcesPage() {
   useEffect(() => {
     void loadLibrary();
   }, [loadLibrary]);
+
+  useEffect(() => {
+    const nextSearch = buildResourcesSearchParams({
+      currentSearch: searchParams.toString(),
+      type: typeFilter,
+      territory: territoryFilter
+    });
+    const currentSearch = searchParams.toString();
+    if (nextSearch === currentSearch) return;
+    startTransition(() => {
+      router.replace((nextSearch ? `${pathname}?${nextSearch}` : pathname) as Route, { scroll: false });
+    });
+  }, [pathname, router, searchParams, territoryFilter, typeFilter]);
+
+  useEffect(() => {
+    if (!hasTrackedFilters.current) {
+      hasTrackedFilters.current = true;
+      return;
+    }
+    trackAppEvent("resources.filters_changed", {
+      typeFilter,
+      territoryFilter
+    });
+  }, [territoryFilter, typeFilter]);
 
   const filteredItems = useMemo(() => {
     const items = library?.items ?? [];
@@ -156,6 +204,10 @@ export function ResourcesPage() {
       setResourceType("document");
       setTerritoryId("");
       setSelectedFile(null);
+      trackAppEvent("resources.uploaded", {
+        resourceType,
+        territoryScoped: Boolean(territoryId)
+      });
       await loadLibrary();
     } catch (saveError) {
       setSaveState("error");
@@ -165,69 +217,57 @@ export function ResourcesPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="app-panel rounded-[2rem] border p-6">
-        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Resources</div>
-        <h1 className="mt-2 text-3xl font-semibold text-ink">Training, printables, and field materials</h1>
-        <p className="mt-3 max-w-3xl text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
-          Managers upload once, reps pull what they need in the field. Keep scripts, handouts, printable leave-behinds, and training videos in one clean workspace.
-        </p>
-
-        <div className="mt-6 grid gap-3 md:grid-cols-3">
-          {[
-            { label: "Documents", value: stats.documents, detail: "Scripts, one-pagers, and reference sheets" },
-            { label: "Videos", value: stats.videos, detail: "Training clips and walkthroughs" },
-            { label: "Printables", value: stats.printables, detail: "Door materials ready to print" }
-          ].map((item) => (
-            <div key={item.label} className="app-panel-soft rounded-[1.8rem] border p-4">
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">{item.label}</div>
-              <div className="mt-3 text-3xl font-semibold text-ink">{loading ? "…" : item.value}</div>
-              <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">{item.detail}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <ProductHero
+        eyebrow="Resources"
+        title="Training, printables, and field materials"
+        description="Managers upload once, reps pull what they need in the field. Keep scripts, handouts, printable leave-behinds, and training videos in one clean workspace."
+      >
+        <ProductStatGrid
+          items={[
+            { label: "Documents", value: loading ? "…" : stats.documents, detail: "Scripts, one-pagers, and reference sheets" },
+            { label: "Videos", value: loading ? "…" : stats.videos, detail: "Training clips and walkthroughs" },
+            { label: "Printables", value: loading ? "…" : stats.printables, detail: "Door materials ready to print" }
+          ]}
+        />
+      </ProductHero>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[400px_1fr]">
         {library?.canManageResources ? (
-          <section className="app-panel rounded-[2rem] border p-5">
+          <ProductSection eyebrow="Manager Upload" title="Add a new material" className="p-5">
             <div className="flex items-center gap-3">
               <div className="rounded-2xl bg-slate-950 p-3 text-white">
                 <UploadCloud className="h-5 w-5" />
               </div>
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Manager Upload</div>
-                <div className="mt-1 text-xl font-semibold text-ink">Add a new material</div>
-              </div>
             </div>
 
-            <div className="mt-5 space-y-4">
+            <div className="space-y-4">
               <label className="block space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Title</div>
+                <div className={productFieldLabelClassName}>Title</div>
                 <input
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   placeholder="Storm objection handling sheet"
-                  className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                  className={productFieldClassName}
                 />
               </label>
 
               <label className="block space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Description</div>
+                <div className={productFieldLabelClassName}>Description</div>
                 <textarea
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                   placeholder="Quick rebuttals and framing for common homeowner concerns."
-                  className="min-h-24 w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                  className={productTextAreaClassName}
                 />
               </label>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="block space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Material type</div>
+                  <div className={productFieldLabelClassName}>Material type</div>
                   <select
                     value={resourceType}
                     onChange={(event) => setResourceType(event.target.value as ResourceMaterialType)}
-                    className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                    className={productFieldClassName}
                   >
                     <option value="document">Document</option>
                     <option value="video">Video</option>
@@ -236,11 +276,11 @@ export function ResourcesPage() {
                 </label>
 
                 <label className="block space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Territory</div>
+                  <div className={productFieldLabelClassName}>Territory</div>
                   <select
                     value={territoryId}
                     onChange={(event) => setTerritoryId(event.target.value)}
-                    className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                    className={productFieldClassName}
                   >
                     <option value="">Whole organization</option>
                     {territories.map((item) => (
@@ -253,11 +293,11 @@ export function ResourcesPage() {
               </div>
 
               <label className="block space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">File</div>
+                <div className={productFieldLabelClassName}>File</div>
                 <input
                   type="file"
                   onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
-                  className="w-full rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] bg-white px-4 py-3 text-sm outline-none transition file:mr-4 file:rounded-full file:border-0 file:bg-[rgba(var(--app-primary-rgb),0.08)] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-ink hover:file:bg-[rgba(var(--app-primary-rgb),0.12)]"
+                  className={productFileInputClassName}
                 />
                 <div className="text-xs text-[rgba(var(--app-primary-rgb),0.58)]">
                   Great for PDFs, slide decks, print sheets, and training clips.
@@ -274,22 +314,23 @@ export function ResourcesPage() {
                 {saveState === "uploading" ? "Uploading..." : "Upload Material"}
               </button>
 
-              {error ? (
-                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">{error}</div>
+              {error ? <ProductNotice tone="error" message={error} /> : null}
+              {saveState === "saved" ? (
+                <ProductNotice tone="success" message="Resource uploaded. The library reflects it immediately for the team." />
               ) : null}
             </div>
-          </section>
+          </ProductSection>
         ) : null}
 
         <section className="space-y-4">
-          <div className="app-panel rounded-[2rem] border p-5">
+          <ProductFilterBar className="p-5">
             <div className="flex flex-wrap items-end gap-4">
               <label className="block space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Type</div>
+                <div className={productFieldLabelClassName}>Type</div>
                 <select
                   value={typeFilter}
                   onChange={(event) => setTypeFilter(event.target.value as "all" | ResourceMaterialType)}
-                  className="rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                  className={productFieldClassName}
                 >
                   <option value="all">All types</option>
                   <option value="document">Documents</option>
@@ -299,11 +340,11 @@ export function ResourcesPage() {
               </label>
 
               <label className="block space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist">Territory</div>
+                <div className={productFieldLabelClassName}>Territory</div>
                 <select
                   value={territoryFilter}
                   onChange={(event) => setTerritoryFilter(event.target.value)}
-                  className="rounded-2xl border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-3 text-sm outline-none transition focus:border-[rgba(var(--app-accent-rgb),0.32)]"
+                  className={productFieldClassName}
                 >
                   <option value="all">All territories</option>
                   <option value="untagged">Org-wide only</option>
@@ -315,7 +356,7 @@ export function ResourcesPage() {
                 </select>
               </label>
             </div>
-          </div>
+          </ProductFilterBar>
 
           {filteredItems.map((item) => (
             <article key={item.resourceId} className="app-panel rounded-[2rem] border p-5">
@@ -366,9 +407,10 @@ export function ResourcesPage() {
           ))}
 
           {!loading && !filteredItems.length ? (
-            <div className="app-panel rounded-[2rem] border border-dashed p-8 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
-              No resources match this filter yet.
-            </div>
+            <ProductEmptyState
+              title="No resources match this filter"
+              description="Try widening the territory or material type filter to bring more field material back into view."
+            />
           ) : null}
         </section>
       </div>

@@ -1,9 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Route } from "next";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Upload, FileUp, Database, RefreshCw } from "lucide-react";
 import { useAppFeedback } from "@/components/shared/app-feedback";
+import {
+  ProductEmptyState,
+  ProductHero,
+  ProductNotice,
+  ProductSection,
+  productFieldClassName
+} from "@/components/shared/product-primitives";
+import { buildImportsSearchParams } from "@/components/shared/workspace-url-state";
+import { trackAppEvent } from "@/lib/analytics/app-events";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { formatDateTime } from "@/lib/format/date";
 import { parseCsvText } from "@/lib/imports/csv";
@@ -64,10 +75,14 @@ function formatBillingPlan(plan: OrganizationBillingPlan) {
 }
 
 export function ImportsPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { session, appContext } = useAuth();
   const { notify } = useAppFeedback();
   const accessToken = session?.access_token ?? null;
   const canRunPremiumEnrichment = Boolean(appContext?.featureAccess?.importEnrichmentEnabled);
+  const hasTrackedImportSettings = useRef(false);
 
   const [filename, setFilename] = useState<string | null>(null);
   const [previewRows, setPreviewRows] = useState<Record<string, string>[]>([]);
@@ -92,10 +107,14 @@ export function ImportsPage() {
   const [processingBatchId, setProcessingBatchId] = useState<string | null>(null);
   const [uploadState, setUploadState] = useState<"idle" | "done" | "error">("idle");
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
-  const [listType, setListType] = useState<ImportBatchListItem["listType"]>("general_canvass_list");
-  const [visibilityScope, setVisibilityScope] = useState<ImportBatchListItem["visibilityScope"]>("organization");
-  const [assignedTeamId, setAssignedTeamId] = useState<string>("");
-  const [assignedUserId, setAssignedUserId] = useState<string>("");
+  const [listType, setListType] = useState<ImportBatchListItem["listType"]>(
+    () => (searchParams.get("listType") as ImportBatchListItem["listType"] | null) ?? "general_canvass_list"
+  );
+  const [visibilityScope, setVisibilityScope] = useState<ImportBatchListItem["visibilityScope"]>(
+    () => (searchParams.get("visibility") as ImportBatchListItem["visibilityScope"] | null) ?? "organization"
+  );
+  const [assignedTeamId, setAssignedTeamId] = useState<string>(() => searchParams.get("teamId") ?? "");
+  const [assignedUserId, setAssignedUserId] = useState<string>(() => searchParams.get("userId") ?? "");
   const [consentChecked, setConsentChecked] = useState(false);
   const [recordingConsent, setRecordingConsent] = useState(false);
 
@@ -131,6 +150,34 @@ export function ImportsPage() {
   useEffect(() => {
     void loadBatches();
   }, [loadBatches]);
+
+  useEffect(() => {
+    const nextSearch = buildImportsSearchParams({
+      currentSearch: searchParams.toString(),
+      listType,
+      visibilityScope,
+      assignedTeamId,
+      assignedUserId
+    });
+    const currentSearch = searchParams.toString();
+    if (nextSearch === currentSearch) return;
+    startTransition(() => {
+      router.replace((nextSearch ? `${pathname}?${nextSearch}` : pathname) as Route, { scroll: false });
+    });
+  }, [assignedTeamId, assignedUserId, listType, pathname, router, searchParams, visibilityScope]);
+
+  useEffect(() => {
+    if (!hasTrackedImportSettings.current) {
+      hasTrackedImportSettings.current = true;
+      return;
+    }
+    trackAppEvent("imports.settings_changed", {
+      listType,
+      visibilityScope,
+      hasAssignedTeam: Boolean(assignedTeamId),
+      hasAssignedUser: Boolean(assignedUserId)
+    });
+  }, [assignedTeamId, assignedUserId, listType, visibilityScope]);
 
   useEffect(() => {
     const hasActiveBatch = batches.some((batch) => batch.status === "analyzing");
@@ -212,6 +259,11 @@ export function ImportsPage() {
         throw new Error((json as { error?: string }).error || "Failed to upload import.");
       }
       const result = json as ImportUploadResponse;
+      trackAppEvent("imports.upload_created", {
+        listType,
+        visibilityScope,
+        rowCount: previewRows.length
+      });
       setUploadState("done");
       setUploadMessage(
         canRunPremiumEnrichment
@@ -305,6 +357,7 @@ export function ImportsPage() {
       )
     );
     try {
+      trackAppEvent("imports.analysis_started", { batchId, action });
       let keepGoing = true;
       while (keepGoing) {
         const response = await authFetch(accessToken, `/api/imports/${batchId}/analysis`, {
@@ -336,15 +389,11 @@ export function ImportsPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Imports</div>
-            <h1 className="mt-2 text-3xl font-semibold text-ink">Upload Manager Lists</h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              Upload private CSV lists for this organization and start working them right away. Premium enrichment is optional and only appears on plans that include it.
-            </p>
-          </div>
+      <ProductHero
+        eyebrow="Imports"
+        title="Upload manager lists"
+        description="Upload private CSV lists for this organization and start working them right away. Premium enrichment is optional and only appears on plans that include it."
+        actions={
           <button
             type="button"
             onClick={() => void loadBatches({ silent: batches.length > 0 })}
@@ -353,10 +402,10 @@ export function ImportsPage() {
             <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
             {refreshing ? "Refreshing..." : "Refresh"}
           </button>
-        </div>
-
-        <div className="mt-6 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-          <section className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+        }
+      >
+        <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <ProductSection className="rounded-3xl border-slate-200 bg-slate-50 p-5 shadow-none">
             <div className="flex items-center gap-2 text-sm font-semibold text-ink">
               <Upload className="h-4 w-4" />
               Upload CSV
@@ -382,7 +431,7 @@ export function ImportsPage() {
                 <select
                   value={listType}
                   onChange={(event) => setListType(event.target.value as ImportBatchListItem["listType"])}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
+                  className={productFieldClassName}
                 >
                   {LIST_TYPE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -402,7 +451,7 @@ export function ImportsPage() {
                     if (nextValue !== "team") setAssignedTeamId("");
                     if (nextValue !== "assigned_user") setAssignedUserId("");
                   }}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
+                  className={productFieldClassName}
                 >
                   {VISIBILITY_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -419,7 +468,7 @@ export function ImportsPage() {
                 <select
                   value={assignedTeamId}
                   onChange={(event) => setAssignedTeamId(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
+                  className={productFieldClassName}
                 >
                   <option value="">Choose a team</option>
                   {assignmentOptions.teams.map((team) => (
@@ -437,7 +486,7 @@ export function ImportsPage() {
                 <select
                   value={assignedUserId}
                   onChange={(event) => setAssignedUserId(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-slate-700"
+                  className={productFieldClassName}
                 >
                   <option value="">Choose a user</option>
                   {assignmentOptions.users.map((user) => (
@@ -511,17 +560,17 @@ export function ImportsPage() {
                 {uploading ? "Uploading..." : "Import Rows"}
               </button>
               {uploadState === "done" ? (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
-                  {uploadMessage ?? "Import created successfully. Your rows are ready to work now."}
-                </div>
+                <ProductNotice
+                  tone="success"
+                  message={uploadMessage ?? "Import created successfully. Your rows are ready to work now."}
+                  className="px-4 py-2 font-semibold"
+                />
               ) : null}
               {uploadState === "error" ? (
-                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700">
-                  {uploadMessage ?? "Upload failed."}
-                </div>
+                <ProductNotice tone="error" message={uploadMessage ?? "Upload failed."} className="px-4 py-2 font-semibold" />
               ) : null}
             </div>
-          </section>
+          </ProductSection>
 
           <section className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
             <div className="flex items-center gap-2 text-sm font-semibold text-ink">
@@ -560,7 +609,7 @@ export function ImportsPage() {
             )}
           </section>
         </div>
-      </div>
+      </ProductHero>
 
       <section className="mt-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-panel">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Local Batches</div>
@@ -642,9 +691,11 @@ export function ImportsPage() {
               </div>
             ))
           ) : (
-            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-              No import batches yet. Upload your first manager list above.
-            </div>
+            <ProductEmptyState
+              title="No import batches yet"
+              description="Upload your first manager list above and it will appear here with row counts, enrichment status, and visibility scope."
+              className="bg-slate-50"
+            />
           )}
         </div>
       </section>
@@ -675,9 +726,11 @@ export function ImportsPage() {
               </div>
             ))
           ) : (
-            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-              No shared datasets are active for this organization yet.
-            </div>
+            <ProductEmptyState
+              title="No shared datasets are active yet"
+              description="Once this organization receives granted datasets, they’ll appear here with source details and row counts."
+              className="bg-slate-50"
+            />
           )}
         </div>
       </section>

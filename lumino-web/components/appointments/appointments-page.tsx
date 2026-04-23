@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
   CalendarDays,
@@ -20,6 +21,9 @@ import {
 import type { AppointmentScheduleItem, AppointmentsResponse } from "@/types/api";
 import { buildGoogleCalendarUrl } from "@/lib/appointments/calendar";
 import { GoogleCalendarSyncCard } from "@/components/appointments/google-calendar-sync-card";
+import { ProductEmptyState, ProductHero, ProductStatGrid } from "@/components/shared/product-primitives";
+import { buildAppointmentsSearchParams } from "@/components/shared/workspace-url-state";
+import { trackAppEvent } from "@/lib/analytics/app-events";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
 type CalendarView = "agenda" | "week" | "month";
@@ -371,15 +375,27 @@ function CalendarCell({
 }
 
 export function AppointmentsPage({ initialOwnerId = null }: { initialOwnerId?: string | null }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { session } = useAuth();
+  const hasTrackedCalendarState = useRef(false);
   const [appointments, setAppointments] = useState<AppointmentsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [remindingLeadId, setRemindingLeadId] = useState<string | null>(null);
   const [updatingLeadId, setUpdatingLeadId] = useState<string | null>(null);
   const [downloadingLeadId, setDownloadingLeadId] = useState<string | null>(null);
-  const [calendarView, setCalendarView] = useState<CalendarView>("week");
-  const [selectedDate, setSelectedDate] = useState<Date>(() => startOfDay(new Date()));
-  const [anchorDate, setAnchorDate] = useState<Date>(() => startOfDay(new Date()));
+  const [calendarView, setCalendarView] = useState<CalendarView>(
+    () => (searchParams.get("view") as CalendarView | null) ?? "week"
+  );
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const value = searchParams.get("date");
+    return value ? startOfDay(new Date(value)) : startOfDay(new Date());
+  });
+  const [anchorDate, setAnchorDate] = useState<Date>(() => {
+    const value = searchParams.get("anchor") ?? searchParams.get("date");
+    return value ? startOfDay(new Date(value)) : startOfDay(new Date());
+  });
 
   const loadAppointments = useCallback(async () => {
     if (!session?.access_token) return null;
@@ -401,6 +417,32 @@ export function AppointmentsPage({ initialOwnerId = null }: { initialOwnerId?: s
   useEffect(() => {
     void loadAppointments();
   }, [loadAppointments]);
+
+  useEffect(() => {
+    const nextSearch = buildAppointmentsSearchParams({
+      currentSearch: searchParams.toString(),
+      view: calendarView,
+      date: isoDayKey(selectedDate),
+      anchor: isoDayKey(anchorDate)
+    });
+    const currentSearch = searchParams.toString();
+    if (nextSearch === currentSearch) return;
+    startTransition(() => {
+      router.replace((nextSearch ? `${pathname}?${nextSearch}` : pathname) as Route, { scroll: false });
+    });
+  }, [anchorDate, calendarView, pathname, router, searchParams, selectedDate]);
+
+  useEffect(() => {
+    if (!hasTrackedCalendarState.current) {
+      hasTrackedCalendarState.current = true;
+      return;
+    }
+    trackAppEvent("appointments.calendar_changed", {
+      calendarView,
+      selectedDate: isoDayKey(selectedDate),
+      anchorDate: isoDayKey(anchorDate)
+    });
+  }, [anchorDate, calendarView, selectedDate]);
 
   const allItems = useMemo(() => {
     const merged = [
@@ -570,17 +612,12 @@ export function AppointmentsPage({ initialOwnerId = null }: { initialOwnerId?: s
     <div className="p-4 md:p-6">
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_22rem]">
         <div className="space-y-6">
-          <section className="app-panel rounded-[2rem] border p-5 md:p-6">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Appointments</div>
-                <h1 className="mt-2 text-3xl font-semibold text-ink">Calendar-first scheduling workspace</h1>
-                <p className="mt-3 max-w-3xl text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
-                  Visualize every appointment on a real calendar first, then drill into the day&apos;s agenda and keep the rep workflow moving. Google Calendar will be optional sync on top, not a requirement to use this workspace.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
+          <ProductHero
+            eyebrow="Appointments"
+            title="Calendar-first scheduling workspace"
+            description="Visualize every appointment on a real calendar first, then drill into the day’s agenda and keep the rep workflow moving. Google Calendar is optional sync on top, not a requirement to use this workspace."
+            actions={
+              <>
                 <button
                   type="button"
                   onClick={() => void loadAppointments()}
@@ -596,44 +633,35 @@ export function AppointmentsPage({ initialOwnerId = null }: { initialOwnerId?: s
                 >
                   Jump to today
                 </button>
-              </div>
-            </div>
-
-            <div className="mt-6 grid gap-3 md:grid-cols-3">
-              {[
+              </>
+            }
+          >
+            <ProductStatGrid
+              items={[
                 {
                   label: "Past Due",
-                  value: appointments?.summary.pastDue ?? 0,
+                  value: loading ? "…" : appointments?.summary.pastDue ?? 0,
                   icon: TriangleAlert,
-                  tone: "text-rose-700"
+                  detail: "Needs follow-through or status cleanup",
+                  accentClassName: "text-rose-700"
                 },
                 {
                   label: "Today",
-                  value: appointments?.summary.today ?? 0,
+                  value: loading ? "…" : appointments?.summary.today ?? 0,
                   icon: CalendarDays,
-                  tone: "text-amber-700"
+                  detail: "Today’s booked stops and consults",
+                  accentClassName: "text-amber-700"
                 },
                 {
                   label: "Upcoming",
-                  value: appointments?.summary.upcoming ?? 0,
+                  value: loading ? "…" : appointments?.summary.upcoming ?? 0,
                   icon: CalendarRange,
-                  tone: "text-sky-700"
+                  detail: "Future appointments on the board",
+                  accentClassName: "text-sky-700"
                 }
-              ].map((item) => (
-                <div key={item.label} className="app-panel-soft rounded-[1.6rem] border p-4 shadow-panel">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">{item.label}</div>
-                      <div className="mt-2 text-3xl font-semibold text-ink">{loading ? "…" : item.value}</div>
-                    </div>
-                    <div className={`app-glass-button rounded-2xl p-3 ${item.tone}`}>
-                      <item.icon className="h-5 w-5" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+              ]}
+            />
+          </ProductHero>
 
           <section className="app-panel rounded-[2rem] border p-5 md:p-6">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -701,13 +729,10 @@ export function AppointmentsPage({ initialOwnerId = null }: { initialOwnerId?: s
                     />
                   ))
                 ) : (
-                  <div className="app-panel-soft rounded-[1.6rem] border p-8 text-center">
-                    <Calendar className="mx-auto h-8 w-8 text-[rgba(var(--app-primary-rgb),0.34)]" />
-                    <div className="mt-4 text-lg font-semibold text-ink">No appointments scheduled yet</div>
-                    <p className="mt-2 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
-                      Once reps start setting appointments, they&apos;ll land here in a clean agenda flow.
-                    </p>
-                  </div>
+                  <ProductEmptyState
+                    title="No appointments scheduled yet"
+                    description="Once reps start setting appointments, they’ll land here in a clean agenda flow."
+                  />
                 )}
               </div>
             ) : (

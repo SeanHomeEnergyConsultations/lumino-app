@@ -6,6 +6,7 @@ import { Menu } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { getAppNavigationContext } from "@/components/app-shell/navigation";
 import { CommandSearch } from "@/components/shared/command-search";
+import { trackAppEvent } from "@/lib/analytics/app-events";
 import type { OrganizationsResponse } from "@/types/api";
 
 export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
@@ -69,6 +70,10 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
 
       await refreshSessionContext();
       router.refresh();
+      trackAppEvent("auth.organization_switched", {
+        fromOrganizationId: appContext.organizationId,
+        toOrganizationId: nextOrganizationId
+      });
       setOrgSwitchFeedback({
         tone: "success",
         message: "Organization switched."

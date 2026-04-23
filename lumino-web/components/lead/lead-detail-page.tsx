@@ -13,6 +13,7 @@ import type {
   LeadPreferredChannel,
   TaskInput
 } from "@/types/entities";
+import { trackAppEvent } from "@/lib/analytics/app-events";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { formatDateTime as formatAppDateTime } from "@/lib/format/date";
 
@@ -142,6 +143,13 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
       });
 
       if (!response.ok) throw new Error("Failed to save lead");
+      trackAppEvent("leads.saved", {
+        leadId,
+        propertyId: lead.propertyId,
+        leadStatus,
+        hasAppointment: Boolean(appointmentAt),
+        hasFollowUp: Boolean(nextFollowUpAt)
+      });
       await loadLead();
       setLeadSaveState("saved");
     } catch {
@@ -166,6 +174,11 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
       });
 
       if (!response.ok) throw new Error("Failed to create task");
+      trackAppEvent("leads.task_created", {
+        leadId,
+        taskType,
+        hasDueAt: Boolean(taskDueAt)
+      });
       setTaskState("saved");
       setTaskNotes("");
       setTaskDueAt("");

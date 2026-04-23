@@ -2,30 +2,41 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LeadListItem, LeadsResponse } from "@/types/api";
+import {
+  ProductEmptyState,
+  ProductFilterBar,
+  ProductHero,
+  ProductSection,
+  productFieldClassName,
+  productFieldLabelClassName
+} from "@/components/shared/product-primitives";
+import { buildLeadsSearchParams } from "@/components/shared/workspace-url-state";
 import { hasManagerAccess } from "@/lib/auth/permissions";
+import { trackAppEvent } from "@/lib/analytics/app-events";
 import { authFetch, useAuth } from "@/lib/auth/client";
-
-function formatDateTime(value: string | null) {
-  if (!value) return "None";
-  return new Date(value).toLocaleString();
-}
+import { formatDateTime } from "@/lib/format/date";
 
 export function LeadsPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { session, appContext } = useAuth();
   const isManager = useMemo(
     () => (appContext ? hasManagerAccess(appContext) : false),
     [appContext]
   );
+  const hasTrackedFilterState = useRef(false);
   const [items, setItems] = useState<LeadListItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [ownerFilter, setOwnerFilter] = useState("all");
-  const [cityFilter, setCityFilter] = useState("all");
-  const [followUpFilter, setFollowUpFilter] = useState("all");
-  const [appointmentFilter, setAppointmentFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get("q") ?? "");
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "all");
+  const [ownerFilter, setOwnerFilter] = useState(() => searchParams.get("ownerId") ?? "all");
+  const [cityFilter, setCityFilter] = useState(() => searchParams.get("city") ?? "all");
+  const [followUpFilter, setFollowUpFilter] = useState(() => searchParams.get("followUp") ?? "all");
+  const [appointmentFilter, setAppointmentFilter] = useState(() => searchParams.get("appointment") ?? "all");
 
   const loadLeads = useCallback(async () => {
     if (!session?.access_token) return null;
@@ -52,6 +63,48 @@ export function LeadsPage() {
     void loadLeads();
   }, [loadLeads]);
 
+  useEffect(() => {
+    const nextSearch = buildLeadsSearchParams({
+      currentSearch: searchParams.toString(),
+      q: searchQuery,
+      status: statusFilter,
+      ownerId: ownerFilter,
+      city: cityFilter,
+      followUp: followUpFilter,
+      appointment: appointmentFilter
+    });
+    const currentSearch = searchParams.toString();
+    if (nextSearch === currentSearch) return;
+    startTransition(() => {
+      router.replace((nextSearch ? `${pathname}?${nextSearch}` : pathname) as Route, { scroll: false });
+    });
+  }, [
+    appointmentFilter,
+    cityFilter,
+    followUpFilter,
+    ownerFilter,
+    pathname,
+    router,
+    searchParams,
+    searchQuery,
+    statusFilter
+  ]);
+
+  useEffect(() => {
+    if (!hasTrackedFilterState.current) {
+      hasTrackedFilterState.current = true;
+      return;
+    }
+    trackAppEvent("leads.filters_changed", {
+      hasQuery: Boolean(searchQuery.trim()),
+      statusFilter,
+      ownerFilter: isManager ? ownerFilter : "self",
+      cityFilter,
+      followUpFilter,
+      appointmentFilter
+    });
+  }, [appointmentFilter, cityFilter, followUpFilter, isManager, ownerFilter, searchQuery, statusFilter]);
+
   const uniqueStatuses = useMemo(
     () => ["all", ...new Set(items.map((item) => item.leadStatus).filter(Boolean))],
     [items]
@@ -73,33 +126,28 @@ export function LeadsPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="app-panel rounded-[2rem] border p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Leads</div>
-            <h1 className="mt-2 text-3xl font-semibold text-ink">Pipeline and homeowner records</h1>
-            <p className="mt-3 max-w-3xl text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
-              See the opportunity layer that sits on top of property memory, follow-up work, and appointments.
-            </p>
-          </div>
-
-          <div className="app-panel-soft w-full rounded-3xl border p-3 xl:max-w-4xl">
+      <ProductHero
+        eyebrow="Leads"
+        title="Pipeline and homeowner records"
+        description="See the opportunity layer that sits on top of property memory, follow-up work, and appointments."
+      >
+        <ProductFilterBar className="w-full xl:max-w-4xl">
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 xl:col-span-2">
+              <label className={`${productFieldLabelClassName} xl:col-span-2`}>
                 Search leads
                 <input
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder="Address, homeowner, phone, email, outcome"
-                  className="app-glass-input mt-2 w-full rounded-2xl px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                  className={`mt-2 ${productFieldClassName}`}
                 />
               </label>
-              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+              <label className={productFieldLabelClassName}>
                 Stage
                 <select
                   value={statusFilter}
                   onChange={(event) => setStatusFilter(event.target.value)}
-                  className="app-glass-input mt-2 w-full rounded-2xl px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                  className={`mt-2 ${productFieldClassName}`}
                 >
                   {uniqueStatuses.map((status) => (
                     <option key={status} value={status}>
@@ -109,12 +157,12 @@ export function LeadsPage() {
                 </select>
               </label>
               {isManager ? (
-                <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                <label className={productFieldLabelClassName}>
                   Owner
                   <select
                     value={ownerFilter}
                     onChange={(event) => setOwnerFilter(event.target.value)}
-                    className="app-glass-input mt-2 w-full rounded-2xl px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                    className={`mt-2 ${productFieldClassName}`}
                   >
                     {uniqueOwners.map((owner) => (
                       <option key={owner.value} value={owner.value}>
@@ -124,12 +172,12 @@ export function LeadsPage() {
                   </select>
                 </label>
               ) : null}
-              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+              <label className={productFieldLabelClassName}>
                 City
                 <select
                   value={cityFilter}
                   onChange={(event) => setCityFilter(event.target.value)}
-                  className="app-glass-input mt-2 w-full rounded-2xl px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                  className={`mt-2 ${productFieldClassName}`}
                 >
                   {uniqueCities.map((city) => (
                     <option key={city} value={city}>
@@ -138,12 +186,12 @@ export function LeadsPage() {
                   ))}
                 </select>
               </label>
-              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+              <label className={productFieldLabelClassName}>
                 Follow-up
                 <select
                   value={followUpFilter}
                   onChange={(event) => setFollowUpFilter(event.target.value)}
-                  className="app-glass-input mt-2 w-full rounded-2xl px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                  className={`mt-2 ${productFieldClassName}`}
                 >
                   <option value="all">All</option>
                   <option value="overdue">Overdue</option>
@@ -151,12 +199,12 @@ export function LeadsPage() {
                   <option value="none">None</option>
                 </select>
               </label>
-              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+              <label className={productFieldLabelClassName}>
                 Appointment
                 <select
                   value={appointmentFilter}
                   onChange={(event) => setAppointmentFilter(event.target.value)}
-                  className="app-glass-input mt-2 w-full rounded-2xl px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none transition focus:border-ink"
+                  className={`mt-2 ${productFieldClassName}`}
                 >
                   <option value="all">All</option>
                   <option value="scheduled">Scheduled</option>
@@ -164,11 +212,15 @@ export function LeadsPage() {
                 </select>
               </label>
             </div>
-          </div>
-        </div>
-      </div>
+        </ProductFilterBar>
+      </ProductHero>
 
-      <div className="app-metal-table mt-6 rounded-[2rem] border border-[rgba(var(--app-primary-rgb),0.08)] p-5 shadow-panel">
+      <ProductSection
+        className="app-metal-table mt-6 border-[rgba(var(--app-primary-rgb),0.08)] shadow-panel"
+        eyebrow="Lead Table"
+        title="Filtered pipeline"
+        description="Every filter here is URL-backed now, so you can refresh or share the exact view you’re working."
+      >
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="text-xs uppercase tracking-[0.14em] text-[rgba(var(--app-primary-rgb),0.56)]">
@@ -204,6 +256,7 @@ export function LeadsPage() {
                     <div className="flex flex-wrap gap-2">
                       <Link
                         href={`/leads/${item.leadId}` as Route}
+                        onClick={() => trackAppEvent("leads.detail_opened", { leadId: item.leadId })}
                         className="app-glass-button rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[rgba(var(--app-primary-rgb),0.72)] transition hover:brightness-105"
                       >
                         Detail
@@ -223,14 +276,18 @@ export function LeadsPage() {
               {!loading && !items.length ? (
                 <tr>
                   <td colSpan={isManager ? 7 : 6} className="py-6 text-center text-[rgba(var(--app-primary-rgb),0.6)]">
-                    No leads match this filter yet.
+                    <ProductEmptyState
+                      title="No leads match this filter"
+                      description="Try widening the stage, city, or follow-up filters to bring more homeowners back into view."
+                      className="border-0 bg-transparent p-0 shadow-none"
+                    />
                   </td>
                 </tr>
               ) : null}
             </tbody>
           </table>
         </div>
-      </div>
+      </ProductSection>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   Trophy,
   Zap
 } from "lucide-react";
+import { ProductEmptyState, ProductHero, ProductStatGrid } from "@/components/shared/product-primitives";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import type {
   PerformanceBadgeItem,
@@ -153,9 +154,11 @@ function CompetitionCard({ item }: { item: PerformanceCompetitionItem }) {
             </div>
           ))
         ) : (
-          <div className="rounded-2xl border border-dashed p-3 text-sm text-[rgba(var(--app-primary-rgb),0.6)]">
-            No activity logged yet.
-          </div>
+          <ProductEmptyState
+            title="No activity logged yet"
+            description="This competition will start filling in as soon as reps or teams post production against the chosen metric."
+            className="rounded-2xl p-3"
+          />
         )}
       </div>
 
@@ -241,54 +244,41 @@ export function PerformanceHubPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="app-panel rounded-[2rem] border p-6">
-        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Performance Hub</div>
-        <h1 className="mt-2 text-3xl font-semibold text-ink">Wins, races, and rep momentum</h1>
-        <p className="mt-3 max-w-3xl text-sm text-[rgba(var(--app-primary-rgb),0.72)]">
-          Keep the floor competitive, visible, and fun. Reps can see where they stand. Managers can spin up contests that actually match the team’s goals.
-        </p>
-
-        <div className="mt-6 grid gap-3 md:grid-cols-4">
-          {[
+      <ProductHero
+        eyebrow="Performance Hub"
+        title="Wins, races, and rep momentum"
+        description="Keep the floor competitive, visible, and fun. Reps can see where they stand. Managers can spin up contests that actually match the team’s goals."
+      >
+        <ProductStatGrid
+          columns="md:grid-cols-4"
+          items={[
             {
               label: "Today’s Rank",
-              value: hub?.mySummary.dailyRank ? `#${hub.mySummary.dailyRank}` : "—",
+              value: loading ? "…" : hub?.mySummary.dailyRank ? `#${hub.mySummary.dailyRank}` : "—",
               detail: `${hub?.mySummary.dailyKnocks ?? 0} doors knocked`,
               icon: Trophy
             },
             {
               label: "Weekly Appts",
-              value: hub?.mySummary.weeklyAppointments ?? 0,
+              value: loading ? "…" : hub?.mySummary.weeklyAppointments ?? 0,
               detail: hub?.mySummary.weeklyRank ? `#${hub.mySummary.weeklyRank} this week` : "No weekly rank yet",
               icon: CalendarRange
             },
             {
               label: "Active Competitions",
-              value: hub?.mySummary.activeCompetitionCount ?? 0,
+              value: loading ? "…" : hub?.mySummary.activeCompetitionCount ?? 0,
               detail: "Live races the team can see right now",
               icon: Swords
             },
             {
               label: "Awards Unlocked",
-              value: hub?.badges.length ?? 0,
+              value: loading ? "…" : hub?.badges.length ?? 0,
               detail: "Momentum badges based on live production",
               icon: Sparkles
             }
-          ].map((item) => {
-            const Icon = item.icon;
-            return (
-              <div key={item.label} className="app-panel-soft rounded-[1.8rem] border p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mist">{item.label}</div>
-                  <Icon className="h-4 w-4 text-[rgba(var(--app-primary-rgb),0.58)]" />
-                </div>
-                <div className="mt-3 text-3xl font-semibold text-ink">{loading ? "…" : item.value}</div>
-                <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.58)]">{item.detail}</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+          ]}
+        />
+      </ProductHero>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.3fr_1fr]">
         <section className="app-panel rounded-[2rem] border p-5">
