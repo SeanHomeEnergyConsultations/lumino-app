@@ -47,8 +47,8 @@ function monthLabel(value: Date) {
 
 function availabilityCue(slotCount: number) {
   if (slotCount <= 2) return "Limited";
-  if (slotCount <= 5) return "Available";
-  return "Book Soon";
+  if (slotCount <= 6) return "Book Soon";
+  return "Available";
 }
 
 function splitFullName(value: string) {
@@ -174,14 +174,6 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
     if (selectedDay.slots.some((slot) => slot.startAt === selectedSlot)) return;
     setSelectedSlot(selectedDay.slots[0]?.startAt ?? "");
   }, [selectedDay, selectedSlot]);
-
-  useEffect(() => {
-    if (!selectedDay) return;
-    const nextMonth = parseDateKey(selectedDay.dateKey);
-    if (!selectedMonth || monthKey(nextMonth) !== monthKey(selectedMonth)) {
-      setSelectedMonth(nextMonth);
-    }
-  }, [selectedDay, selectedMonth]);
 
   const calendarDays = useMemo(() => {
     if (!selectedMonth) return [];
