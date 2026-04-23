@@ -98,6 +98,64 @@ const DEFAULT_CENTER = {
   zoom: 12
 };
 
+type NumericBounds = {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+};
+
+function toNumericBounds(
+  bounds: maplibregl.LngLatBoundsLike | { getSouth: () => number; getNorth: () => number; getWest: () => number; getEast: () => number },
+  fallback: { latitude: number; longitude: number }
+): NumericBounds {
+  if ("getSouth" in bounds) {
+    return {
+      minLat: bounds.getSouth(),
+      maxLat: bounds.getNorth(),
+      minLng: bounds.getWest(),
+      maxLng: bounds.getEast()
+    };
+  }
+
+  return {
+    minLat: fallback.latitude - 0.08,
+    maxLat: fallback.latitude + 0.08,
+    minLng: fallback.longitude - 0.08,
+    maxLng: fallback.longitude + 0.08
+  };
+}
+
+function expandBounds(bounds: NumericBounds, multiplier = 1.35): NumericBounds {
+  const latPadding = ((bounds.maxLat - bounds.minLat) * (multiplier - 1)) / 2 || 0.03;
+  const lngPadding = ((bounds.maxLng - bounds.minLng) * (multiplier - 1)) / 2 || 0.03;
+  return {
+    minLat: bounds.minLat - latPadding,
+    maxLat: bounds.maxLat + latPadding,
+    minLng: bounds.minLng - lngPadding,
+    maxLng: bounds.maxLng + lngPadding
+  };
+}
+
+function boundsContainBounds(outer: NumericBounds | null, inner: NumericBounds) {
+  if (!outer) return false;
+  return (
+    inner.minLat >= outer.minLat &&
+    inner.maxLat <= outer.maxLat &&
+    inner.minLng >= outer.minLng &&
+    inner.maxLng <= outer.maxLng
+  );
+}
+
+function isItemWithinBounds(item: MapProperty, bounds: NumericBounds) {
+  return (
+    item.lat >= bounds.minLat &&
+    item.lat <= bounds.maxLat &&
+    item.lng >= bounds.minLng &&
+    item.lng <= bounds.maxLng
+  );
+}
+
 export function LiveFieldMap({
   initialItems,
   initialSelectedPropertyId = null,
@@ -125,6 +183,10 @@ export function LiveFieldMap({
     [appContext]
   );
   const mapRef = useRef<MapRef | null>(null);
+  const itemCacheRef = useRef(new Map(initialItems.map((item) => [item.propertyId, item])));
+  const loadedBoundsRef = useRef<NumericBounds | null>(null);
+  const loadedQueryKeyRef = useRef<string | null>(null);
+  const loadRequestIdRef = useRef(0);
   const [items, setItems] = useState(initialItems);
   const [activeFilters, setActiveFilters] = useState<MapFilterKey[]>(initialFilters);
   const [viewState, setViewState] = useState(DEFAULT_CENTER);
@@ -160,6 +222,14 @@ export function LiveFieldMap({
     territoryPlanningEnabled: false,
     securityConsoleEnabled: false
   });
+  const viewportQueryKey = `${ownerIdFilter ?? ""}|${cityFilter ?? ""}|${stateFilter ?? ""}|${showTeamKnocks ? "team" : "self"}`;
+
+  useEffect(() => {
+    itemCacheRef.current = new Map(initialItems.map((item) => [item.propertyId, item]));
+    setItems(initialItems);
+    loadedBoundsRef.current = null;
+    loadedQueryKeyRef.current = null;
+  }, [initialItems]);
 
   const filteredItems = useMemo(() => {
     if (activeFilters.includes("all")) return items;
@@ -280,15 +350,29 @@ export function LiveFieldMap({
         getWest: () => viewState.longitude - 0.08,
         getEast: () => viewState.longitude + 0.08
       };
+    const currentBounds = toNumericBounds(concreteBounds, {
+      latitude: viewState.latitude,
+      longitude: viewState.longitude
+    });
+    const requestBounds = expandBounds(currentBounds);
 
-    const minLat = "getSouth" in concreteBounds ? concreteBounds.getSouth() : viewState.latitude - 0.08;
-    const maxLat = "getNorth" in concreteBounds ? concreteBounds.getNorth() : viewState.latitude + 0.08;
-    const minLng = "getWest" in concreteBounds ? concreteBounds.getWest() : viewState.longitude - 0.08;
-    const maxLng = "getEast" in concreteBounds ? concreteBounds.getEast() : viewState.longitude + 0.08;
+    if (loadedQueryKeyRef.current !== viewportQueryKey) {
+      itemCacheRef.current = new Map();
+      loadedBoundsRef.current = null;
+      loadedQueryKeyRef.current = viewportQueryKey;
+    }
+
+    if (boundsContainBounds(loadedBoundsRef.current, currentBounds)) {
+      setItems(Array.from(itemCacheRef.current.values()).filter((item) => isItemWithinBounds(item, loadedBoundsRef.current!)));
+      return;
+    }
+
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
 
     const response = await authFetch(
       session.access_token,
-      `/api/map/properties?minLat=${minLat}&maxLat=${maxLat}&minLng=${minLng}&maxLng=${maxLng}&limit=1000${
+      `/api/map/properties?minLat=${requestBounds.minLat}&maxLat=${requestBounds.maxLat}&minLng=${requestBounds.minLng}&maxLng=${requestBounds.maxLng}&limit=1000${
         ownerIdFilter ? `&ownerId=${encodeURIComponent(ownerIdFilter)}` : ""
       }${cityFilter ? `&city=${encodeURIComponent(cityFilter)}` : ""}${
         stateFilter ? `&state=${encodeURIComponent(stateFilter)}` : ""
@@ -296,7 +380,12 @@ export function LiveFieldMap({
     );
     if (!response.ok) return;
     const json = (await response.json()) as { items: MapProperty[]; features?: OrganizationFeatureAccess };
-    setItems(json.items);
+    if (requestId !== loadRequestIdRef.current) return;
+    for (const item of json.items) {
+      itemCacheRef.current.set(item.propertyId, item);
+    }
+    loadedBoundsRef.current = requestBounds;
+    setItems(Array.from(itemCacheRef.current.values()).filter((item) => isItemWithinBounds(item, requestBounds)));
     if (json.features) {
       setFeatureAccess(json.features);
     }
@@ -306,6 +395,7 @@ export function LiveFieldMap({
     session?.access_token,
     showTeamKnocks,
     stateFilter,
+    viewportQueryKey,
     viewState.latitude,
     viewState.longitude
   ]);
@@ -391,35 +481,37 @@ export function LiveFieldMap({
       if (!response.ok) return;
 
       setItems((current) =>
-        current.map((item) =>
-          item.propertyId === propertyId
-            ? {
-                ...item,
-                visitCount: item.visitCount + 1,
-                lastVisitOutcome: outcome,
-                mapState:
-                  outcome === "opportunity"
-                    ? "opportunity"
-                    : outcome === "not_home"
-                      ? "not_home"
-                      : outcome === "left_doorhanger"
-                        ? "left_doorhanger"
-                        : outcome === "callback_requested"
-                          ? "callback_requested"
-                          : outcome === "do_not_knock"
-                            ? "do_not_knock"
-                        : outcome === "interested"
-                          ? "interested"
-                          : outcome === "disqualified"
-                            ? "disqualified"
-                            : outcome === "not_interested"
-                              ? "not_interested"
-                              : outcome === "appointment_set"
-                                ? "appointment_set"
-                                : "canvassed_with_lead"
-              }
-            : item
-        )
+        current.map((item) => {
+          if (item.propertyId !== propertyId) return item;
+          const nextMapState: MapProperty["mapState"] =
+            outcome === "opportunity"
+              ? "opportunity"
+              : outcome === "not_home"
+                ? "not_home"
+                : outcome === "left_doorhanger"
+                  ? "left_doorhanger"
+                  : outcome === "callback_requested"
+                    ? "callback_requested"
+                    : outcome === "do_not_knock"
+                      ? "do_not_knock"
+                      : outcome === "interested"
+                        ? "interested"
+                        : outcome === "disqualified"
+                          ? "disqualified"
+                          : outcome === "not_interested"
+                            ? "not_interested"
+                            : outcome === "appointment_set"
+                              ? "appointment_set"
+                              : "canvassed_with_lead";
+          const nextItem = {
+            ...item,
+            visitCount: item.visitCount + 1,
+            lastVisitOutcome: outcome,
+            mapState: nextMapState
+          };
+          itemCacheRef.current.set(propertyId, nextItem);
+          return nextItem;
+        })
       );
       await refreshSelectedProperty(propertyId);
       const refreshedRoute = await loadActiveRoute();
