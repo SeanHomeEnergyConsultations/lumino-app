@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type LiveLocation = {
   latitude: number;
@@ -14,9 +14,11 @@ export function useLiveLocation({
 }) {
   const [userLocation, setUserLocation] = useState<LiveLocation | null>(null);
   const hasHandledFirstFixRef = useRef(false);
-  const handleFirstFix = useEffectEvent((location: LiveLocation) => {
-    onFirstFix?.(location);
-  });
+  const onFirstFixRef = useRef(onFirstFix);
+
+  useEffect(() => {
+    onFirstFixRef.current = onFirstFix;
+  }, [onFirstFix]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -30,7 +32,7 @@ export function useLiveLocation({
       setUserLocation(nextLocation);
       if (!hasHandledFirstFixRef.current) {
         hasHandledFirstFixRef.current = true;
-        handleFirstFix(nextLocation);
+        onFirstFixRef.current?.(nextLocation);
       }
     };
 
@@ -47,7 +49,7 @@ export function useLiveLocation({
     });
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [handleFirstFix]);
+  }, []);
 
   return userLocation;
 }
