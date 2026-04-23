@@ -2,6 +2,9 @@
 
 import { useTeamWorkspace } from "@/components/team/team-workspace-context";
 
+const teamFieldClassName = "app-focus-ring rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink";
+const teamFieldWideClassName = `w-full ${teamFieldClassName}`;
+
 export function TeamOperationsSurface() {
   const {
     canEditBranding,
@@ -143,12 +146,12 @@ export function TeamOperationsSurface() {
                 value={createTeamName}
                 onChange={(event) => setCreateTeamName(event.target.value)}
                 placeholder="North Team"
-                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                className={teamFieldClassName}
               />
               <select
                 value={createTeamManagerId}
                 onChange={(event) => setCreateTeamManagerId(event.target.value)}
-                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                className={teamFieldClassName}
               >
                 <option value="">No manager yet</option>
                 {teamManagerOptions.map((member) => (
@@ -192,7 +195,7 @@ export function TeamOperationsSurface() {
                           }
                         }))
                       }
-                      className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                      className={teamFieldClassName}
                     />
                     <select
                       value={teamDrafts[team.teamId]?.managerUserId ?? team.managerUserId ?? ""}
@@ -205,7 +208,7 @@ export function TeamOperationsSurface() {
                           }
                         }))
                       }
-                      className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                      className={teamFieldClassName}
                     >
                       <option value="">No manager yet</option>
                       {teamManagerOptions.map((member) => (
@@ -249,21 +252,21 @@ export function TeamOperationsSurface() {
               value={inviteName}
               onChange={(event) => setInviteName(event.target.value)}
               placeholder="Full name"
-              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              className={teamFieldWideClassName}
             />
             <input
               type="email"
               value={inviteEmail}
               onChange={(event) => setInviteEmail(event.target.value)}
               placeholder="Email"
-              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              className={teamFieldWideClassName}
             />
             <select
               value={inviteRole}
               onChange={(event) =>
                 setInviteRole(event.target.value as "owner" | "admin" | "manager" | "rep" | "setter")
               }
-              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              className={teamFieldWideClassName}
             >
               {["owner", "admin", "manager", "rep", "setter"].map((role) => (
                 <option key={role} value={role}>
@@ -358,7 +361,7 @@ export function TeamOperationsSurface() {
                                   teamId: event.target.value || null
                                 })
                               }
-                              className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                              className={`mt-2 ${teamFieldWideClassName}`}
                             >
                               <option value="">No team yet</option>
                               {teams.map((team) => (
@@ -388,7 +391,7 @@ export function TeamOperationsSurface() {
                               role: event.target.value as "owner" | "admin" | "manager" | "rep" | "setter"
                             })
                           }
-                          className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                          className={`${teamFieldClassName} disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400`}
                         >
                           {["owner", "admin", "manager", "rep", "setter"].map((role) => (
                             <option key={role} value={role}>

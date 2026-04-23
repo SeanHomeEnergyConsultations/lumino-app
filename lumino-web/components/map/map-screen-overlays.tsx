@@ -29,6 +29,8 @@ export function MapPanelToggles({
         type="button"
         onClick={onToggleResultsPanel}
         className="app-glass-button flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel transition hover:bg-white/90"
+        aria-pressed={isResultsPanelVisible}
+        aria-label={isResultsPanelVisible ? "Hide property list" : "Show property list"}
       >
         {isResultsPanelVisible ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
         {isResultsPanelVisible ? "Hide List" : "Show List"}
@@ -37,6 +39,8 @@ export function MapPanelToggles({
         type="button"
         onClick={onToggleDrawer}
         className="app-glass-button flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel transition hover:bg-white/90"
+        aria-pressed={isDrawerVisible}
+        aria-label={isDrawerVisible ? "Hide property details" : "Show property details"}
       >
         {isDrawerVisible ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
         {isDrawerVisible ? "Hide Details" : "Show Details"}
@@ -134,6 +138,8 @@ export function MapResultsSidebars({
         type="button"
         onClick={onOpenResults}
         className="app-glass-button absolute left-4 top-4 flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel xl:hidden"
+        aria-expanded={isResultsOpen}
+        aria-controls="mobile-property-results-sheet"
       >
         <MapIcon className="h-4 w-4" />
         List
@@ -142,6 +148,7 @@ export function MapResultsSidebars({
       {isResultsOpen ? (
         <div className="fixed inset-0 z-30 bg-slate-950/20 xl:hidden" onClick={onCloseResults}>
           <div
+            id="mobile-property-results-sheet"
             className="app-panel absolute inset-x-0 bottom-0 max-h-[70vh] rounded-t-[2rem] border shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >

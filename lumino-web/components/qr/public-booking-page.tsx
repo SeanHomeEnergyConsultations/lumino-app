@@ -75,6 +75,8 @@ async function trackEvent(slug: string, eventType: string) {
   }).catch(() => null);
 }
 
+const bookingFieldClassName = "app-focus-ring w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm";
+
 export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResponse["item"]> }) {
   const enabledTypes = item.payload.bookingEnabled ? item.payload.bookingTypes.filter((type) => type.enabled) : [];
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(enabledTypes[0]?.id ?? null);
@@ -376,6 +378,7 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
                           <button
                             key={day.dateKey}
                             type="button"
+                            aria-pressed={day.isSelected}
                             disabled={!isAvailable}
                             onClick={() => {
                               if (!day.availableDay) return;
@@ -423,8 +426,9 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
                       <input
                         value={fullName}
                         onChange={(event) => setFullName(event.target.value)}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
+                        className={bookingFieldClassName}
                         placeholder="Jane Smith"
+                        autoComplete="name"
                       />
                     </label>
 
@@ -434,8 +438,9 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
                         <input
                           value={phone}
                           onChange={(event) => setPhone(event.target.value)}
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
+                          className={bookingFieldClassName}
                           placeholder="(555) 555-5555"
+                          autoComplete="tel"
                         />
                       </label>
                       <label className="space-y-2">
@@ -443,8 +448,9 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
                         <input
                           value={email}
                           onChange={(event) => setEmail(event.target.value)}
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
+                          className={bookingFieldClassName}
                           placeholder="jane@example.com"
+                          autoComplete="email"
                         />
                       </label>
                     </div>
@@ -458,8 +464,9 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
                         <input
                           value={address}
                           onChange={(event) => setAddress(event.target.value)}
-                          className="w-full rounded-2xl border border-slate-200 px-11 py-3 text-sm outline-none transition focus:border-slate-400"
+                          className={`${bookingFieldClassName} px-11`}
                           placeholder={isInPerson ? "123 Main St, Worcester, MA" : "Helpful for home visits, optional for calls"}
+                          autoComplete="street-address"
                         />
                       </div>
                     </label>
@@ -474,6 +481,7 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
                               <button
                                 key={slot.startAt}
                                 type="button"
+                                aria-pressed={selectedSlot === slot.startAt}
                                 onClick={() => setSelectedSlot(slot.startAt)}
                                 className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                                   selectedSlot === slot.startAt
@@ -496,7 +504,7 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
                       <textarea
                         value={notes}
                         onChange={(event) => setNotes(event.target.value)}
-                        className="min-h-24 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
+                        className={`${bookingFieldClassName} min-h-24`}
                         placeholder="Anything helpful for the rep to know before they arrive."
                       />
                     </label>

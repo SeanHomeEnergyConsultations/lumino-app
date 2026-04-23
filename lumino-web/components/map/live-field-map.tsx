@@ -1,5 +1,7 @@
 "use client";
 
+import type { Route } from "next";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgeHelp,
@@ -43,6 +45,8 @@ import {
 import { useLiveLocation } from "@/components/map/use-live-location";
 import { useMapPropertySelection } from "@/components/map/use-map-property-selection";
 import { useRouteSelection } from "@/components/map/use-route-selection";
+import { buildMapSearchParams } from "@/components/map/map-url-state";
+import { trackAppEvent } from "@/lib/analytics/app-events";
 import { hasManagerAccess } from "@/lib/auth/permissions";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
@@ -111,7 +115,11 @@ export function LiveFieldMap({
   stateFilter?: string | null;
   initialAddressSearch?: string | null;
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { session, appContext } = useAuth();
+  const hasExplicitTeamParam = searchParams.get("team") !== null;
   const isManager = useMemo(
     () => (appContext ? hasManagerAccess(appContext) : false),
     [appContext]
@@ -121,10 +129,10 @@ export function LiveFieldMap({
   const [activeFilters, setActiveFilters] = useState<MapFilterKey[]>(initialFilters);
   const [viewState, setViewState] = useState(DEFAULT_CENTER);
   const [isSavingVisit, setIsSavingVisit] = useState(false);
-  const [isResultsOpen, setIsResultsOpen] = useState(false);
-  const [isResultsPanelVisible, setIsResultsPanelVisible] = useState(false);
-  const [isDrawerVisible, setIsDrawerVisible] = useState(false);
-  const [showTeamKnocks, setShowTeamKnocks] = useState(isManager);
+  const [isResultsOpen, setIsResultsOpen] = useState(searchParams.get("list") === "1");
+  const [isResultsPanelVisible, setIsResultsPanelVisible] = useState(searchParams.get("list") === "1");
+  const [isDrawerVisible, setIsDrawerVisible] = useState(searchParams.get("drawer") !== "0");
+  const [showTeamKnocks, setShowTeamKnocks] = useState(searchParams.get("team") === "1");
   const [activeRoute, setActiveRoute] = useState<ActiveRouteRunResponse | null>(null);
   const [routeActionState, setRouteActionState] = useState<
     "idle" | "skipping" | "optimizing" | "building" | "error"
@@ -208,8 +216,10 @@ export function LiveFieldMap({
   }, [initialFilters]);
 
   useEffect(() => {
-    setShowTeamKnocks(isManager);
-  }, [isManager]);
+    if (!hasExplicitTeamParam) {
+      setShowTeamKnocks(isManager);
+    }
+  }, [hasExplicitTeamParam, isManager]);
 
   useEffect(() => {
     if (featureAccess.priorityScoringEnabled) return;
@@ -413,6 +423,11 @@ export function LiveFieldMap({
       );
       await refreshSelectedProperty(propertyId);
       const refreshedRoute = await loadActiveRoute();
+      trackAppEvent("map.visit_logged", {
+        outcome,
+        propertyId,
+        viaRoute: Boolean(matchingRouteStop)
+      });
       if (refreshedRoute?.nextStop?.propertyId && refreshedRoute.nextStop.propertyId !== propertyId) {
         openSelectedProperty(refreshedRoute.nextStop.propertyId);
         await refreshSelectedProperty(refreshedRoute.nextStop.propertyId);
@@ -508,6 +523,10 @@ export function LiveFieldMap({
           : null
       );
       await loadActiveRoute();
+      trackAppEvent("map.route_built", {
+        selectedLeads: selectedRouteLeadIds.length,
+        origin: origin.label
+      });
 
       if (json.firstPropertyId) {
         openSelectedProperty(json.firstPropertyId);
@@ -572,6 +591,9 @@ export function LiveFieldMap({
       }
 
       const refreshedRoute = await loadActiveRoute();
+      trackAppEvent("map.route_optimized", {
+        pendingStops: activeRoute.pendingStops
+      });
       if (refreshedRoute?.nextStop?.propertyId) {
         openSelectedProperty(refreshedRoute.nextStop.propertyId);
         await refreshSelectedProperty(refreshedRoute.nextStop.propertyId);
@@ -608,6 +630,10 @@ export function LiveFieldMap({
       }
 
       const refreshedRoute = await loadActiveRoute();
+      trackAppEvent("map.route_stop_skipped", {
+        routeRunId: activeRoute.routeRunId,
+        routeRunStopId: activeRoute.nextStop.routeRunStopId
+      });
       if (refreshedRoute?.nextStop?.propertyId) {
         openSelectedProperty(refreshedRoute.nextStop.propertyId);
         await refreshSelectedProperty(refreshedRoute.nextStop.propertyId);
@@ -662,6 +688,7 @@ export function LiveFieldMap({
 
   const selectedVisual = selectedMapItem ? mapStateVisual(selectedMapItem.mapState) : null;
   const pendingRouteStops = activeRoute?.stops.filter((stop) => stop.stopStatus === "pending") ?? [];
+  const isListVisible = isResultsPanelVisible || isResultsOpen;
   const nextStopDirectionsUrl = activeRoute?.nextStop
     ? (() => {
         const params = new URLSearchParams({
@@ -679,6 +706,29 @@ export function LiveFieldMap({
         return `https://www.google.com/maps/dir/?${params.toString()}`;
       })()
     : null;
+
+  useEffect(() => {
+    const nextSearch = buildMapSearchParams({
+      currentSearch: searchParams.toString(),
+      selectedPropertyId,
+      activeFilters,
+      isResultsPanelVisible: isListVisible,
+      isDrawerVisible,
+      showTeamKnocks
+    });
+    const currentSearch = searchParams.toString();
+    if (nextSearch === currentSearch) return;
+    router.replace((nextSearch ? `${pathname}?${nextSearch}` : pathname) as Route, { scroll: false });
+  }, [
+    activeFilters,
+    isDrawerVisible,
+    isListVisible,
+    pathname,
+    router,
+    searchParams,
+    selectedPropertyId,
+    showTeamKnocks
+  ]);
 
   return (
     <div className="flex min-h-[calc(100vh-7.5rem)] flex-col">

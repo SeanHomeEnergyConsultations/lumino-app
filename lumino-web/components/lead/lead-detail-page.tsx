@@ -14,11 +14,9 @@ import type {
   TaskInput
 } from "@/types/entities";
 import { authFetch, useAuth } from "@/lib/auth/client";
+import { formatDateTime as formatAppDateTime } from "@/lib/format/date";
 
-function formatDateTime(value: string | null) {
-  if (!value) return "None";
-  return new Date(value).toLocaleString();
-}
+const leadFieldClassName = "app-focus-ring mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink";
 
 function formatLabel(value: string | null) {
   if (!value) return "None";
@@ -217,10 +215,10 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
             { label: "Interest", value: lead?.interestLevel ?? "None" },
             { label: "Cadence", value: formatLabel(lead?.cadenceTrack ?? null) },
             { label: "Channel", value: formatLabel(lead?.preferredChannel ?? null) },
-            { label: "Next Follow-Up", value: formatDateTime(lead?.nextFollowUpAt ?? null) },
-            { label: "Appointment", value: formatDateTime(lead?.appointmentAt ?? null) },
+            { label: "Next Follow-Up", value: formatAppDateTime(lead?.nextFollowUpAt ?? null, "None") },
+            { label: "Appointment", value: formatAppDateTime(lead?.appointmentAt ?? null, "None") },
             { label: "Owner", value: lead?.ownerName ?? "Unassigned" },
-            { label: "Last Activity", value: formatDateTime(lead?.lastActivityAt ?? null) }
+            { label: "Last Activity", value: formatAppDateTime(lead?.lastActivityAt ?? null, "None") }
           ].map((item) => (
             <div key={item.label} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <div className="text-xs font-semibold uppercase tracking-[0.14em] text-mist">{item.label}</div>
@@ -242,7 +240,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <input
                     value={firstName}
                     onChange={(event) => setFirstName(event.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   />
                 </label>
                 <label className="text-xs text-slate-500">
@@ -250,7 +248,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <input
                     value={lastName}
                     onChange={(event) => setLastName(event.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   />
                 </label>
                 <label className="text-xs text-slate-500">
@@ -258,7 +256,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <input
                     value={phone}
                     onChange={(event) => setPhone(event.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   />
                 </label>
                 <label className="text-xs text-slate-500">
@@ -266,7 +264,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <input
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   />
                 </label>
                 <label className="text-xs text-slate-500">
@@ -274,7 +272,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <select
                     value={leadStatus}
                     onChange={(event) => setLeadStatus(event.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   >
                     {["New", "Attempting Contact", "Connected", "Nurture", "Appointment Set", "Qualified", "Closed Lost"].map((option) => (
                       <option key={option} value={option}>
@@ -288,7 +286,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <select
                     value={interestLevel}
                     onChange={(event) => setInterestLevel(event.target.value as "low" | "medium" | "high")}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   >
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
@@ -300,7 +298,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <select
                     value={preferredChannel}
                     onChange={(event) => setPreferredChannel(event.target.value as LeadPreferredChannel)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   >
                     <option value="text">Text</option>
                     <option value="call">Call</option>
@@ -312,7 +310,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <select
                     value={decisionMakerStatus}
                     onChange={(event) => setDecisionMakerStatus(event.target.value as LeadDecisionMakerStatus | "")}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   >
                     <option value="">Unknown</option>
                     <option value="all_present">All present</option>
@@ -326,7 +324,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     value={bestContactTime}
                     onChange={(event) => setBestContactTime(event.target.value)}
                     placeholder="Evenings, weekends, after Tuesday…"
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   />
                 </label>
                 <label className="text-xs text-slate-500">
@@ -334,7 +332,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <select
                     value={engagementScore}
                     onChange={(event) => setEngagementScore(event.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   >
                     {["1", "2", "3", "4", "5"].map((option) => (
                       <option key={option} value={option}>
@@ -349,7 +347,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     type="datetime-local"
                     value={nextFollowUpAt}
                     onChange={(event) => setNextFollowUpAt(event.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   />
                 </label>
                 <label className="text-xs text-slate-500">
@@ -358,7 +356,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     type="datetime-local"
                     value={appointmentAt}
                     onChange={(event) => setAppointmentAt(event.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   />
                 </label>
                 <label className="text-xs text-slate-500">
@@ -366,7 +364,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <select
                     value={appointmentOutcome}
                     onChange={(event) => setAppointmentOutcome(event.target.value as LeadAppointmentOutcome | "")}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   >
                     <option value="">Active / none</option>
                     <option value="sat_not_closed">Sat, not closed</option>
@@ -381,7 +379,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <select
                     value={objectionType}
                     onChange={(event) => setObjectionType(event.target.value as LeadObjectionType | "")}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   >
                     <option value="">None / unknown</option>
                     <option value="price">Price</option>
@@ -398,7 +396,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <input
                     value={rescheduleReason}
                     onChange={(event) => setRescheduleReason(event.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   />
                 </label>
                 <label className="text-xs text-slate-500">
@@ -406,7 +404,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <input
                     value={cancellationReason}
                     onChange={(event) => setCancellationReason(event.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   />
                 </label>
                 <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-ink">
@@ -449,7 +447,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     value={notes}
                     onChange={(event) => setNotes(event.target.value)}
                     rows={4}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   />
                 </label>
               </div>
@@ -476,7 +474,8 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
               <div className="mt-2">{lead?.address ?? "Unknown address"}</div>
               <div className="mt-1">{[lead?.city, lead?.state, lead?.postalCode].filter(Boolean).join(", ") || "No location detail yet"}</div>
               <div className="mt-3 text-xs text-slate-500">
-                Last visit: {formatLabel(lead?.propertySummary?.lastVisitOutcome ?? null)} · {formatDateTime(lead?.propertySummary?.lastVisitedAt ?? null)}
+                Last visit: {formatLabel(lead?.propertySummary?.lastVisitOutcome ?? null)} ·{" "}
+                {formatAppDateTime(lead?.propertySummary?.lastVisitedAt ?? null, "None")}
               </div>
               <div className="mt-1 text-xs text-slate-500">
                 Visit count: {lead?.propertySummary?.visitCount ?? 0}
@@ -497,7 +496,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                   <select
                     value={taskType}
                     onChange={(event) => setTaskType(event.target.value as TaskInput["type"])}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   >
                     <option value="call">Call</option>
                     <option value="text">Text</option>
@@ -517,7 +516,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     type="datetime-local"
                     value={taskDueAt}
                     onChange={(event) => setTaskDueAt(event.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   />
                 </label>
                 <label className="text-xs text-slate-500 md:col-span-2">
@@ -526,7 +525,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
                     value={taskNotes}
                     onChange={(event) => setTaskNotes(event.target.value)}
                     rows={3}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                    className={leadFieldClassName}
                   />
                 </label>
               </div>
@@ -561,7 +560,7 @@ export function LeadDetailPage({ leadId }: { leadId: string }) {
               lead.activities.map((activity) => (
                 <div key={activity.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                   <div className="text-sm font-semibold text-ink">{formatLabel(activity.type)}</div>
-                  <div className="mt-1 text-xs text-slate-500">{formatDateTime(activity.createdAt)}</div>
+                  <div className="mt-1 text-xs text-slate-500">{formatAppDateTime(activity.createdAt, "Unknown")}</div>
                 </div>
               ))
             ) : (

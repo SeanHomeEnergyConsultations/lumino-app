@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { useAppFeedback } from "@/components/shared/app-feedback";
 import { createQrBookingType, DEFAULT_QR_AVAILABILITY_SETTINGS } from "@/lib/qr/availability";
+import { trackAppEvent } from "@/lib/analytics/app-events";
 import type {
   QRBookingTypeConfig,
   QRCodeHubResponse,
@@ -423,6 +424,11 @@ function useQrWorkspaceController(): QrWorkspaceContextValue {
       setDestinationUrl("");
       setDescription("");
       await loadHub();
+      trackAppEvent("qr.code_created", {
+        codeType,
+        selectedBookingTypes: selectedBookingTypes.length,
+        territoryTagged: Boolean(territoryId)
+      });
     } catch (saveError) {
       setSaveState("error");
       setError(saveError instanceof Error ? saveError.message : "Could not create QR code.");
@@ -486,6 +492,11 @@ function useQrWorkspaceController(): QrWorkspaceContextValue {
       setSelectedBookingTypes((current) =>
         current.filter((bookingTypeId) => bookingTypes.some((type) => type.id === bookingTypeId && type.enabled))
       );
+      trackAppEvent("qr.booking_profile_saved", {
+        bookingTypes: bookingTypes.length,
+        enabledBookingTypes: bookingTypes.filter((type) => type.enabled).length,
+        workingDays: availabilityWorkingDays.length
+      });
     } catch (saveError) {
       setBookingProfileState("error");
       setBookingProfileMessage(saveError instanceof Error ? saveError.message : "Could not save booking setup.");
@@ -529,6 +540,7 @@ function useQrWorkspaceController(): QrWorkspaceContextValue {
           title: "QR code archived",
           message: "The code has been removed from your active list."
         });
+        trackAppEvent("qr.code_archived", { qrCodeId });
       } catch (archiveError) {
         setError(archiveError instanceof Error ? archiveError.message : "Could not archive QR code.");
         notify({

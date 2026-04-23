@@ -185,6 +185,30 @@ export function getGroupedVisibleAppNav(input: { appContext: AuthSessionContext 
     .filter((section) => section.items.length > 0);
 }
 
+export function getSidebarNavigation(input: {
+  pathname: string | null;
+  appContext: AuthSessionContext | null;
+}) {
+  const visibleItems = getVisibleAppNav({ appContext: input.appContext });
+  const activeItem = getActiveAppNavItem(input.pathname, visibleItems);
+  const primaryItems = visibleItems.filter((item) => item.section === "workspace");
+  const secondarySections = appNavSections
+    .filter((section) => section.id !== "workspace")
+    .map((section) => ({
+      ...section,
+      items: visibleItems.filter((item) => item.section === section.id)
+    }))
+    .filter((section) => section.items.length > 0);
+
+  return {
+    activeItem,
+    primaryItems,
+    secondarySections,
+    secondaryCount: secondarySections.reduce((count, section) => count + section.items.length, 0),
+    activeInSecondary: Boolean(activeItem && activeItem.section !== "workspace")
+  };
+}
+
 export function getPrimaryMobileNav(input: { appContext: AuthSessionContext | null }) {
   const visibleItems = getVisibleAppNav(input);
   const primaryItems = visibleItems.filter((item) => item.mobilePrimary);

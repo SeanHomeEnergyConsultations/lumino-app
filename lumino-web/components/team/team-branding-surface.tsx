@@ -5,6 +5,8 @@ import { SquareImageCropDialog } from "@/components/shared/square-image-crop-dia
 import { useTeamWorkspace } from "@/components/team/team-workspace-context";
 import { ORGANIZATION_THEME_PRESETS } from "@/lib/branding/theme";
 
+const brandingFieldClassName = "app-focus-ring w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink";
+
 export function TeamBrandingSurface() {
   const {
     brandName,
@@ -76,7 +78,7 @@ export function TeamBrandingSurface() {
                       applyThemePreset(nextPresetId);
                     }
                   }}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+                  className={brandingFieldClassName}
                 >
                   <option value="">Choose a preset theme</option>
                   {ORGANIZATION_THEME_PRESETS.map((preset) => (
@@ -98,7 +100,7 @@ export function TeamBrandingSurface() {
               value={brandName}
               onChange={(event) => setBrandName(event.target.value)}
               placeholder="Organization name"
-              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-ink"
+              className={brandingFieldClassName}
             />
 
             <div className="rounded-2xl border border-slate-200 bg-white p-4">

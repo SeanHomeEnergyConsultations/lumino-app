@@ -139,6 +139,7 @@ export function QrBookingProfileSurface() {
                     <button
                       key={day.value}
                       type="button"
+                      aria-pressed={active}
                       onClick={() =>
                         setAvailabilityWorkingDays((current) => {
                           if (active) {
@@ -201,6 +202,7 @@ export function QrBookingProfileSurface() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <button
                       type="button"
+                      aria-expanded={expanded}
                       onClick={() => toggleBookingTypeExpanded(bookingType.id)}
                       className="flex min-w-0 flex-1 items-center gap-3 text-left"
                     >
