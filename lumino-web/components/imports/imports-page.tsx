@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Upload, FileUp, Database, RefreshCw } from "lucide-react";
+import { useAppFeedback } from "@/components/shared/app-feedback";
 import { authFetch, useAuth } from "@/lib/auth/client";
 import { formatDateTime } from "@/lib/format/date";
 import { parseCsvText } from "@/lib/imports/csv";
@@ -64,6 +65,7 @@ function formatBillingPlan(plan: OrganizationBillingPlan) {
 
 export function ImportsPage() {
   const { session, appContext } = useAuth();
+  const { notify } = useAppFeedback();
   const accessToken = session?.access_token ?? null;
   const canRunPremiumEnrichment = Boolean(appContext?.featureAccess?.importEnrichmentEnabled);
 
@@ -319,7 +321,11 @@ export function ImportsPage() {
       }
       await loadBatches({ silent: true });
     } catch {
-      window.alert("Premium enrichment failed. Open the batch detail page to inspect the error and retry.");
+      notify({
+        tone: "error",
+        title: "Premium enrichment failed",
+        message: "Open the batch detail page to inspect the error and retry."
+      });
       await loadBatches({ silent: true });
     } finally {
       setProcessingBatchId(null);

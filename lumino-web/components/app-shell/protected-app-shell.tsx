@@ -11,11 +11,13 @@ export function ProtectedAppShell({
   children,
   allowedRoles,
   platformOnly = false,
+  platformOwnerOnly = false,
   requiredFeature
 }: {
   children: React.ReactNode;
   allowedRoles?: string[];
   platformOnly?: boolean;
+  platformOwnerOnly?: boolean;
   requiredFeature?: keyof OrganizationFeatureAccess;
 }) {
   const router = useRouter();
@@ -46,6 +48,15 @@ export function ProtectedAppShell({
       }
     }
   }, [appContext, loading, platformOnly, router, session]);
+
+  useEffect(() => {
+    if (!loading && session && platformOwnerOnly) {
+      const allowed = Boolean(appContext?.isPlatformOwner);
+      if (!allowed) {
+        router.replace("/map");
+      }
+    }
+  }, [appContext?.isPlatformOwner, loading, platformOwnerOnly, router, session]);
 
   useEffect(() => {
     if (!loading && session && allowedRoles?.length) {
@@ -115,6 +126,9 @@ export function ProtectedAppShell({
   if (platformOnly) {
     const allowed = appContext ? hasPlatformAccess(appContext) : false;
     if (!allowed) return null;
+  }
+  if (platformOwnerOnly && !appContext.isPlatformOwner) {
+    return null;
   }
   if (allowedRoles?.length) {
     const allowed = appContext ? hasAnyRole(appContext, allowedRoles) : false;

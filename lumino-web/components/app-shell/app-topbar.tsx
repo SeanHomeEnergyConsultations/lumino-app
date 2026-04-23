@@ -1,19 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Menu } from "lucide-react";
 import { authFetch, useAuth } from "@/lib/auth/client";
+import { getAppNavigationContext } from "@/components/app-shell/navigation";
 import { CommandSearch } from "@/components/shared/command-search";
 import type { OrganizationsResponse } from "@/types/api";
 
 export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { supabase, session, appContext, appBranding, organizationBranding, refreshSessionContext } = useAuth();
   const effectiveBranding = organizationBranding ?? appBranding;
   const appName = effectiveBranding?.appName ?? "Lumino";
   const primaryColor = effectiveBranding?.primaryColor ?? "#0b1220";
   const accentColor = effectiveBranding?.accentColor ?? "#94a3b8";
+  const navigationContext = getAppNavigationContext({ pathname, appContext });
   const [organizations, setOrganizations] = useState<OrganizationsResponse["items"]>([]);
   const [switchingOrg, setSwitchingOrg] = useState(false);
   const [orgSwitchFeedback, setOrgSwitchFeedback] = useState<{
@@ -94,9 +97,14 @@ export function AppTopbar({ onOpenNav }: { onOpenNav?: () => void }) {
         </button>
         <div className="min-w-0">
           <div className="text-xs font-semibold uppercase tracking-[0.22em]" style={{ color: accentColor }}>
-            {appName}
+            {navigationContext.activeSection ? `${appName} · ${navigationContext.activeSection.label}` : appName}
           </div>
-          <h1 className="text-lg font-semibold text-ink md:text-xl">Work the neighborhood, not the menu</h1>
+          <h1 className="text-lg font-semibold text-ink md:text-xl">
+            {navigationContext.activeItem?.label ?? "Work the neighborhood"}
+          </h1>
+          <p className="mt-1 text-sm text-[rgba(var(--app-primary-rgb),0.62)]">
+            {navigationContext.activeItem?.description ?? "Keep the team moving without getting lost in the product."}
+          </p>
         </div>
       </div>
       <div className="flex flex-1 items-center justify-center xl:px-6">

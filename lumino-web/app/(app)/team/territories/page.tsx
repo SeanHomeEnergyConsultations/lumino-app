@@ -1,10 +1,10 @@
 import { ProtectedAppShell } from "@/components/app-shell/protected-app-shell";
 import { TerritoryAdminPage } from "@/components/team/territory-admin-page";
 
-export default function TeamPage() {
+export default function TeamTerritoriesPage() {
   return (
     <ProtectedAppShell allowedRoles={["owner", "admin", "manager"]} requiredFeature="teamManagementEnabled">
-      <TerritoryAdminPage surface="operations" />
+      <TerritoryAdminPage surface="territories" />
     </ProtectedAppShell>
   );
 }

@@ -6,12 +6,13 @@ import type { Route } from "next";
 import { Search, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { getGroupedVisibleAppNav } from "@/components/app-shell/navigation";
 import type { SearchResponse } from "@/types/api";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
 export function CommandSearch() {
   const router = useRouter();
-  const { session } = useAuth();
+  const { session, appContext } = useAuth();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const dialogTitleId = useId();
@@ -21,6 +22,7 @@ export function CommandSearch() {
   const [open, setOpen] = useState(false);
   const [portalReady, setPortalReady] = useState(false);
   const trimmedQuery = query.trim();
+  const groupedNav = getGroupedVisibleAppNav({ appContext });
 
   useEffect(() => {
     setPortalReady(true);
@@ -155,8 +157,46 @@ export function CommandSearch() {
 
                 <div className="max-h-[70vh] overflow-y-auto p-3">
                   {trimmedQuery.length < 2 ? (
-                    <div className="px-3 py-8 text-center text-sm text-[rgba(var(--app-primary-rgb),0.56)]">
-                      Start typing to find a saved lead or open a new address on the map.
+                    <div className="space-y-6 px-3 py-5">
+                      <div className="text-center text-sm text-[rgba(var(--app-primary-rgb),0.56)]">
+                        Start typing to find a saved lead, or jump straight into one of the core workspaces below.
+                      </div>
+                      <div className="space-y-5">
+                        {groupedNav.map((section) => (
+                          <section key={section.id}>
+                            <div className="px-1">
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[rgba(var(--app-primary-rgb),0.42)]">
+                                {section.label}
+                              </div>
+                              <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.56)]">
+                                {section.description}
+                              </div>
+                            </div>
+                            <div className="mt-2 space-y-2">
+                              {section.items.map((item) => (
+                                <Link
+                                  key={item.href}
+                                  href={item.href}
+                                  className="block rounded-[1.4rem] border border-[rgba(var(--app-primary-rgb),0.08)] px-4 py-4 transition hover:bg-[rgba(var(--app-primary-rgb),0.04)]"
+                                  onClick={closeSearch}
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[rgba(var(--app-primary-rgb),0.05)] text-[rgba(var(--app-primary-rgb),0.68)]">
+                                      <item.icon className="h-4 w-4" />
+                                    </span>
+                                    <div className="min-w-0">
+                                      <div className="text-sm font-semibold text-ink">{item.label}</div>
+                                      <div className="mt-1 text-xs text-[rgba(var(--app-primary-rgb),0.54)]">
+                                        {item.description}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </Link>
+                              ))}
+                            </div>
+                          </section>
+                        ))}
+                      </div>
                     </div>
                   ) : loading ? (
                     <div className="px-3 py-8 text-center text-sm text-[rgba(var(--app-primary-rgb),0.56)]">Searching…</div>

@@ -1,10 +1,10 @@
 import { ProtectedAppShell } from "@/components/app-shell/protected-app-shell";
 import { PlatformWorkspacePage } from "@/components/platform/platform-workspace-page";
 
-export default function PlatformPage() {
+export default function PlatformSecurityPage() {
   return (
     <ProtectedAppShell platformOwnerOnly>
-      <PlatformWorkspacePage surface="organizations" />
+      <PlatformWorkspacePage surface="security" />
     </ProtectedAppShell>
   );
 }

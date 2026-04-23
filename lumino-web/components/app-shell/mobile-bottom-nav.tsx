@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Menu } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { getVisibleAppNav } from "@/components/app-shell/app-sidebar";
+import { getPrimaryMobileNav } from "@/components/app-shell/navigation";
 import { useAuth } from "@/lib/auth/client";
 
 export function MobileBottomNav({ onOpenMenu }: { onOpenMenu: () => void }) {
@@ -11,14 +11,13 @@ export function MobileBottomNav({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { appBranding, organizationBranding, appContext } = useAuth();
   const effectiveBranding = organizationBranding ?? appBranding;
   const primaryColor = effectiveBranding?.primaryColor ?? "#0b1220";
-  const visibleNav = getVisibleAppNav({ appContext });
-  const primaryItems = visibleNav.slice(0, 4);
+  const primaryItems = getPrimaryMobileNav({ appContext });
 
   return (
     <div className="app-mobile-nav-surface fixed inset-x-0 bottom-0 z-40 border-t px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 xl:hidden">
       <div className="grid grid-cols-5 gap-1">
         {primaryItems.map(({ href, label, icon: Icon }) => {
-          const active = pathname?.startsWith(href);
+          const active = pathname === href || pathname?.startsWith(`${href}/`);
           return (
             <Link
               key={href}
@@ -40,7 +39,7 @@ export function MobileBottomNav({ onOpenMenu }: { onOpenMenu: () => void }) {
           aria-label="Open app menu"
         >
           <Menu className="mb-1 h-4 w-4" />
-          <span>Menu</span>
+          <span>More</span>
         </button>
       </div>
     </div>

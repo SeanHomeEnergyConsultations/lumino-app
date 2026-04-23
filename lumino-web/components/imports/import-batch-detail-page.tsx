@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useAppFeedback } from "@/components/shared/app-feedback";
 import { hasAdminAccess } from "@/lib/auth/permissions";
 import type {
   ImportAssignmentOption,
@@ -67,7 +69,9 @@ function statusTone(status: string) {
 }
 
 export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
+  const router = useRouter();
   const { session, appContext } = useAuth();
+  const { notify, confirm } = useAppFeedback();
   const accessToken = session?.access_token ?? null;
   const canRunPremiumEnrichment = Boolean(appContext?.featureAccess?.importEnrichmentEnabled);
   const [batch, setBatch] = useState<ImportBatchDetailResponse["item"] | null>(null);
@@ -175,7 +179,11 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
       }
       await loadBatch({ silent: true });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Failed to run premium enrichment.");
+      notify({
+        tone: "error",
+        title: "Could not run premium enrichment",
+        message: error instanceof Error ? error.message : "Failed to run premium enrichment."
+      });
     } finally {
       setRunning("idle");
     }
@@ -200,8 +208,17 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
       }
       const json = (await response.json()) as ImportBatchDetailResponse;
       setBatch(json.item);
+      notify({
+        tone: "success",
+        title: "Batch scope saved",
+        message: "Visibility and assignment rules have been updated."
+      });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Failed to save batch scope.");
+      notify({
+        tone: "error",
+        title: "Could not save batch scope",
+        message: error instanceof Error ? error.message : "Failed to save batch scope."
+      });
     } finally {
       setSavingScope(false);
     }
@@ -222,9 +239,17 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
       if (!response.ok) {
         throw new Error(json.error || "Failed to publish platform dataset.");
       }
-      window.alert("Published this batch as a platform dataset.");
+      notify({
+        tone: "success",
+        title: "Dataset published",
+        message: "This batch is now available as a platform dataset."
+      });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Failed to publish platform dataset.");
+      notify({
+        tone: "error",
+        title: "Could not publish dataset",
+        message: error instanceof Error ? error.message : "Failed to publish platform dataset."
+      });
     } finally {
       setPublishing(false);
     }
@@ -232,9 +257,13 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
 
   async function removeBatch() {
     if (!accessToken || !batch || !canDeleteBatch) return;
-    const confirmed = window.confirm(
-      "Delete this local batch? This will remove its imported leads from this organization. Shared datasets published from this batch must be removed first."
-    );
+    const confirmed = await confirm({
+      title: "Delete local import batch?",
+      message:
+        "Delete this local batch? This will remove its imported leads from this organization. Shared datasets published from this batch must be removed first.",
+      confirmLabel: "Delete batch",
+      tone: "danger"
+    });
     if (!confirmed) return;
 
     setDeleting(true);
@@ -246,9 +275,19 @@ export function ImportBatchDetailPage({ batchId }: { batchId: string }) {
       if (!response.ok) {
         throw new Error(json.error || "Failed to delete import batch.");
       }
-      window.location.assign("/imports");
+      notify({
+        tone: "success",
+        title: "Batch deleted",
+        message: "The import batch has been removed."
+      });
+      router.push("/imports");
+      router.refresh();
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Failed to delete import batch.");
+      notify({
+        tone: "error",
+        title: "Could not delete batch",
+        message: error instanceof Error ? error.message : "Failed to delete import batch."
+      });
       setDeleting(false);
     }
   }

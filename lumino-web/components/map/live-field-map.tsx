@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChevronDown,
   BadgeHelp,
   Ban,
   CalendarCheck2,
@@ -13,12 +12,6 @@ import {
   Handshake,
   HelpCircle,
   House,
-  LocateFixed,
-  Map as MapIcon,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
   PhoneCall,
   UserRoundCheck,
   XCircle
@@ -33,8 +26,14 @@ import MapView, {
 import type { ActiveRouteRunResponse } from "@/types/api";
 import type { LeadInput, MapProperty, OrganizationFeatureAccess, TaskInput } from "@/types/entities";
 import { MapToolbar, type MapFilterKey } from "@/components/map/map-toolbar";
-import { PropertyResultsPanel, mapStateVisual } from "@/components/map/property-results-panel";
+import { mapStateVisual } from "@/components/map/property-results-panel";
 import { PropertyDrawer } from "@/components/map/property-drawer";
+import {
+  MapCenterLocationButton,
+  MapPanelToggles,
+  MapResultsSidebars,
+  MapStatusOverlay
+} from "@/components/map/map-screen-overlays";
 import {
   ActiveRoutePanel,
   MobileSelectedPropertyChip,
@@ -331,6 +330,7 @@ export function LiveFieldMap({
     () => items.find((item) => item.propertyId === selectedPropertyId) ?? null,
     [items, selectedPropertyId]
   );
+  const selectedRouteLeadIdSet = useMemo(() => new Set(selectedRouteLeadIds), [selectedRouteLeadIds]);
 
   useEffect(() => {
     if (selectedPropertyId) {
@@ -642,6 +642,24 @@ export function LiveFieldMap({
     });
   }
 
+  const handleSelectProperty = useCallback(
+    (propertyId: string) => {
+      openSelectedProperty(propertyId);
+      setIsResultsOpen(false);
+    },
+    [openSelectedProperty]
+  );
+
+  const handleCenterOnLocation = useCallback(() => {
+    if (!userLocation) return;
+    setViewState((current) => ({
+      ...current,
+      latitude: userLocation.latitude,
+      longitude: userLocation.longitude,
+      zoom: Math.max(current.zoom, 18)
+    }));
+  }, [userLocation]);
+
   const selectedVisual = selectedMapItem ? mapStateVisual(selectedMapItem.mapState) : null;
   const pendingRouteStops = activeRoute?.stops.filter((stop) => stop.stopStatus === "pending") ?? [];
   const nextStopDirectionsUrl = activeRoute?.nextStop
@@ -674,38 +692,27 @@ export function LiveFieldMap({
       />
 
       <div className="flex min-h-0 flex-1">
-      <PropertyResultsPanel
-        items={filteredItems}
-        selectedPropertyId={selectedPropertyId}
-        onSelect={(propertyId) => {
-          openSelectedProperty(propertyId);
-        }}
-        routeSelectionMode={routeSelectionMode}
-        selectedRouteLeadIds={new Set(selectedRouteLeadIds)}
-        onToggleRouteLead={toggleSelectedRouteLead}
-        showPriority={featureAccess.priorityScoringEnabled}
-        className={`app-sidebar-surface relative z-20 shrink-0 border-r ${isResultsPanelVisible ? "hidden w-80 xl:block" : "hidden xl:hidden"}`}
-      />
+        <MapResultsSidebars
+          items={filteredItems}
+          selectedPropertyId={selectedPropertyId}
+          onSelect={handleSelectProperty}
+          routeSelectionMode={routeSelectionMode}
+          selectedRouteLeadIds={selectedRouteLeadIdSet}
+          onToggleRouteLead={toggleSelectedRouteLead}
+          showPriority={featureAccess.priorityScoringEnabled}
+          isResultsPanelVisible={isResultsPanelVisible}
+          isResultsOpen={isResultsOpen}
+          onOpenResults={() => setIsResultsOpen(true)}
+          onCloseResults={() => setIsResultsOpen(false)}
+        />
 
-      <div className="relative flex-1 overflow-hidden bg-[linear-gradient(135deg,rgba(var(--app-surface-rgb),0.44)_0%,rgba(var(--app-background-accent-rgb),0.58)_100%)]">
-        <div className="absolute left-4 top-4 z-20 hidden items-center gap-2 xl:flex">
-          <button
-            type="button"
-            onClick={() => setIsResultsPanelVisible((current) => !current)}
-            className="app-glass-button flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel transition hover:bg-white/90"
-          >
-            {isResultsPanelVisible ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
-            {isResultsPanelVisible ? "Hide List" : "Show List"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsDrawerVisible((current) => !current)}
-            className="app-glass-button flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel transition hover:bg-white/90"
-          >
-            {isDrawerVisible ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
-            {isDrawerVisible ? "Hide Details" : "Show Details"}
-          </button>
-        </div>
+        <div className="relative flex-1 overflow-hidden bg-[linear-gradient(135deg,rgba(var(--app-surface-rgb),0.44)_0%,rgba(var(--app-background-accent-rgb),0.58)_100%)]">
+          <MapPanelToggles
+            isResultsPanelVisible={isResultsPanelVisible}
+            isDrawerVisible={isDrawerVisible}
+            onToggleResultsPanel={() => setIsResultsPanelVisible((current) => !current)}
+            onToggleDrawer={() => setIsDrawerVisible((current) => !current)}
+          />
 
         {activeRoute ? (
           <ActiveRoutePanel
@@ -765,7 +772,7 @@ export function LiveFieldMap({
                   }}
                   title={`${item.address} · ${item.mapState}`}
                   className={`flex h-11 w-11 items-center justify-center rounded-full border-2 shadow-lg transition focus:outline-none focus:ring-2 focus:ring-ink/30 ${
-                    routeSelectionMode && item.leadId && selectedRouteLeadIds.includes(item.leadId)
+                    routeSelectionMode && item.leadId && selectedRouteLeadIdSet.has(item.leadId)
                       ? "border-field bg-white scale-110"
                       : selectedPropertyId === item.propertyId
                         ? "border-ink bg-white scale-110"
@@ -802,103 +809,36 @@ export function LiveFieldMap({
           ) : null}
         </MapView>
 
-        <div className="app-glass-button absolute bottom-24 left-4 right-4 rounded-2xl px-4 py-3 text-sm text-slate-600 shadow-panel sm:right-auto sm:rounded-full sm:py-2 xl:bottom-4">
-          {isSavingVisit
-            ? "Saving visit..."
-            : isResolvingTap
-              ? "Opening property..."
-              : activeRoute
-                ? "Active route live. Work the next stop, then keep moving."
-                : routeSelectionMode
-                  ? "Route selection is on. Tap route-ready pins to add them."
-                  : "Pan the map, tap any property, log the outcome"}
-        </div>
-        {userLocation ? (
-          <button
-            type="button"
-            onClick={() =>
-              setViewState((current) => ({
-                ...current,
-                latitude: userLocation.latitude,
-                longitude: userLocation.longitude,
-                zoom: Math.max(current.zoom, 18)
-              }))
-            }
-            className="app-glass-button absolute bottom-40 right-4 flex h-11 w-11 items-center justify-center rounded-full text-slate-700 shadow-panel transition hover:bg-white/90 sm:bottom-20"
-            aria-label="Center on my location"
-          >
-            <LocateFixed className="h-5 w-5" />
-          </button>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={() => setIsResultsOpen(true)}
-          className="app-glass-button absolute left-4 top-4 flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-700 shadow-panel xl:hidden"
-        >
-          <MapIcon className="h-4 w-4" />
-          List
-        </button>
-        {!activeRoute ? <RouteSelectionToggle routeSelectionMode={routeSelectionMode} onToggle={toggleRouteSelectionMode} /> : null}
-        {selectedMapItem ? (
-          <MobileSelectedPropertyChip
-            address={selectedMapItem.address}
-            visual={selectedVisual}
-            onClear={closeSelectedProperty}
+          <MapStatusOverlay
+            isSavingVisit={isSavingVisit}
+            isResolvingTap={isResolvingTap}
+            activeRoute={Boolean(activeRoute)}
+            routeSelectionMode={routeSelectionMode}
           />
-        ) : null}
-      </div>
-
-      <PropertyDrawer
-        property={selectedProperty}
-        loading={propertyLoading}
-        savingVisit={isSavingVisit}
-        onLogOutcome={handleLogOutcome}
-        onSaveLead={handleSaveLead}
-        onCreateTask={handleCreateTask}
-        desktopVisible={isDrawerVisible}
-        onCloseDesktop={() => setIsDrawerVisible(false)}
-        isOpen={Boolean(selectedPropertyId)}
-        mobileOpenNonce={mobileOpenNonce}
-        onDismiss={closeSelectedProperty}
-      />
-      {isResultsOpen ? (
-        <div className="fixed inset-0 z-30 bg-slate-950/20 xl:hidden" onClick={() => setIsResultsOpen(false)}>
-          <div
-            className="app-panel absolute inset-x-0 bottom-0 max-h-[70vh] rounded-t-[2rem] border shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-mist">Nearby Targets</div>
-                <div className="mt-1 text-sm text-slate-600">{filteredItems.length} properties in view</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsResultsOpen(false)}
-                className="app-glass-button flex h-9 w-9 items-center justify-center rounded-full text-slate-600"
-                aria-label="Hide nearby targets"
-              >
-                <ChevronDown className="h-4 w-4" />
-              </button>
-            </div>
-            <PropertyResultsPanel
-              items={filteredItems}
-              selectedPropertyId={selectedPropertyId}
-              onSelect={(propertyId) => {
-                openSelectedProperty(propertyId);
-                setIsResultsOpen(false);
-              }}
-              routeSelectionMode={routeSelectionMode}
-              selectedRouteLeadIds={new Set(selectedRouteLeadIds)}
-              onToggleRouteLead={toggleSelectedRouteLead}
-              showPriority={featureAccess.priorityScoringEnabled}
-              className="block max-h-[calc(70vh-4.5rem)] w-full overflow-y-auto"
-              showHeader={false}
+          <MapCenterLocationButton visible={Boolean(userLocation)} onCenter={handleCenterOnLocation} />
+          {!activeRoute ? <RouteSelectionToggle routeSelectionMode={routeSelectionMode} onToggle={toggleRouteSelectionMode} /> : null}
+          {selectedMapItem ? (
+            <MobileSelectedPropertyChip
+              address={selectedMapItem.address}
+              visual={selectedVisual}
+              onClear={closeSelectedProperty}
             />
-          </div>
+          ) : null}
         </div>
-      ) : null}
+
+        <PropertyDrawer
+          property={selectedProperty}
+          loading={propertyLoading}
+          savingVisit={isSavingVisit}
+          onLogOutcome={handleLogOutcome}
+          onSaveLead={handleSaveLead}
+          onCreateTask={handleCreateTask}
+          desktopVisible={isDrawerVisible}
+          onCloseDesktop={() => setIsDrawerVisible(false)}
+          isOpen={Boolean(selectedPropertyId)}
+          mobileOpenNonce={mobileOpenNonce}
+          onDismiss={closeSelectedProperty}
+        />
       </div>
     </div>
   );
