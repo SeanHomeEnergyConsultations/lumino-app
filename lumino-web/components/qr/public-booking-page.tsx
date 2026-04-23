@@ -45,6 +45,12 @@ function monthLabel(value: Date) {
   });
 }
 
+function availabilityCue(slotCount: number) {
+  if (slotCount <= 2) return "Limited";
+  if (slotCount <= 5) return "Available";
+  return "Book Soon";
+}
+
 function splitFullName(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -394,7 +400,7 @@ export function PublicBookingPage({ item }: { item: NonNullable<PublicQRCodeResp
                           >
                             <div className="text-sm font-semibold">{day.date.getDate()}</div>
                             <div className={`mt-2 text-[11px] ${day.isSelected ? "text-white/70" : isAvailable ? "text-slate-500" : "text-slate-300"}`}>
-                              {isAvailable ? `${day.availableDay?.slots.length ?? 0} slots` : "Closed"}
+                              {isAvailable ? availabilityCue(day.availableDay?.slots.length ?? 0) : "Closed"}
                             </div>
                           </button>
                         );
