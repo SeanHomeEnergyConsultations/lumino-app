@@ -9,6 +9,7 @@ import {
   type ReactNode
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import { E2E_AUTH_EVENT, hasE2EAuthState, readE2EAuthState } from "@/lib/auth/e2e";
 import { createBrowserSupabaseClient } from "@/lib/db/supabase-browser";
 import type { AuthSessionContext } from "@/types/auth";
 import type {
@@ -36,12 +37,14 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
+  const canUseE2EAuth = process.env.NODE_ENV !== "production";
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [appContext, setAppContext] = useState<AuthSessionContext | null>(null);
   const [appBranding, setAppBranding] = useState<AppBranding | null>(null);
   const [organizationBranding, setOrganizationBranding] = useState<OrganizationBranding | null>(null);
   const [loading, setLoading] = useState(true);
+  const [usingE2EAuth, setUsingE2EAuth] = useState(false);
 
   async function refreshSessionContext(accessToken: string | null = session?.access_token ?? null) {
     if (!accessToken) {
@@ -119,6 +122,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
+    if (canUseE2EAuth && typeof window !== "undefined" && hasE2EAuthState()) {
+      const hydrateFromE2E = () => {
+        const state = readE2EAuthState();
+        setUsingE2EAuth(true);
+        setSession((state?.session ?? null) as Session | null);
+        setUser((state?.session?.user ?? null) as User | null);
+        setAppContext(state?.appContext ?? null);
+        setAppBranding(state?.appBranding ?? null);
+        setOrganizationBranding(state?.organizationBranding ?? null);
+        setLoading(false);
+      };
+
+      hydrateFromE2E();
+      window.addEventListener("storage", hydrateFromE2E);
+      window.addEventListener(E2E_AUTH_EVENT, hydrateFromE2E as EventListener);
+      return () => {
+        window.removeEventListener("storage", hydrateFromE2E);
+        window.removeEventListener(E2E_AUTH_EVENT, hydrateFromE2E as EventListener);
+      };
+    }
+
+    setUsingE2EAuth(false);
+
     if (!supabase) {
       setLoading(false);
       setAppContext(null);
@@ -169,7 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mounted = false;
       listener.subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, [canUseE2EAuth, supabase]);
 
   return (
     <AuthContext.Provider
@@ -181,12 +207,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         appBranding,
         organizationBranding,
         loading,
-        envReady: Boolean(supabase),
-        refreshSessionContext: async () => refreshSessionContext(session?.access_token ?? null),
+        envReady: usingE2EAuth ? true : Boolean(supabase),
+        refreshSessionContext: async () => {
+          if (usingE2EAuth) {
+            const state = readE2EAuthState();
+            setAppContext(state?.appContext ?? null);
+            setAppBranding(state?.appBranding ?? null);
+            setOrganizationBranding(state?.organizationBranding ?? null);
+            return state?.appContext ?? null;
+          }
+
+          return refreshSessionContext(session?.access_token ?? null);
+        },
         refreshAppBranding: async () => {
+          if (usingE2EAuth) {
+            const state = readE2EAuthState();
+            setAppBranding(state?.appBranding ?? null);
+            return;
+          }
+
           await loadAppBranding(session?.access_token ?? null);
         },
         refreshOrganizationBranding: async () => {
+          if (usingE2EAuth) {
+            const state = readE2EAuthState();
+            setOrganizationBranding(state?.organizationBranding ?? null);
+            return;
+          }
+
           await loadOrganizationBranding(session?.access_token ?? null);
         }
       }}

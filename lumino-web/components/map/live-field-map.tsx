@@ -19,8 +19,11 @@ import {
   XCircle
 } from "lucide-react";
 import MapView, {
+  Layer,
   Marker,
   NavigationControl,
+  Source,
+  type LayerProps,
   type MapLayerMouseEvent,
   type MapRef,
   type ViewStateChangeEvent
@@ -50,38 +53,52 @@ import { trackAppEvent } from "@/lib/analytics/app-events";
 import { hasManagerAccess } from "@/lib/auth/permissions";
 import { authFetch, useAuth } from "@/lib/auth/client";
 
-function markerVisual(mapState: MapProperty["mapState"]) {
+type MapPointVisual = {
+  color: string;
+  textColor: string;
+  label: string;
+};
+
+const PROPERTY_SOURCE_ID = "map-properties";
+const CLUSTER_CIRCLE_LAYER_ID = "map-property-clusters";
+const CLUSTER_COUNT_LAYER_ID = "map-property-cluster-count";
+const PROPERTY_SELECTION_HALO_LAYER_ID = "map-property-selection-halo";
+const PROPERTY_POINT_LAYER_ID = "map-property-points";
+const PROPERTY_LABEL_LAYER_ID = "map-property-labels";
+const INTERACTIVE_LAYER_IDS = [CLUSTER_CIRCLE_LAYER_ID, PROPERTY_POINT_LAYER_ID];
+
+function markerVisual(mapState: MapProperty["mapState"]): MapPointVisual {
   switch (mapState) {
     case "not_home":
-      return { className: "bg-slate-500 text-white", icon: DoorOpen };
+      return { color: "#64748b", textColor: "#ffffff", label: "NH" };
     case "left_doorhanger":
-      return { className: "bg-violet-600 text-white", icon: FileBadge2 };
+      return { color: "#7c3aed", textColor: "#ffffff", label: "DH" };
     case "opportunity":
-      return { className: "bg-field text-white", icon: Handshake };
+      return { color: "#0f8f6f", textColor: "#ffffff", label: "OP" };
     case "interested":
-      return { className: "bg-field text-white", icon: Handshake };
+      return { color: "#0f8f6f", textColor: "#ffffff", label: "IN" };
     case "callback_requested":
-      return { className: "bg-alert text-white", icon: PhoneCall };
+      return { color: "#d97706", textColor: "#ffffff", label: "CB" };
     case "not_interested":
-      return { className: "bg-orange-500 text-white", icon: XCircle };
+      return { color: "#ea580c", textColor: "#ffffff", label: "NI" };
     case "disqualified":
-      return { className: "bg-zinc-700 text-white", icon: BadgeHelp };
+      return { color: "#3f3f46", textColor: "#ffffff", label: "DQ" };
     case "do_not_knock":
-      return { className: "bg-danger text-white", icon: Ban };
+      return { color: "#b91c1c", textColor: "#ffffff", label: "DN" };
     case "follow_up_overdue":
-      return { className: "bg-rose-600 text-white", icon: Clock3 };
+      return { color: "#e11d48", textColor: "#ffffff", label: "FU" };
     case "appointment_set":
-      return { className: "bg-sky-600 text-white", icon: CalendarCheck2 };
+      return { color: "#0284c7", textColor: "#ffffff", label: "AP" };
     case "customer":
-      return { className: "bg-emerald-600 text-white", icon: UserRoundCheck };
+      return { color: "#059669", textColor: "#ffffff", label: "CU" };
     case "canvassed_with_lead":
-      return { className: "bg-ink text-white", icon: House };
+      return { color: "#0f172a", textColor: "#ffffff", label: "LD" };
     case "canvassed":
-      return { className: "bg-slate-600 text-white", icon: CircleDashed };
+      return { color: "#475569", textColor: "#ffffff", label: "CV" };
     case "imported_target":
-      return { className: "bg-amber-500 text-white", icon: HelpCircle };
+      return { color: "#d97706", textColor: "#ffffff", label: "IM" };
     default:
-      return { className: "bg-slate-400 text-white", icon: House };
+      return { color: "#94a3b8", textColor: "#ffffff", label: "HM" };
   }
 }
 
@@ -431,6 +448,42 @@ export function LiveFieldMap({
     [items, selectedPropertyId]
   );
   const selectedRouteLeadIdSet = useMemo(() => new Set(selectedRouteLeadIds), [selectedRouteLeadIds]);
+  const propertyFeatureCollection = useMemo(() => ({
+    type: "FeatureCollection" as const,
+    features: filteredItems.map((item) => {
+      const visual = markerVisual(item.mapState);
+      const routeSequence = activeRouteStopSequenceByPropertyId.get(item.propertyId) ?? null;
+      const badge = markerBadge(item);
+
+      return {
+        type: "Feature" as const,
+        geometry: {
+          type: "Point" as const,
+          coordinates: [item.lng, item.lat] as [number, number]
+        },
+        properties: {
+          propertyId: item.propertyId,
+          leadId: item.leadId,
+          address: item.address,
+          mapState: item.mapState,
+          markerColor: visual.color,
+          markerTextColor: visual.textColor,
+          markerLabel: routeSequence ? null : badge ? String(badge) : visual.label,
+          isSelected: selectedPropertyId === item.propertyId ? 1 : 0,
+          isRouteSelected:
+            routeSelectionMode && item.leadId && selectedRouteLeadIdSet.has(item.leadId) ? 1 : 0,
+          routeSequence,
+          routeSequenceLabel: routeSequence ? String(routeSequence) : null
+        }
+      };
+    })
+  }), [
+    activeRouteStopSequenceByPropertyId,
+    filteredItems,
+    routeSelectionMode,
+    selectedPropertyId,
+    selectedRouteLeadIdSet
+  ]);
 
   useEffect(() => {
     if (selectedPropertyId) {
@@ -453,6 +506,47 @@ export function LiveFieldMap({
   }, [activeRoute?.nextStop?.propertyId, openSelectedProperty, refreshSelectedProperty, selectedPropertyId, session?.access_token]);
 
   async function handleMapTap(event: MapLayerMouseEvent) {
+    const topFeature = event.features?.[0];
+
+    if (topFeature?.properties?.cluster) {
+      const clusterId = Number(topFeature.properties.cluster_id);
+      const map = mapRef.current?.getMap();
+      const source = map?.getSource(PROPERTY_SOURCE_ID) as
+        | (maplibregl.GeoJSONSource & {
+            getClusterExpansionZoom?: (
+              clusterId: number,
+              callback: (error: Error | null, zoom: number) => void
+            ) => void;
+          })
+        | undefined;
+
+      const coordinates = (topFeature.geometry as { coordinates?: [number, number] } | undefined)?.coordinates;
+      if (source?.getClusterExpansionZoom && coordinates) {
+        source.getClusterExpansionZoom(clusterId, (error, zoom) => {
+          if (error) return;
+          map?.easeTo({
+            center: coordinates,
+            zoom: Math.min(zoom, 19),
+            duration: 420
+          });
+        });
+        return;
+      }
+    }
+
+    const propertyId =
+      typeof topFeature?.properties?.propertyId === "string" ? topFeature.properties.propertyId : null;
+    const leadId = typeof topFeature?.properties?.leadId === "string" ? topFeature.properties.leadId : null;
+
+    if (propertyId) {
+      if (routeSelectionMode && leadId) {
+        toggleSelectedRouteLead(leadId);
+        return;
+      }
+      openSelectedProperty(propertyId);
+      return;
+    }
+
     if (routeSelectionMode) return;
     await resolveMapTap(event.lngLat.lat, event.lngLat.lng);
   }
@@ -781,6 +875,128 @@ export function LiveFieldMap({
   const selectedVisual = selectedMapItem ? mapStateVisual(selectedMapItem.mapState) : null;
   const pendingRouteStops = activeRoute?.stops.filter((stop) => stop.stopStatus === "pending") ?? [];
   const isListVisible = isResultsPanelVisible || isResultsOpen;
+  const clusterCircleLayer = useMemo<LayerProps>(
+    () => ({
+      id: CLUSTER_CIRCLE_LAYER_ID,
+      type: "circle" as const,
+      filter: ["has", "point_count"] as const,
+      paint: {
+        "circle-color": [
+          "step",
+          ["get", "point_count"],
+          "rgba(15, 23, 42, 0.9)",
+          12,
+          "rgba(3, 105, 161, 0.92)",
+          40,
+          "rgba(15, 118, 110, 0.94)"
+        ],
+        "circle-radius": [
+          "step",
+          ["get", "point_count"],
+          19,
+          12,
+          24,
+          40,
+          30
+        ],
+        "circle-stroke-color": "rgba(255,255,255,0.96)",
+        "circle-stroke-width": 3,
+        "circle-opacity": 0.98
+      }
+    } as LayerProps),
+    []
+  );
+  const clusterCountLayer = useMemo<LayerProps>(
+    () => ({
+      id: CLUSTER_COUNT_LAYER_ID,
+      type: "symbol" as const,
+      filter: ["has", "point_count"] as const,
+      layout: {
+        "text-field": ["get", "point_count_abbreviated"],
+        "text-font": ["Open Sans Bold"],
+        "text-size": 11
+      },
+      paint: {
+        "text-color": "#ffffff"
+      }
+    } as LayerProps),
+    []
+  );
+  const propertySelectionHaloLayer = useMemo<LayerProps>(
+    () => ({
+      id: PROPERTY_SELECTION_HALO_LAYER_ID,
+      type: "circle" as const,
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["any", ["==", ["get", "isSelected"], 1], ["==", ["get", "isRouteSelected"], 1]]
+      ] as const,
+      paint: {
+        "circle-radius": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          10,
+          16,
+          16,
+          20
+        ],
+        "circle-color": "rgba(255,255,255,0.98)",
+        "circle-stroke-color": [
+          "case",
+          ["==", ["get", "isSelected"], 1],
+          "#0f172a",
+          "#0f8f6f"
+        ],
+        "circle-stroke-width": 2,
+        "circle-opacity": 0.98
+      }
+    } as LayerProps),
+    []
+  );
+  const propertyPointLayer = useMemo<LayerProps>(
+    () => ({
+      id: PROPERTY_POINT_LAYER_ID,
+      type: "circle" as const,
+      filter: ["!", ["has", "point_count"]] as const,
+      paint: {
+        "circle-radius": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          10,
+          9,
+          14,
+          10.5,
+          18,
+          12
+        ],
+        "circle-color": ["get", "markerColor"],
+        "circle-stroke-color": "rgba(255,255,255,0.96)",
+        "circle-stroke-width": 2,
+        "circle-opacity": 0.98
+      }
+    } as LayerProps),
+    []
+  );
+  const propertyLabelLayer = useMemo<LayerProps>(
+    () => ({
+      id: PROPERTY_LABEL_LAYER_ID,
+      type: "symbol" as const,
+      filter: ["!", ["has", "point_count"]] as const,
+      layout: {
+        "text-field": ["coalesce", ["get", "routeSequenceLabel"], ["get", "markerLabel"]],
+        "text-font": ["Open Sans Bold"],
+        "text-size": 9,
+        "text-allow-overlap": true,
+        "text-ignore-placement": true
+      },
+      paint: {
+        "text-color": ["get", "markerTextColor"]
+      }
+    } as LayerProps),
+    []
+  );
   const nextStopDirectionsUrl = activeRoute?.nextStop
     ? (() => {
         const params = new URLSearchParams({
@@ -889,55 +1105,26 @@ export function LiveFieldMap({
           onMove={(event) => setViewState(event.viewState)}
           onMoveEnd={handleMoveEnd}
           onClick={handleMapTap}
+          interactiveLayerIds={INTERACTIVE_LAYER_IDS}
           mapStyle="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
           dragRotate={false}
           attributionControl={false}
         >
           <NavigationControl position="top-right" showCompass={false} />
-          {filteredItems.map((item) => {
-            const visual = markerVisual(item.mapState);
-            const Icon = visual.icon;
-            const badge = markerBadge(item);
-            const routeSequence = activeRouteStopSequenceByPropertyId.get(item.propertyId);
-
-            return (
-              <Marker key={item.propertyId} latitude={item.lat} longitude={item.lng} anchor="center">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (routeSelectionMode && item.leadId) {
-                      toggleSelectedRouteLead(item.leadId);
-                      return;
-                    }
-                    openSelectedProperty(item.propertyId);
-                  }}
-                  title={`${item.address} · ${item.mapState}`}
-                  className={`flex h-11 w-11 items-center justify-center rounded-full border-2 shadow-lg transition focus:outline-none focus:ring-2 focus:ring-ink/30 ${
-                    routeSelectionMode && item.leadId && selectedRouteLeadIdSet.has(item.leadId)
-                      ? "border-field bg-white scale-110"
-                      : selectedPropertyId === item.propertyId
-                        ? "border-ink bg-white scale-110"
-                        : "border-white bg-white/95 hover:scale-105"
-                  }`}
-                >
-                  <span className={`flex h-6 w-6 items-center justify-center rounded-full ${visual.className}`}>
-                    <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
-                  </span>
-                  {routeSequence ? (
-                    <span className="absolute -left-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-ink px-1 text-[10px] font-bold text-white shadow">
-                      {routeSequence}
-                    </span>
-                  ) : null}
-                  {badge ? (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-slate-700 shadow">
-                      {badge}
-                    </span>
-                  ) : null}
-                </button>
-              </Marker>
-            );
-          })}
+          <Source
+            id={PROPERTY_SOURCE_ID}
+            type="geojson"
+            data={propertyFeatureCollection}
+            cluster
+            clusterMaxZoom={15}
+            clusterRadius={54}
+          >
+            <Layer {...clusterCircleLayer} />
+            <Layer {...clusterCountLayer} />
+            <Layer {...propertySelectionHaloLayer} />
+            <Layer {...propertyPointLayer} />
+            <Layer {...propertyLabelLayer} />
+          </Source>
           {userLocation ? (
             <Marker latitude={userLocation.latitude} longitude={userLocation.longitude} anchor="center">
               <div className="relative">
